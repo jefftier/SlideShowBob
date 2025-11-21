@@ -1,0 +1,153 @@
+<Window x:Class="SlideShowBob.PlaylistWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Playlist"
+        Height="450"
+        Width="720"
+        WindowStartupLocation="CenterOwner"
+        Background="#202020"
+        Foreground="#F5F5F5"
+        ResizeMode="CanResize"
+        WindowStyle="SingleBorderWindow">
+
+    <Window.Resources>
+        <!-- Common, readable list text -->
+        <Style x:Key="ListTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#F5F5F5"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+        </Style>
+
+        <!-- Simple card-like GroupBox style (removes the chunky default look) -->
+        <Style TargetType="GroupBox">
+            <Setter Property="BorderBrush" Value="#404040"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="HeaderTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}"
+                                   Foreground="#A0A0A0"
+                                   FontSize="11"
+                                   Margin="2,0,0,2"
+                                   TextWrapping="NoWrap"/>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- MAIN AREA -->
+        <Grid Grid.Row="0" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="3*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- FOLDER LIST -->
+            <GroupBox Header="Folders in playlist"
+                      Grid.Column="0"
+                      Margin="0,0,6,0">
+                <Border BorderBrush="#404040"
+                        BorderThickness="1"
+                        Background="#252525">
+                    <ListBox x:Name="FolderList"
+                             Background="#252525"
+                             BorderThickness="0"
+                             Foreground="#F5F5F5"
+                             HorizontalContentAlignment="Stretch"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             SelectionChanged="FolderList_SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <!-- Show only folder name + file count; full path is tooltip -->
+                                <Grid Margin="4"
+                                      ToolTip="{Binding FolderPath}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Text="{Binding DisplayName}"
+                                               VerticalAlignment="Center"
+                                               Style="{StaticResource ListTextStyle}"/>
+
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding FileCountText}"
+                                               Margin="8,0,0,0"
+                                               VerticalAlignment="Center"
+                                               Opacity="0.7"
+                                               Style="{StaticResource ListTextStyle}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Remove folder from playlist"
+                                          Click="RemoveFolderMenuItem_Click"/>
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                    </ListBox>
+                </Border>
+            </GroupBox>
+
+            <!-- FILE LIST FOR SELECTED FOLDER -->
+            <GroupBox Header="Files in selected folder"
+                      Grid.Column="1"
+                      Margin="6,0,0,0">
+                <Border BorderBrush="#404040"
+                        BorderThickness="1"
+                        Background="#252525">
+                    <ListBox x:Name="FileList"
+                             Background="#252525"
+                             BorderThickness="0"
+                             Foreground="#F5F5F5"
+                             HorizontalContentAlignment="Stretch"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <!-- Show only file name; full path in tooltip -->
+                                <TextBlock Text="{Binding Name}"
+                                           Margin="4,2"
+                                           Style="{StaticResource ListTextStyle}"
+                                           ToolTip="{Binding FullPath}"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+
+                        <ListBox.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Remove file from playlist"
+                                          Click="RemoveFileMenuItem_Click"/>
+                            </ContextMenu>
+                        </ListBox.ContextMenu>
+                    </ListBox>
+                </Border>
+            </GroupBox>
+        </Grid>
+
+        <!-- BOTTOM BUTTONS -->
+        <StackPanel Grid.Row="1"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+            <Button x:Name="AddFolderButton"
+                    Content="Add folder..."
+                    Width="110"
+                    Margin="0,0,8,0"
+                    Click="AddFolderButton_Click"/>
+            <Button Content="Close"
+                    Width="80"
+                    IsCancel="True"
+                    Click="CloseButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

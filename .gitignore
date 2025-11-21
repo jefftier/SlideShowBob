@@ -1,0 +1,33 @@
+## Build output
+bin/
+obj/
+**/bin/
+**/obj/
+**/publish/
+
+## VS files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## NuGet
+packages/
+*.nupkg
+*.snupkg
+
+## Logs
+*.log
+
+## Others
+*.dbmdl
+*.jfm
+*.cache
+*.pdb
+*.mdb
+*.opendb
+*.pidb
+*.svclog
+_ReSharper*/
+*.DotSettings.user

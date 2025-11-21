@@ -1,0 +1,511 @@
+﻿<Window x:Class="SlideShowBob.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:gif="http://wpfanimatedgif.codeplex.com"
+        Title="Slide Show Bob"
+        Height="650"
+        Width="1000"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}"
+        Icon="Assets/SlideShowBob.ico"
+        FontFamily="Segoe UI"
+        FontSize="13"
+        TextOptions.TextFormattingMode="Ideal"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="SingleBorderWindow"
+        ResizeMode="CanResize"
+        KeyDown="Window_KeyDown"
+        MouseMove="Window_MouseMove"
+        SizeChanged="Window_SizeChanged">
+
+
+
+    <Window.Resources>
+
+        <!-- ===== Win11-ish color palette ===== -->
+        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#050914"/>
+        <LinearGradientBrush x:Key="WindowBackdropBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#151A2F" Offset="0.0"/>
+            <GradientStop Color="#050914" Offset="1.0"/>
+        </LinearGradientBrush>
+
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#181C2C"/>
+        <SolidColorBrush x:Key="SurfaceAltBrush" Color="#1F2435"/>
+
+        <SolidColorBrush x:Key="AccentBrush" Color="#4C8DFF"/>
+        <SolidColorBrush x:Key="AccentBrushSecondary" Color="#82B5FF"/>
+
+        <SolidColorBrush x:Key="SubtleBorderBrush" Color="#33FFFFFF"/>
+        <SolidColorBrush x:Key="SubtleBorderStrongBrush" Color="#55FFFFFF"/>
+
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F9FAFB"/>
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#BFC3D4"/>
+        <SolidColorBrush x:Key="TextMutedBrush" Color="#8890A8"/>
+
+        <SolidColorBrush x:Key="ControlBackgroundBrush" Color="#20253A"/>
+        <SolidColorBrush x:Key="ControlBackgroundMutedBrush" Color="#1B2032"/>
+        <SolidColorBrush x:Key="ControlBackgroundHoverBrush" Color="#28314A"/>
+
+        <!-- ===== Global text style (optional) ===== -->
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
+        </Style>
+
+        <!-- ===== Icon-style button (play/prev/next/mute/etc.) ===== -->
+        <Style x:Key="IconButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{StaticResource ControlBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6,0,0,0"/>
+            <Setter Property="Margin" Value="6,0,0,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontFamily" Value="Segoe UI Symbol"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background"
+                                        Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                <Setter TargetName="Root" Property="BorderBrush"
+                                        Value="{StaticResource SubtleBorderStrongBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background"
+                                        Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter TargetName="Root" Property="BorderBrush"
+                                        Value="{StaticResource AccentBrushSecondary}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ===== Big icon button (center "Select Folder") ===== -->
+        <Style x:Key="BigIconButton" TargetType="Button" BasedOn="{StaticResource IconButton}">
+            <Setter Property="FontSize" Value="20"/>
+            <Setter Property="Padding" Value="18,10"/>
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrushSecondary}"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Width" Value="64"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="10"
+                                                  ShadowDepth="0"
+                                                  Opacity="0.6"/>
+                            </Border.Effect>
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="0"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background"
+                                        Value="{StaticResource AccentBrushSecondary}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background"
+                                        Value="#FF1B5ED1"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ===== Pill toggle (Fit / GIF / MP4 / Include Videos) ===== -->
+        <Style x:Key="PillToggle" TargetType="ToggleButton">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="Background" Value="{StaticResource ControlBackgroundMutedBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Margin" Value="4,0,0,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Pill"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="6,2"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Pill" Property="Background"
+                                        Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                <Setter TargetName="Pill" Property="BorderBrush"
+                                        Value="{StaticResource SubtleBorderStrongBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter TargetName="Pill" Property="Background"
+                                        Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="Pill" Property="BorderBrush"
+                                        Value="{StaticResource AccentBrushSecondary}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ===== Ultra-thin modern progress bar (video progress) ===== -->
+        <Style TargetType="ProgressBar">
+            <Setter Property="Height" Value="3"/>
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Background" Value="#33FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
+        </Style>
+
+        <!-- Keep your existing storyboard (unchanged) -->
+        <Storyboard x:Key="SlideTransitionFade">
+            <DoubleAnimation
+                Storyboard.TargetName="MediaContainer"
+                Storyboard.TargetProperty="Opacity"
+                From="0.0" To="1.0" Duration="0:0:1"/>
+        </Storyboard>
+
+    </Window.Resources>
+
+
+    <Grid Background="{StaticResource WindowBackdropBrush}">
+
+        <!-- CONTENT AREA -->
+        <Grid x:Name="ContentGrid">
+            <!-- Media -->
+            <Border Background="{StaticResource WindowBackdropBrush}">
+                <Grid x:Name="MediaContainer" Opacity="0.0">
+                    <ScrollViewer x:Name="ScrollHost"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Auto"
+                                  CanContentScroll="False"
+                                  Background="{StaticResource SurfaceBrush}"
+                                  PreviewMouseWheel="ScrollHost_PreviewMouseWheel">
+                        <Grid x:Name="MediaGrid">
+                            <MediaElement x:Name="VideoElement"
+                                          LoadedBehavior="Manual"
+                                          UnloadedBehavior="Stop"
+                                          Stretch="None"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Visibility="Collapsed"
+                                          MediaEnded="VideoElement_MediaEnded"
+                                          MediaOpened="VideoElement_MediaOpened"
+                                          MouseLeftButtonUp="Media_MouseLeftButtonUp"
+                                          MouseRightButtonUp="Media_MouseRightButtonUp"/>
+                            <Image x:Name="ImageElement"
+                                   Stretch="None"
+                                   RenderOptions.BitmapScalingMode="HighQuality"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   MouseLeftButtonUp="Media_MouseLeftButtonUp"
+                                   MouseRightButtonUp="Media_MouseRightButtonUp" />
+                        </Grid>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <!-- Big start button (first run / no media) -->
+            <Button x:Name="BigSelectFolderButton"
+                    Style="{StaticResource BigIconButton}"
+                    Content="📁"
+                    ToolTip="Select folder to start slideshow"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    FontSize="36"
+                    FontWeight="Normal"
+                    Click="BigSelectFolderButton_Click" Height="60" Width="60">
+                <Button.Effect>
+                    <DropShadowEffect BlurRadius="18" ShadowDepth="0" Opacity="0.5"/>
+                </Button.Effect>
+            </Button>
+
+            <!-- Expanded slim toolbar: centered, fixed width, bottom radius -->
+            <Border x:Name="ToolbarExpandedPanel"
+                            Width="800"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Bottom"
+                            Margin="0,0,0,0"
+                            CornerRadius="10,10,0,0"
+                            Background="#40000000"
+                            BorderBrush="{StaticResource SubtleBorderBrush}"
+                            BorderThickness="1"
+                            Padding="6"
+                            Opacity="0.98"
+                            Panel.ZIndex="100">
+
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="ExpandedTransform" Y="0"/>
+                </Border.RenderTransform>
+                <Grid>
+                    <!-- Single row: all controls centered -->
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center">
+                        <!-- Prev / Play / Pause / Next with modern icons -->
+                        <Button x:Name="PrevButton"
+                                Style="{StaticResource IconButton}"
+                                Content="⏮"
+                                Click="PrevButton_Click"/>
+
+                        <Button x:Name="StartButton"
+                                Style="{StaticResource IconButton}"
+                                Content="⏵"
+                                ToolTip="Start slideshow"
+                                Click="StartButton_Click"/>
+
+                        <Button x:Name="StopButton"
+                                Style="{StaticResource IconButton}"
+                                Content="⏸"
+                                ToolTip="Pause slideshow"
+                                Click="StopButton_Click"
+                                Visibility="Collapsed"/>
+
+                        <Button x:Name="NextButton"
+                                Style="{StaticResource IconButton}"
+                                Content="⏭"
+                                Click="NextButton_Click"/>
+
+                        <Button x:Name="ReplayButton"
+                                Style="{StaticResource IconButton}"
+                                Content="⟲"
+                                ToolTip="Replay video"
+                                Click="ReplayButton_Click"/>
+
+                        <ToggleButton x:Name="FitToggle"
+                                      Style="{StaticResource PillToggle}"
+                                      Content="Fit"
+                                      IsChecked="True"
+                                      Checked="FitToggle_Checked"
+                                      Unchecked="FitToggle_Unchecked"/>
+
+                        <TextBlock Text="Zoom"
+                                   Margin="12,0,4,0"
+                                   VerticalAlignment="Center"
+                                   Opacity="0.8"/>
+                        <TextBlock x:Name="ZoomLabel"
+                                   Width="50"
+                                   VerticalAlignment="Center"
+                                   Text="100%"/>
+                        <Button x:Name="ZoomResetButton"
+                                Style="{StaticResource IconButton}"
+                                Content="100%"
+                                Click="ZoomResetButton_Click" Width="50"/>
+
+                        <ToggleButton x:Name="IncludeVideoToggle"
+                                      Style="{StaticResource PillToggle}"
+                                      Content="GIF / MP4"
+                                      IsChecked="False"
+                                      Checked="IncludeVideoToggle_Checked"
+                                      Unchecked="IncludeVideoToggle_Unchecked" />
+
+                        <Button x:Name="MuteButton"
+                                Style="{StaticResource IconButton}"
+                                Content="🔇"
+                                Click="MuteButton_Click"/>
+
+                        <Button x:Name="FullscreenButton"
+                                Style="{StaticResource IconButton}"
+                                Content="⛶"
+                                Click="FullscreenButton_Click"/>
+
+                        <!-- Small folder icon for changing folder -->
+                        <Button x:Name="SelectFolderButton"
+                                Style="{StaticResource IconButton}"
+                                Content="📁"
+                                ToolTip="Change folder"
+                                Click="SelectFolderButton_Click"/>
+
+
+                        <Button x:Name="PlaylistButton"
+                                Style="{StaticResource IconButton}"
+                                Content="☰"
+                                ToolTip="Playlist editor"
+                                Click="PlaylistButton_Click"/>
+
+                        <!-- Sort icon button with context menu -->
+                        <Button x:Name="SortButton"
+                                Style="{StaticResource IconButton}"
+                                Content="⇅"
+                                ToolTip="Sort options"
+                                Click="SortButton_Click">
+                            <Button.ContextMenu>
+                                <ContextMenu x:Name="SortMenu">
+                                    <MenuItem x:Name="SortNameAZ"
+                                              Header="Name (A-Z)"
+                                              Tag="NameAZ"
+                                              Click="SortMenuItem_Click"/>
+                                    <MenuItem x:Name="SortNameZA"
+                                              Header="Name (Z-A)"
+                                              Tag="NameZA"
+                                              Click="SortMenuItem_Click"/>
+                                    <MenuItem x:Name="SortDateOldest"
+                                              Header="Date (Oldest First)"
+                                              Tag="DateOldest"
+                                              Click="SortMenuItem_Click"/>
+                                    <MenuItem x:Name="SortDateNewest"
+                                              Header="Date (Newest First)"
+                                              Tag="DateNewest"
+                                              Click="SortMenuItem_Click"/>
+                                    <MenuItem x:Name="SortRandom"
+                                              Header="Random"
+                                              Tag="Random"
+                                              Click="SortMenuItem_Click"/>
+                                </ContextMenu>
+                            </Button.ContextMenu>
+                        </Button>
+
+                        <TextBlock Text="Delay (ms)"
+                                   Margin="12,0,4,0"
+                                   VerticalAlignment="Center"
+                                   Opacity="0.8"/>
+                        <TextBox x:Name="DelayBox"
+                                 Width="80"
+                                 Text="2000"
+                                 VerticalContentAlignment="Center"/>
+
+                        <!-- Collapse toolbar -->
+                        <Button x:Name="ToolbarCollapseButton"
+                                Style="{StaticResource IconButton}"
+                                Content="▾"
+                                ToolTip="Minimize toolbar"
+                                Click="ToolbarCollapseButton_Click"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Minimized notch toolbar with bottom radius, centered -->
+            <Border x:Name="ToolbarNotchPanel"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,0,0"
+                    CornerRadius="10,10,0,0"
+                    Background="#40000000"
+                    BorderBrush="#40FFFFFF"
+                    BorderThickness="0,1,0,0"
+                    Padding="2,2"
+                    Opacity="0"
+                    Visibility="Collapsed"
+                    Panel.ZIndex="100">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="NotchTransform" Y="0"/>
+                </Border.RenderTransform>
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Margin="4,0,4,0">
+                    <Button x:Name="NotchPrevButton"
+                            Style="{StaticResource IconButton}"
+                            Content="⏮"
+                            Width="32"
+                            Click="NotchPrevButton_Click"/>
+
+                    <Button x:Name="NotchPlayPauseButton"
+                            Style="{StaticResource IconButton}"
+                            Content="⏵"
+                            Width="32"
+                            Click="NotchPlayPauseButton_Click"/>
+
+                    <Button x:Name="NotchNextButton"
+                            Style="{StaticResource IconButton}"
+                            Content="⏭"
+                            Width="32"
+                            Click="NotchNextButton_Click"/>
+
+                    <Button x:Name="ToolbarExpandButton"
+                            Style="{StaticResource IconButton}"
+                            Content="▴"
+                            Width="28"
+                            ToolTip="Expand toolbar"
+                            Click="ToolbarExpandButton_Click"/>
+                </StackPanel>
+            </Border>
+
+            <Border x:Name="StatusBar"
+                    VerticalAlignment="Bottom"
+                    HorizontalAlignment="Left"
+                    Margin="12,0,0,20"
+                    Padding="8,4"
+                    Background="{StaticResource SurfaceBrush}"
+                    BorderBrush="{StaticResource SubtleBorderBrush}">
+                <TextBlock x:Name="StatusText"
+                           FontSize="11"
+                           Foreground="{StaticResource TextMutedBrush}"
+                           Text=""
+                           TextTrimming="CharacterEllipsis"
+                           TextWrapping="NoWrap"/>
+            </Border>
+
+            <TextBlock x:Name="TitleCountText"
+                       VerticalAlignment="Bottom"
+                       HorizontalAlignment="Right"
+                       Margin="0,0,12,12"
+                       FontSize="12"
+                       Foreground="{StaticResource TextSecondaryBrush}"/>
+
+            <!-- Very bottom thin progress bar (video) -->
+            <ProgressBar x:Name="VideoProgressBar"
+                         Height="4"
+                         Minimum="0"
+                         Maximum="100"
+                         Width="200"
+                         VerticalAlignment="Bottom"
+                         Visibility="Collapsed"
+                         MouseDown="VideoProgressBar_MouseDown"
+                         MouseMove="VideoProgressBar_MouseMove"
+                         MouseLeave="VideoProgressBar_MouseLeave"
+                         Panel.ZIndex="110"/>
+            
+        </Grid>
+        <TextBlock x:Name="HoverTimeText"
+                   Margin="8,0,0,0"
+                   VerticalAlignment="Center"
+                   Foreground="#AAAAAA"
+                   FontSize="10"
+                   Visibility="Collapsed"/>
+    </Grid>
+</Window>

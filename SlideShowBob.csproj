@@ -1,0 +1,85 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net8.0-windows</TargetFramework>
+		<UseWPF>true</UseWPF>
+		<UseWindowsForms>true</UseWindowsForms>
+
+		<!-- App icon -->
+		<ApplicationIcon>SlideShowBob.ico</ApplicationIcon>
+
+		<!-- 🔽 Single-file, self-contained, Windows x64 -->
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<PublishSingleFile>true</PublishSingleFile>
+		<SelfContained>true</SelfContained>
+
+		<!-- 🔽 Make sure native libs are bundled & extracted from the EXE -->
+		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
+		<!-- 🔽 Optional: avoid .pdb in publish -->
+		<DebugType>none</DebugType>
+
+		<!-- 🔽 Optional but gets you *really* close to "only EXE in folder" -->
+		<GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+		<GenerateDependencyFile>false</GenerateDependencyFile>
+
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Remove="Assets\128x128.png" />
+		<None Remove="Assets\16x16.png" />
+		<None Remove="Assets\256x256.png" />
+		<None Remove="Assets\32x32.png" />
+		<None Remove="Assets\512x512.png" />
+		<None Remove="Assets\64x64.png" />
+		<None Remove="Assets\SlideShowBob.ico" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Content Include="SlideShowBob.ico" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <PackageReference Include="Microsoft-WindowsAPICodePack-Shell" Version="1.1.5" />
+	  <PackageReference Include="WpfAnimatedGif" Version="2.0.2" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Resource Include="Assets\128x128.png">
+			<CopyToOutputDirectory>Never</CopyToOutputDirectory>
+		</Resource>
+		<Resource Include="Assets\16x16.png">
+			<CopyToOutputDirectory>Never</CopyToOutputDirectory>
+		</Resource>
+		<Resource Include="Assets\256x256.png">
+			<CopyToOutputDirectory>Never</CopyToOutputDirectory>
+		</Resource>
+		<Resource Include="Assets\32x32.png">
+			<CopyToOutputDirectory>Never</CopyToOutputDirectory>
+		</Resource>
+		<Resource Include="Assets\512x512.png">
+			<CopyToOutputDirectory>Never</CopyToOutputDirectory>
+		</Resource>
+		<Resource Include="Assets\SlideShowBob.ico">
+			<CopyToOutputDirectory>Never</CopyToOutputDirectory>
+		</Resource>
+	</ItemGroup>
+
+	<ItemGroup>
+		<Compile Update="Properties\Settings.Designer.cs">
+			<DesignTimeSharedInput>True</DesignTimeSharedInput>
+			<AutoGen>True</AutoGen>
+			<DependentUpon>Settings.settings</DependentUpon>
+		</Compile>
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Update="Properties\Settings.settings">
+			<Generator>SettingsSingleFileGenerator</Generator>
+			<LastGenOutput>Settings.Designer.cs</LastGenOutput>
+		</None>
+	</ItemGroup>
+
+</Project>
