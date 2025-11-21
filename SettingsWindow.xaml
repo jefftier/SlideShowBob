@@ -1,0 +1,264 @@
+<Window x:Class="SlideShowBob.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="App Settings"
+        Height="450"
+        Width="520"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        WindowStyle="SingleBorderWindow"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}">
+    
+    <Window.Resources>
+        <!-- ===== Win11-ish color palette (matching MainWindow) ===== -->
+        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#050914"/>
+        <LinearGradientBrush x:Key="WindowBackdropBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#151A2F" Offset="0.0"/>
+            <GradientStop Color="#050914" Offset="1.0"/>
+        </LinearGradientBrush>
+        
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#181C2C"/>
+        <SolidColorBrush x:Key="SurfaceAltBrush" Color="#1F2435"/>
+        
+        <SolidColorBrush x:Key="AccentBrush" Color="#4C8DFF"/>
+        <SolidColorBrush x:Key="AccentBrushSecondary" Color="#82B5FF"/>
+        
+        <SolidColorBrush x:Key="SubtleBorderBrush" Color="#33FFFFFF"/>
+        <SolidColorBrush x:Key="SubtleBorderStrongBrush" Color="#55FFFFFF"/>
+        
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F9FAFB"/>
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#BFC3D4"/>
+        <SolidColorBrush x:Key="TextMutedBrush" Color="#8890A8"/>
+        
+        <SolidColorBrush x:Key="ControlBackgroundBrush" Color="#20253A"/>
+        <SolidColorBrush x:Key="ControlBackgroundMutedBrush" Color="#1B2032"/>
+        <SolidColorBrush x:Key="ControlBackgroundHoverBrush" Color="#28314A"/>
+
+        <!-- ===== Modern minimalistic scrollbar style ===== -->
+        <Style TargetType="ScrollBar">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="MinWidth" Value="8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid x:Name="GridRoot" Background="Transparent">
+                            <Track x:Name="PART_Track" IsDirectionReversed="False" Focusable="False">
+                                <Track.Thumb>
+                                    <Thumb x:Name="Thumb" Background="{StaticResource SubtleBorderBrush}" 
+                                           BorderThickness="0" Margin="2,0">
+                                        <Thumb.Style>
+                                            <Style TargetType="Thumb">
+                                                <Setter Property="Background" Value="{StaticResource SubtleBorderBrush}"/>
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="Thumb">
+                                                            <Border Background="{TemplateBinding Background}" 
+                                                                    CornerRadius="4" 
+                                                                    Opacity="0.4"/>
+                                                            <ControlTemplate.Triggers>
+                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                    <Setter Property="Opacity" Value="0.7"/>
+                                                                </Trigger>
+                                                                <Trigger Property="IsDragging" Value="True">
+                                                                    <Setter Property="Opacity" Value="0.9"/>
+                                                                </Trigger>
+                                                            </ControlTemplate.Triggers>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </Thumb.Style>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ScrollViewer">
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+        </Style>
+
+        <!-- ===== Global text style ===== -->
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
+        </Style>
+        
+        <!-- ===== CheckBox style ===== -->
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Margin" Value="0,6"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid>
+                            <Border x:Name="CheckBoxBorder"
+                                    Background="{StaticResource ControlBackgroundBrush}"
+                                    BorderBrush="{StaticResource SubtleBorderBrush}"
+                                    BorderThickness="1"
+                                    Width="16"
+                                    Height="16"
+                                    CornerRadius="3"
+                                    VerticalAlignment="Center">
+                            </Border>
+                            <Path x:Name="CheckMark"
+                                  Data="M 3,7 L 6,10 L 12,4"
+                                  Stroke="{StaticResource AccentBrush}"
+                                  StrokeThickness="2"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  StrokeLineJoin="Round"
+                                  Fill="Transparent"
+                                  Visibility="Collapsed"
+                                  VerticalAlignment="Center"
+                                  HorizontalAlignment="Center"/>
+                            <ContentPresenter Content="{TemplateBinding Content}"
+                                            Margin="24,0,0,0"
+                                            VerticalAlignment="Center"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="CheckBoxBorder" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="CheckBoxBorder" Property="BorderBrush" Value="{StaticResource AccentBrushSecondary}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="CheckBoxBorder" Property="Background" Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                <Setter TargetName="CheckBoxBorder" Property="BorderBrush" Value="{StaticResource SubtleBorderStrongBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <!-- ===== Button style (matching MainWindow IconButton) ===== -->
+        <Style TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{StaticResource ControlBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="20,10"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="MinWidth" Value="90"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background"
+                                        Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                <Setter TargetName="Root" Property="BorderBrush"
+                                        Value="{StaticResource SubtleBorderStrongBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Background"
+                                        Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter TargetName="Root" Property="BorderBrush"
+                                        Value="{StaticResource AccentBrushSecondary}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <!-- ===== GroupBox style ===== -->
+        <Style TargetType="GroupBox">
+            <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Margin" Value="0,0,0,16"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="HeaderTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   FontSize="12"
+                                   FontWeight="SemiBold"
+                                   Margin="0,0,0,4"/>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    
+    <Grid Background="{StaticResource WindowBackdropBrush}" Margin="0">
+        <Grid Margin="20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Header -->
+            <StackPanel Grid.Row="0" Margin="0,0,0,20">
+                <TextBlock Text="Persistence Settings" 
+                           FontSize="18" 
+                           FontWeight="Bold"
+                           Margin="0,0,0,8"/>
+                
+                <TextBlock Text="Control which settings are saved between sessions. When disabled, the setting will revert to its default value when the app restarts."
+                           TextWrapping="Wrap"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           FontSize="12"
+                           LineHeight="18"/>
+            </StackPanel>
+            
+            <!-- Content (with minimal scrolling) -->
+            <ScrollViewer Grid.Row="1" 
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Margin="0,0,0,20">
+                <GroupBox Header="Feature Persistence">
+                    <StackPanel Margin="4">
+                        <CheckBox x:Name="PersistSlideDelayCheckBox"
+                                   Content="Persist Slide Delay"/>
+                        <CheckBox x:Name="PersistIncludeVideosCheckBox"
+                                   Content="Persist Include Videos (GIF/MP4)"/>
+                        <CheckBox x:Name="PersistSortModeCheckBox"
+                                   Content="Persist Sort Mode"/>
+                        <CheckBox x:Name="PersistIsMutedCheckBox"
+                                   Content="Persist Mute State"/>
+                        <CheckBox x:Name="PersistFolderPathsCheckBox"
+                                   Content="Persist Folder Paths"/>
+                    </StackPanel>
+                </GroupBox>
+            </ScrollViewer>
+            
+            <!-- Buttons -->
+            <StackPanel Grid.Row="2" 
+                        Orientation="Horizontal" 
+                        HorizontalAlignment="Right">
+                <Button x:Name="SaveButton"
+                        Content="Save"
+                        Click="SaveButton_Click"/>
+                <Button Content="Cancel"
+                        IsCancel="True"
+                        Click="CancelButton_Click"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
+

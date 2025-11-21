@@ -77,16 +77,45 @@ namespace SlideShowBob
 
             _settings = SettingsManager.Load();
 
-            // apply
-            _slideDelayMs = _settings.SlideDelayMs;
+            // Apply settings only if persistence is enabled, otherwise use defaults
+            if (_settings.PersistSlideDelay)
+            {
+                _slideDelayMs = _settings.SlideDelayMs;
+            }
+            else
+            {
+                _slideDelayMs = 2000; // default
+            }
             DelayBox.Text = _slideDelayMs.ToString();
-            IncludeVideoToggle.IsChecked = _settings.IncludeVideos;
+
+            if (_settings.PersistIncludeVideos)
+            {
+                IncludeVideoToggle.IsChecked = _settings.IncludeVideos;
+            }
+            else
+            {
+                IncludeVideoToggle.IsChecked = false; // default
+            }
 
             // muted comes from bool in settings
-            _isMuted = _settings.IsMuted;
+            if (_settings.PersistIsMuted)
+            {
+                _isMuted = _settings.IsMuted;
+            }
+            else
+            {
+                _isMuted = true; // default
+            }
 
             // convert stored string ("NameAZ", etc.) to enum
-            _sortMode = ParseSortMode(_settings.SortMode);
+            if (_settings.PersistSortMode)
+            {
+                _sortMode = ParseSortMode(_settings.SortMode);
+            }
+            else
+            {
+                _sortMode = SortMode.NameAZ; // default
+            }
 
 
             ImageElement.LayoutTransform = _imageScale;
@@ -126,29 +155,41 @@ namespace SlideShowBob
             ShowChrome();
             ResetChromeTimer();
 
-            // Load previously used folders from settings
-            // Initialize FolderPaths if null (for backward compatibility with old settings files)
-            if (_settings.FolderPaths == null)
+            // Load previously used folders from settings only if persistence is enabled
+            if (_settings.PersistFolderPaths)
             {
-                _settings.FolderPaths = new List<string>();
-            }
-
-            if (_settings.FolderPaths.Count > 0)
-            {
-                _folders.Clear();
-                foreach (var folderPath in _settings.FolderPaths)
+                // Initialize FolderPaths if null (for backward compatibility with old settings files)
+                if (_settings.FolderPaths == null)
                 {
-                    if (Directory.Exists(folderPath) && !_folders.Contains(folderPath, StringComparer.OrdinalIgnoreCase))
+                    _settings.FolderPaths = new List<string>();
+                }
+
+                if (_settings.FolderPaths.Count > 0)
+                {
+                    _folders.Clear();
+                    foreach (var folderPath in _settings.FolderPaths)
                     {
-                        _folders.Add(folderPath);
+                        if (Directory.Exists(folderPath) && !_folders.Contains(folderPath, StringComparer.OrdinalIgnoreCase))
+                        {
+                            _folders.Add(folderPath);
+                        }
+                    }
+                    
+                    if (_folders.Count > 0)
+                    {
+                        StatusText.Text = "Folders: " + string.Join("; ", _folders);
+                        // Load folders asynchronously after window is loaded
+                        Loaded += MainWindow_Loaded;
                     }
                 }
-                
-                if (_folders.Count > 0)
+            }
+            else
+            {
+                // Persistence disabled - clear folders
+                _folders.Clear();
+                if (_settings.FolderPaths != null)
                 {
-                    StatusText.Text = "Folders: " + string.Join("; ", _folders);
-                    // Load folders asynchronously after window is loaded
-                    Loaded += MainWindow_Loaded;
+                    _settings.FolderPaths.Clear();
                 }
             }
         }
@@ -790,8 +831,11 @@ namespace SlideShowBob
                     _sortMode = SortMode.Random;
                     break;
             }
-            _settings.SortMode = _sortMode.ToString();
-            SettingsManager.Save(_settings);
+            if (_settings.PersistSortMode)
+            {
+                _settings.SortMode = _sortMode.ToString();
+                SettingsManager.Save(_settings);
+            }
 
             UpdateSortMenuVisuals();
 
@@ -1438,8 +1482,11 @@ namespace SlideShowBob
 
         private void SaveFoldersToSettings()
         {
-            _settings.FolderPaths = new List<string>(_folders);
-            SettingsManager.Save(_settings);
+            if (_settings.PersistFolderPaths)
+            {
+                _settings.FolderPaths = new List<string>(_folders);
+                SettingsManager.Save(_settings);
+            }
         }
 
         private async Task ChooseFolderAsync()
@@ -1470,8 +1517,11 @@ namespace SlideShowBob
         private async Task OnIncludeVideoToggleChanged()
         {
             // Persist setting
-            _settings.IncludeVideos = IncludeVideoToggle.IsChecked == true;
-            SettingsManager.Save(_settings);
+            if (_settings.PersistIncludeVideos)
+            {
+                _settings.IncludeVideos = IncludeVideoToggle.IsChecked == true;
+                SettingsManager.Save(_settings);
+            }
 
             // Reload playlist if we already have folders
             if (_folders.Count > 0)
@@ -1502,6 +1552,77 @@ namespace SlideShowBob
             var window = new PlaylistWindow(this, _folders, _allFiles);
             window.Owner = this;
             window.Show();
+        }
+
+        private void SettingsButton_Click(object sender, RoutedEventArgs e)
+        {
+            var window = new SettingsWindow(_settings);
+            window.Owner = this;
+            if (window.ShowDialog() == true)
+            {
+                // Settings were saved, reload to get updated persistence flags
+                _settings = SettingsManager.Load();
+                
+                // Re-apply settings based on updated persistence flags
+                // If persistence is disabled, reset to defaults
+                if (_settings.PersistSlideDelay)
+                {
+                    _slideDelayMs = _settings.SlideDelayMs;
+                }
+                else
+                {
+                    _slideDelayMs = 2000; // default
+                }
+                DelayBox.Text = _slideDelayMs.ToString();
+                
+                if (_settings.PersistIncludeVideos)
+                {
+                    IncludeVideoToggle.IsChecked = _settings.IncludeVideos;
+                }
+                else
+                {
+                    IncludeVideoToggle.IsChecked = false; // default
+                }
+                
+                if (_settings.PersistIsMuted)
+                {
+                    _isMuted = _settings.IsMuted;
+                }
+                else
+                {
+                    _isMuted = true; // default
+                }
+                VideoElement.IsMuted = _isMuted;
+                MuteButton.Content = _isMuted ? "🔇" : "🔊";
+                
+                if (_settings.PersistSortMode)
+                {
+                    _sortMode = ParseSortMode(_settings.SortMode);
+                }
+                else
+                {
+                    _sortMode = SortMode.NameAZ; // default
+                }
+                UpdateSortMenuVisuals();
+                
+                // For folders, if persistence is disabled, clear them
+                if (!_settings.PersistFolderPaths)
+                {
+                    _folders.Clear();
+                    StatusText.Text = "";
+                    // Clear the media if folders were removed
+                    if (_allFiles.Count > 0)
+                    {
+                        _allFiles.Clear();
+                        _orderedFiles.Clear();
+                        _currentIndex = -1;
+                        ImageElement.Source = null;
+                        VideoElement.Source = null;
+                        UpdateItemCount();
+                        BigSelectFolderButton.Visibility = Visibility.Visible;
+                    }
+                }
+            }
         }
 
         private void FitToggle_Checked(object sender, RoutedEventArgs e)
@@ -1569,8 +1690,11 @@ namespace SlideShowBob
             // Auto-minimize toolbar when slideshow starts
             MinimizeToolbar();
 
-            _settings.SlideDelayMs = _slideDelayMs;
-            SettingsManager.Save(_settings);
+            if (_settings.PersistSlideDelay)
+            {
+                _settings.SlideDelayMs = _slideDelayMs;
+                SettingsManager.Save(_settings);
+            }
         }
 
         private void StopButton_Click(object sender, RoutedEventArgs e)
@@ -1660,8 +1784,11 @@ namespace SlideShowBob
             VideoElement.IsMuted = _isMuted;
             MuteButton.Content = _isMuted ? "🔇" : "🔊";
 
-            _settings.IsMuted = _isMuted;
-            SettingsManager.Save(_settings);
+            if (_settings.PersistIsMuted)
+            {
+                _settings.IsMuted = _isMuted;
+                SettingsManager.Save(_settings);
+            }
         }
 
         private void ReplayButton_Click(object sender, RoutedEventArgs e)

@@ -205,6 +205,51 @@
             <Setter Property="SnapsToDevicePixels" Value="True"/>
         </Style>
 
+        <!-- ===== Modern minimalistic scrollbar style ===== -->
+        <Style TargetType="ScrollBar">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="MinWidth" Value="8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid x:Name="GridRoot" Background="Transparent">
+                            <Track x:Name="PART_Track" IsDirectionReversed="False" Focusable="False">
+                                <Track.Thumb>
+                                    <Thumb x:Name="Thumb" Background="{StaticResource SubtleBorderBrush}" 
+                                           BorderThickness="0" Margin="2,0">
+                                        <Thumb.Style>
+                                            <Style TargetType="Thumb">
+                                                <Setter Property="Background" Value="{StaticResource SubtleBorderBrush}"/>
+                                                <Setter Property="Template">
+                                                    <Setter.Value>
+                                                        <ControlTemplate TargetType="Thumb">
+                                                            <Border Background="{TemplateBinding Background}" 
+                                                                    CornerRadius="4" 
+                                                                    Opacity="0.4"/>
+                                                            <ControlTemplate.Triggers>
+                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                    <Setter Property="Opacity" Value="0.7"/>
+                                                                </Trigger>
+                                                                <Trigger Property="IsDragging" Value="True">
+                                                                    <Setter Property="Opacity" Value="0.9"/>
+                                                                </Trigger>
+                                                            </ControlTemplate.Triggers>
+                                                        </ControlTemplate>
+                                                    </Setter.Value>
+                                                </Setter>
+                                            </Style>
+                                        </Thumb.Style>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Keep your existing storyboard (unchanged) -->
         <Storyboard x:Key="SlideTransitionFade">
             <DoubleAnimation
@@ -426,6 +471,12 @@
                                 </ContextMenu>
                             </Button.ContextMenu>
                         </Button>
+
+                        <Button x:Name="SettingsButton"
+                                Style="{StaticResource IconButton}"
+                                Content="⚙"
+                                ToolTip="App Settings"
+                                Click="SettingsButton_Click"/>
 
                         <TextBlock Text="Delay (ms)"
                                    Margin="12,0,4,0"
