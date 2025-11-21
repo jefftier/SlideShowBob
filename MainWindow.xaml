@@ -213,6 +213,30 @@
                 From="0.0" To="1.0" Duration="0:0:1"/>
         </Storyboard>
 
+        <!-- Loading overlay fade in animation -->
+        <Storyboard x:Key="LoadingOverlayFadeIn">
+            <DoubleAnimation
+                Storyboard.TargetName="LoadingOverlay"
+                Storyboard.TargetProperty="Opacity"
+                From="0.0" To="1.0" Duration="0:0:0.3">
+                <DoubleAnimation.EasingFunction>
+                    <QuadraticEase EasingMode="EaseOut"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+
+        <!-- Loading overlay fade out animation -->
+        <Storyboard x:Key="LoadingOverlayFadeOut">
+            <DoubleAnimation
+                Storyboard.TargetName="LoadingOverlay"
+                Storyboard.TargetProperty="Opacity"
+                From="1.0" To="0.0" Duration="0:0:0.3">
+                <DoubleAnimation.EasingFunction>
+                    <QuadraticEase EasingMode="EaseIn"/>
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+
     </Window.Resources>
 
 
@@ -504,6 +528,32 @@
                          MouseLeave="VideoProgressBar_MouseLeave"
                          Panel.ZIndex="110"/>
             
+            <!-- Loading overlay -->
+            <Border x:Name="LoadingOverlay"
+                    Background="#80000000"
+                    Opacity="0"
+                    Visibility="Collapsed"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Stretch"
+                    Panel.ZIndex="200"
+                    IsHitTestVisible="False">
+                <Grid>
+                    <StackPanel HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Orientation="Vertical">
+                        <ProgressBar IsIndeterminate="True"
+                                     Width="100"
+                                     Height="4"
+                                     Margin="0,0,0,12"
+                                     Foreground="{StaticResource AccentBrush}"/>
+                        <TextBlock Text="Loading..."
+                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                   FontSize="14"
+                                   HorizontalAlignment="Center"
+                                   Opacity="0.9"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
         </Grid>
         <TextBlock x:Name="HoverTimeText"
                    Margin="8,0,0,0"

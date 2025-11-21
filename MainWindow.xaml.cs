@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -55,6 +56,8 @@ namespace SlideShowBob
         private MediaType _currentMediaType = MediaType.Image;
 
         private bool _toolbarMinimized = false;
+        private RoutedEventHandler? _currentMediaOpenedHandler;
+        private CancellationTokenSource? _loadingOverlayDelayCts;
 
         private enum SortMode
         {
@@ -439,6 +442,69 @@ namespace SlideShowBob
         private void SetStatus(string text)
         {
             StatusText.Text = text;
+        }
+
+        private async void ShowLoadingOverlayDelayed(int delayMs = 1000)
+        {
+            // Cancel any pending overlay show
+            _loadingOverlayDelayCts?.Cancel();
+            _loadingOverlayDelayCts?.Dispose();
+            _loadingOverlayDelayCts = new CancellationTokenSource();
+
+            try
+            {
+                await Task.Delay(delayMs, _loadingOverlayDelayCts.Token);
+                
+                // Only show if we weren't cancelled (i.e., loading is still in progress)
+                if (!_loadingOverlayDelayCts.Token.IsCancellationRequested)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (LoadingOverlay.Visibility != Visibility.Visible)
+                        {
+                            LoadingOverlay.Visibility = Visibility.Visible;
+                            LoadingOverlay.Opacity = 0;
+                        }
+                        
+                        var sb = (Storyboard)FindResource("LoadingOverlayFadeIn");
+                        if (sb != null)
+                        {
+                            sb.Begin();
+                        }
+                        else
+                        {
+                            LoadingOverlay.Opacity = 1.0;
+                        }
+                    });
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                // Loading completed quickly, don't show overlay
+            }
+        }
+
+        private void HideLoadingOverlay()
+        {
+            // Cancel any pending overlay show
+            _loadingOverlayDelayCts?.Cancel();
+            _loadingOverlayDelayCts?.Dispose();
+            _loadingOverlayDelayCts = null;
+
+            var sb = (Storyboard)FindResource("LoadingOverlayFadeOut");
+            if (sb != null)
+            {
+                sb.Completed += (s, e) =>
+                {
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                };
+                sb.Begin();
+            }
+            else
+            {
+                LoadingOverlay.Opacity = 0;
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+            }
         }
 
         private void UpdateItemCount()
@@ -847,6 +913,7 @@ namespace SlideShowBob
         {
             SetStatus("Loading...");
             Cursor = Cursors.Wait;
+            ShowLoadingOverlayDelayed();
             _allFiles.Clear();
             _orderedFiles.Clear();
             _currentIndex = -1;
@@ -866,6 +933,7 @@ namespace SlideShowBob
                 SetStatus("No folders selected.");
                 BigSelectFolderButton.Visibility = Visibility.Visible;
                 Cursor = Cursors.Arrow;
+                HideLoadingOverlay();
                 return;
             }
 
@@ -921,7 +989,7 @@ namespace SlideShowBob
                 if (_orderedFiles.Count > 0)
                 {
                     _currentIndex = 0;
-                    ShowCurrentMedia();
+                    await ShowCurrentMediaAsync();
                     SetStatus("");
                     BigSelectFolderButton.Visibility = Visibility.Collapsed;
                 }
@@ -929,12 +997,14 @@ namespace SlideShowBob
                 {
                     SetStatus("No media found");
                     BigSelectFolderButton.Visibility = Visibility.Visible;
+                    HideLoadingOverlay();
                 }
             }
             catch (Exception ex)
             {
                 SetStatus("Error: " + ex.Message);
                 BigSelectFolderButton.Visibility = Visibility.Visible;
+                HideLoadingOverlay();
             }
             finally
             {
@@ -946,8 +1016,10 @@ namespace SlideShowBob
 
         #region Show media
 
-        private void ShowCurrentMedia()
+        private async Task ShowCurrentMediaAsync()
         {
+            ShowLoadingOverlayDelayed();
+            
             try
             {
                 var sb = (Storyboard)FindResource("SlideTransitionFade");
@@ -957,7 +1029,11 @@ namespace SlideShowBob
             {
                 // if the resource is missing, ignore
             }
-            if (_orderedFiles.Count == 0) return;
+            if (_orderedFiles.Count == 0)
+            {
+                HideLoadingOverlay();
+                return;
+            }
             if (_currentIndex < 0) _currentIndex = 0;
             if (_currentIndex >= _orderedFiles.Count) _currentIndex = 0;
 
@@ -979,7 +1055,11 @@ namespace SlideShowBob
             ImageElement.Visibility = Visibility.Visible;
 
             string file = _orderedFiles[_currentIndex];
-            if (!File.Exists(file)) return;
+            if (!File.Exists(file))
+            {
+                HideLoadingOverlay();
+                return;
+            }
 
             string ext = Path.GetExtension(file).ToLowerInvariant();
             if (ext == ".mp4")
@@ -1015,6 +1095,24 @@ namespace SlideShowBob
                     ImageElement.Source = null;
                     ScrollHost.ScrollToHorizontalOffset(0);
                     ScrollHost.ScrollToVerticalOffset(0);
+
+                    // Remove previous handler if exists
+                    if (_currentMediaOpenedHandler != null)
+                    {
+                        VideoElement.MediaOpened -= _currentMediaOpenedHandler;
+                    }
+
+                    // Set up event handler to hide overlay when video is loaded
+                    _currentMediaOpenedHandler = (s, e) =>
+                    {
+                        if (_currentMediaOpenedHandler != null)
+                        {
+                            VideoElement.MediaOpened -= _currentMediaOpenedHandler;
+                            _currentMediaOpenedHandler = null;
+                        }
+                        HideLoadingOverlay();
+                    };
+                    VideoElement.MediaOpened += _currentMediaOpenedHandler;
 
                     VideoElement.Source = new Uri(file);
                     VideoElement.Visibility = Visibility.Visible;
@@ -1072,12 +1170,21 @@ namespace SlideShowBob
                         SetZoom(1.0);
 
                     Title = $"Slide Show Bob - {Path.GetFileName(file)} (GIF)";
+                    
+                    // For GIFs, hide overlay after a short delay to allow initial load
+                    await Task.Delay(100);
+                    HideLoadingOverlay();
                     return;
                 }
                 else
                 {
-                    var img = GetOrLoadImage(file, isGif: false);
-                    if (img == null) return;
+                    // Load image asynchronously
+                    var img = await Task.Run(() => GetOrLoadImage(file, isGif: false));
+                    if (img == null)
+                    {
+                        HideLoadingOverlay();
+                        return;
+                    }
 
                     ImageElement.Source = img;
                     ScrollHost.ScrollToHorizontalOffset(0);
@@ -1089,12 +1196,17 @@ namespace SlideShowBob
                         SetZoom(1.0);
 
                     Title = $"Slide Show Bob - {Path.GetFileName(file)}";
+                    
+                    // Hide overlay after image is set
+                    HideLoadingOverlay();
                 }
             }
             catch
             {
                 // ignore bad files
+                HideLoadingOverlay();
             }
+            
             // Preload neighbors (images only)
             try
             {
@@ -1109,12 +1221,18 @@ namespace SlideShowBob
                         string exts = System.IO.Path.GetExtension(path).ToLowerInvariant();
                         if (exts == ".jpg" || exts == ".jpeg" || exts == ".png" || exts == ".bmp" || exts == ".tif" || exts == ".tiff")
                         {
-                            _ = GetOrLoadImage(path, isGif: false);
+                            _ = Task.Run(() => GetOrLoadImage(path, isGif: false));
                         }
                     }
                 }
             }
             catch { }
+        }
+
+        private void ShowCurrentMedia()
+        {
+            // Synchronous wrapper for backward compatibility
+            _ = ShowCurrentMediaAsync();
         }
 
         private void VideoProgressBar_MouseDown(object sender, MouseButtonEventArgs e)
