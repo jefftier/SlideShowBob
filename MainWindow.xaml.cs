@@ -1572,5 +1572,94 @@ namespace SlideShowBob
         }
         #endregion
 
+        #region Drag and Drop
+
+        private void Window_DragEnter(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                e.Effects = DragDropEffects.None;
+
+                var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                if (files != null)
+                {
+                    // Check if any of the dropped items are directories
+                    foreach (var path in files)
+                    {
+                        if (Directory.Exists(path))
+                        {
+                            e.Effects = DragDropEffects.Copy;
+                            break;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                e.Effects = DragDropEffects.None;
+            }
+        }
+
+        private void Window_DragOver(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                e.Effects = DragDropEffects.None;
+
+                var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                if (files != null)
+                {
+                    // Check if any of the dropped items are directories
+                    foreach (var path in files)
+                    {
+                        if (Directory.Exists(path))
+                        {
+                            e.Effects = DragDropEffects.Copy;
+                            break;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                e.Effects = DragDropEffects.None;
+            }
+        }
+
+        private async void Window_Drop(object sender, DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(DataFormats.FileDrop))
+                return;
+
+            var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            if (files == null || files.Length == 0)
+                return;
+
+            bool addedAny = false;
+
+            foreach (var path in files)
+            {
+                // Only process directories
+                if (!Directory.Exists(path))
+                    continue;
+
+                // Normalize the path and check for duplicates
+                string normalizedPath = Path.GetFullPath(path);
+                if (!_folders.Contains(normalizedPath, StringComparer.OrdinalIgnoreCase))
+                {
+                    _folders.Add(normalizedPath);
+                    addedAny = true;
+                }
+            }
+
+            if (addedAny)
+            {
+                StatusText.Text = "Folders: " + string.Join("; ", _folders);
+                await LoadFoldersAsync();
+            }
+        }
+
+        #endregion
+
     }
 }

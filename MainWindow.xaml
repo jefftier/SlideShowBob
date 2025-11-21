@@ -16,9 +16,13 @@
         WindowStartupLocation="CenterScreen"
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanResize"
+        AllowDrop="True"
         KeyDown="Window_KeyDown"
         MouseMove="Window_MouseMove"
-        SizeChanged="Window_SizeChanged">
+        SizeChanged="Window_SizeChanged"
+        DragEnter="Window_DragEnter"
+        DragOver="Window_DragOver"
+        Drop="Window_Drop">
 
 
 
