@@ -19,14 +19,14 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Restore
-        run: dotnet restore SlideShowBob/SlideShowBob.csproj
+        run: dotnet restore SlideShowBob.csproj
 
       - name: Build (Release)
-        run: dotnet build SlideShowBob/SlideShowBob.csproj -c Release --no-restore
+        run: dotnet build SlideShowBob.csproj -c Release --no-restore
 
       - name: Publish win-x64 self-contained
         run: >
-          dotnet publish SlideShowBob/SlideShowBob.csproj
+          dotnet publish SlideShowBob.csproj
           -c Release
           -r win-x64
           --self-contained true
