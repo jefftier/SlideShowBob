@@ -1,6 +1,4 @@
 ## Build output
-bin/
-obj/
 **/bin/
 **/obj/
 **/publish/
