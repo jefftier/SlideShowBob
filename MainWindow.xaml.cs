@@ -627,22 +627,22 @@ namespace SlideShowBob
                 string[] imageExts = { ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff" };
                 string[] motionExts = { ".gif", ".mp4" };
 
-
-                var files = Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
-                    .Where(f =>
-                    {
-                        string ext = Path.GetExtension(f).ToLowerInvariant();
-                        if (imageExts.Contains(ext)) return true;
-                        if (includeVideos && motionExts.Contains(ext)) return true;
-                        return false;
-                    })
-                    .ToList();
-
-                Dispatcher.Invoke(() =>
+                // Run folder enumeration off the UI thread
+                var files = await Task.Run(() =>
                 {
-                    _allFiles.AddRange(files);
+                    return Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
+                        .Where(f =>
+                        {
+                            string ext = Path.GetExtension(f).ToLowerInvariant();
+                            if (imageExts.Contains(ext)) return true;
+                            if (includeVideos && motionExts.Contains(ext)) return true;
+                            return false;
+                        })
+                        .ToList();
                 });
 
+                // Update UI on the UI thread
+                _allFiles.AddRange(files);
                 ApplySort();
                 UpdateItemCount();
 
@@ -703,10 +703,11 @@ namespace SlideShowBob
                 string[] imageExts = { ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff" };
                 string[] motionExts = { ".gif", ".mp4" };
 
-                var collected = new List<string>();
-
-                await Task.Run(() =>
+                // Run all folder enumeration off the UI thread
+                var distinctFiles = await Task.Run(() =>
                 {
+                    var collected = new List<string>();
+
                     foreach (var folder in _folders)
                     {
                         if (!Directory.Exists(folder))
@@ -733,14 +734,14 @@ namespace SlideShowBob
                             // ignore individual folder access issues
                         }
                     }
+
+                    return collected
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
                 });
 
-                var distinctFiles = collected
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
+                // Update UI on the UI thread
                 _allFiles.AddRange(distinctFiles);
-
                 ApplySort();
                 UpdateItemCount();
 
