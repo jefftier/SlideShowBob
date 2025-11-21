@@ -11,7 +11,7 @@ Write-Host "Runtime:       $Runtime"
 Write-Host "Configuration: $Configuration"
 Write-Host ""
 
-$projectPath = "SlideShowBob/SlideShowBob.csproj"   # <-- adjust if needed
+$projectPath = "SlideShowBob.csproj"   # <-- adjust if needed
 $outDir      = "publish/$Runtime"
 
 if (!(Test-Path $projectPath)) {
