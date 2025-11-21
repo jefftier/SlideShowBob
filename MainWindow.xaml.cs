@@ -125,7 +125,43 @@ namespace SlideShowBob
             UpdateSortMenuVisuals();
             ShowChrome();
             ResetChromeTimer();
+
+            // Load previously used folders from settings
+            // Initialize FolderPaths if null (for backward compatibility with old settings files)
+            if (_settings.FolderPaths == null)
+            {
+                _settings.FolderPaths = new List<string>();
+            }
+
+            if (_settings.FolderPaths.Count > 0)
+            {
+                _folders.Clear();
+                foreach (var folderPath in _settings.FolderPaths)
+                {
+                    if (Directory.Exists(folderPath) && !_folders.Contains(folderPath, StringComparer.OrdinalIgnoreCase))
+                    {
+                        _folders.Add(folderPath);
+                    }
+                }
+                
+                if (_folders.Count > 0)
+                {
+                    StatusText.Text = "Folders: " + string.Join("; ", _folders);
+                    // Load folders asynchronously after window is loaded
+                    Loaded += MainWindow_Loaded;
+                }
+            }
         }
+
+        private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            Loaded -= MainWindow_Loaded; // Only run once
+            if (_folders.Count > 0)
+            {
+                await LoadFoldersAsync();
+            }
+        }
+
         protected override void OnSourceInitialized(EventArgs e)
         {
             base.OnSourceInitialized(e);
@@ -1400,6 +1436,12 @@ namespace SlideShowBob
 
         #region Folder selection helpers
 
+        private void SaveFoldersToSettings()
+        {
+            _settings.FolderPaths = new List<string>(_folders);
+            SettingsManager.Save(_settings);
+        }
+
         private async Task ChooseFolderAsync()
         {
             await ChooseFoldersFromDialogAsync();
@@ -1764,6 +1806,7 @@ namespace SlideShowBob
                     if (addedAny)
                     {
                         StatusText.Text = "Folders: " + string.Join("; ", _folders);
+                        SaveFoldersToSettings();
                         await LoadFoldersAsync();
                     }
 
@@ -1790,6 +1833,7 @@ namespace SlideShowBob
                 {
                     _folders.Add(path);
                     StatusText.Text = "Folders: " + string.Join("; ", _folders);
+                    SaveFoldersToSettings();
                     await LoadFoldersAsync();
                 }
             }
@@ -1804,6 +1848,9 @@ namespace SlideShowBob
                 string.Equals(Path.GetFullPath(f),
                               Path.GetFullPath(folderPath),
                               StringComparison.OrdinalIgnoreCase));
+
+            // Save folders to settings after removal
+            SaveFoldersToSettings();
 
             // Remove all files under that folder from playlist
             _allFiles.RemoveAll(f => PlaylistWindow_IsUnderFolderStatic(f, folderPath));
@@ -1946,6 +1993,7 @@ namespace SlideShowBob
             if (addedAny)
             {
                 StatusText.Text = "Folders: " + string.Join("; ", _folders);
+                SaveFoldersToSettings();
                 await LoadFoldersAsync();
             }
         }
