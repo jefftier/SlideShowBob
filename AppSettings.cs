@@ -8,6 +8,8 @@ public class AppSettings
 	public bool IsMuted { get; set; } = true;
     public List<string> FolderPaths { get; set; } = new List<string>();
 
+    public string ToolbarInactivityBehavior { get; set; } = "Dim"; // "Dim", "Disappear", "Nothing"
+
     // Persistence flags - control whether each setting is saved
     public bool PersistSlideDelay { get; set; } = true;
     public bool PersistIncludeVideos { get; set; } = true;

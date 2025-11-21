@@ -182,6 +182,22 @@
             </Setter>
         </Style>
         
+        <!-- ===== ComboBox style ===== -->
+        <Style TargetType="ComboBox">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{StaticResource ControlBackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{StaticResource ControlBackgroundBrush}"/>
+            <Setter Property="Padding" Value="8,4"/>
+        </Style>
+        
         <!-- ===== GroupBox style ===== -->
         <Style TargetType="GroupBox">
             <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
@@ -231,20 +247,44 @@
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
                           Margin="0,0,0,20">
-                <GroupBox Header="Feature Persistence">
-                    <StackPanel Margin="4">
-                        <CheckBox x:Name="PersistSlideDelayCheckBox"
-                                   Content="Persist Slide Delay"/>
-                        <CheckBox x:Name="PersistIncludeVideosCheckBox"
-                                   Content="Persist Include Videos (GIF/MP4)"/>
-                        <CheckBox x:Name="PersistSortModeCheckBox"
-                                   Content="Persist Sort Mode"/>
-                        <CheckBox x:Name="PersistIsMutedCheckBox"
-                                   Content="Persist Mute State"/>
-                        <CheckBox x:Name="PersistFolderPathsCheckBox"
-                                   Content="Persist Folder Paths"/>
-                    </StackPanel>
-                </GroupBox>
+                <StackPanel>
+                    <GroupBox Header="Feature Persistence">
+                        <StackPanel Margin="4">
+                            <CheckBox x:Name="PersistSlideDelayCheckBox"
+                                       Content="Persist Slide Delay"/>
+                            <CheckBox x:Name="PersistIncludeVideosCheckBox"
+                                       Content="Persist Include Videos (GIF/MP4)"/>
+                            <CheckBox x:Name="PersistSortModeCheckBox"
+                                       Content="Persist Sort Mode"/>
+                            <CheckBox x:Name="PersistIsMutedCheckBox"
+                                       Content="Persist Mute State"/>
+                            <CheckBox x:Name="PersistFolderPathsCheckBox"
+                                       Content="Persist Folder Paths"/>
+                            
+                            <!-- Toolbar Inactivity Behavior - always persists -->
+                            <Grid Margin="0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="Toolbar Inactivity Behavior:"
+                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,12,0"/>
+                                <ComboBox x:Name="ToolbarInactivityBehaviorComboBox"
+                                          Grid.Column="2"
+                                          MinWidth="150"
+                                          HorizontalAlignment="Right">
+                                    <ComboBoxItem Content="Dim" Tag="Dim"/>
+                                    <ComboBoxItem Content="Disappear" Tag="Disappear"/>
+                                    <ComboBoxItem Content="Do Nothing" Tag="Nothing"/>
+                                </ComboBox>
+                            </Grid>
+                        </StackPanel>
+                    </GroupBox>
+                </StackPanel>
             </ScrollViewer>
             
             <!-- Buttons -->

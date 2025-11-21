@@ -464,11 +464,13 @@ namespace SlideShowBob
 
             if (_toolbarMinimized)
             {
+                ToolbarNotchPanel.Visibility = Visibility.Visible;
                 ToolbarNotchPanel.Opacity = 1.0;
                 ToolbarNotchPanel.IsHitTestVisible = true;
             }
             else
             {
+                ToolbarExpandedPanel.Visibility = Visibility.Visible;
                 ToolbarExpandedPanel.Opacity = 1.0;
                 ToolbarExpandedPanel.IsHitTestVisible = true;
             }
@@ -476,21 +478,42 @@ namespace SlideShowBob
 
         private void DimChrome()
         {
-            double dimOpacity = 0.18;
+            string behavior = _settings.ToolbarInactivityBehavior ?? "Dim"; // default
 
-            // Clear opacity animations so dimming is respected
+            // Clear opacity animations so changes are respected
             ToolbarExpandedPanel.BeginAnimation(OpacityProperty, null);
             ToolbarNotchPanel.BeginAnimation(OpacityProperty, null);
 
-            if (_toolbarMinimized)
+            if (behavior == "Nothing")
             {
-                ToolbarNotchPanel.Opacity = dimOpacity;
-                ToolbarNotchPanel.IsHitTestVisible = false;
+                // Do nothing - keep toolbars visible and interactive
+                return;
             }
-            else
+            else if (behavior == "Disappear")
             {
-                ToolbarExpandedPanel.Opacity = dimOpacity;
-                ToolbarExpandedPanel.IsHitTestVisible = false;
+                // Hide toolbars completely
+                if (_toolbarMinimized)
+                {
+                    ToolbarNotchPanel.Visibility = Visibility.Collapsed;
+                }
+                else
+                {
+                    ToolbarExpandedPanel.Visibility = Visibility.Collapsed;
+                }
+            }
+            else // "Dim" (default)
+            {
+                double dimOpacity = 0.18;
+                if (_toolbarMinimized)
+                {
+                    ToolbarNotchPanel.Opacity = dimOpacity;
+                    ToolbarNotchPanel.IsHitTestVisible = false;
+                }
+                else
+                {
+                    ToolbarExpandedPanel.Opacity = dimOpacity;
+                    ToolbarExpandedPanel.IsHitTestVisible = false;
+                }
             }
         }
 

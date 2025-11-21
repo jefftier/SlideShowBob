@@ -33,6 +33,22 @@ namespace SlideShowBob
             PersistIsMutedCheckBox.IsChecked = _settings.PersistIsMuted;
             PersistFolderPathsCheckBox.IsChecked = _settings.PersistFolderPaths;
             
+            // Load current toolbar behavior setting (always persists)
+            string behavior = _settings.ToolbarInactivityBehavior ?? "Dim";
+            foreach (System.Windows.Controls.ComboBoxItem item in ToolbarInactivityBehaviorComboBox.Items)
+            {
+                if (item.Tag?.ToString() == behavior)
+                {
+                    ToolbarInactivityBehaviorComboBox.SelectedItem = item;
+                    break;
+                }
+            }
+            // Default to first item if nothing selected
+            if (ToolbarInactivityBehaviorComboBox.SelectedItem == null && ToolbarInactivityBehaviorComboBox.Items.Count > 0)
+            {
+                ToolbarInactivityBehaviorComboBox.SelectedIndex = 0;
+            }
+            
             Loaded += SettingsWindow_Loaded;
         }
 
@@ -91,6 +107,13 @@ namespace SlideShowBob
             if (!persistFolderPaths && _settings.PersistFolderPaths)
             {
                 _settings.FolderPaths = new List<string>(); // default (empty)
+            }
+            
+            // Update toolbar behavior setting (always persists)
+            if (ToolbarInactivityBehaviorComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem selectedItem)
+            {
+                string behavior = selectedItem.Tag?.ToString() ?? "Dim";
+                _settings.ToolbarInactivityBehavior = behavior;
             }
             
             // Update persistence flags
