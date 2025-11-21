@@ -1,0 +1,56 @@
+name: Release Slide Show Bob
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'   # e.g. v1.0.0, v0.3.2
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore SlideShowBob/SlideShowBob.csproj
+
+      - name: Build (Release)
+        run: dotnet build SlideShowBob/SlideShowBob.csproj -c Release --no-restore
+
+      - name: Publish win-x64 self-contained
+        run: >
+          dotnet publish SlideShowBob/SlideShowBob.csproj
+          -c Release
+          -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:PublishTrimmed=false
+          -o out/win-x64
+
+      - name: Create ZIP artifact
+        run: |
+          New-Item -ItemType Directory -Force -Path out\artifacts | Out-Null
+          Compress-Archive -Path out\win-x64\* -DestinationPath out\artifacts\SlideShowBob-win-x64.zip -Force
+        shell: pwsh
+
+      - name: Upload build as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SlideShowBob-win-x64
+          path: out/artifacts/SlideShowBob-win-x64.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            out/artifacts/SlideShowBob-win-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
