@@ -402,82 +402,136 @@ namespace SlideShowBob
                 return; // No video source, can't apply blur
             }
 
-            // For videos, we need to wait a moment for the first frame to render
-            // Then capture it - but verify it's still the same video source
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                // CRITICAL: Verify we're still showing the SAME video source
-                // This ensures blur is tightly coupled to the video
-                if (VideoElement.Source == null || VideoElement.Source != _currentVideoSource)
-                    return;
+            // For videos, we need to wait for the first frame to actually render
+            // This is especially important for larger videos which take longer to decode
+            // Use a retry mechanism to wait for the video to be ready
+            TryCaptureVideoFrameForBlur(0);
+        }
 
-                try
+        private void TryCaptureVideoFrameForBlur(int attempt)
+        {
+            const int maxAttempts = 10; // Try up to 10 times (about 1 second total)
+            const int delayMs = 100; // Wait 100ms between attempts
+
+            // CRITICAL: Verify we're still showing the SAME video source
+            if (VideoElement == null || VideoElement.Source == null || VideoElement.Source != _currentVideoSource)
+                return;
+
+            // Check if video has valid dimensions and is ready
+            if (VideoElement.NaturalVideoWidth <= 0 || VideoElement.NaturalVideoHeight <= 0)
+            {
+                // Video not ready yet, retry after a delay
+                if (attempt < maxAttempts)
                 {
-                    if (VideoElement.NaturalVideoWidth > 0 && VideoElement.NaturalVideoHeight > 0)
+                    Task.Delay(delayMs).ContinueWith(_ =>
                     {
-                        // Use VisualBrush to capture the video at its natural dimensions
-                        var videoBrush = new VisualBrush(VideoElement)
+                        Dispatcher.BeginInvoke(new Action(() =>
                         {
-                            Stretch = Stretch.Uniform,
-                            Viewbox = new Rect(0, 0, 1, 1),
-                            ViewboxUnits = BrushMappingMode.RelativeToBoundingBox
-                        };
-                        
-                        // Create a drawing visual with the video brush
-                        var drawingVisual = new DrawingVisual();
-                        using (var drawingContext = drawingVisual.RenderOpen())
-                        {
-                            drawingContext.DrawRectangle(
-                                videoBrush,
-                                null,
-                                new Rect(0, 0, VideoElement.NaturalVideoWidth, VideoElement.NaturalVideoHeight));
-                        }
-                        
-                        // Render to bitmap at natural video dimensions
-                        var renderTarget = new RenderTargetBitmap(
-                            VideoElement.NaturalVideoWidth,
-                            VideoElement.NaturalVideoHeight,
-                            96, 96, PixelFormats.Pbgra32);
-                        
-                        renderTarget.Render(drawingVisual);
-                        renderTarget.Freeze();
-                        
-                        // FINAL VERIFICATION: Make absolutely sure we're still on the same video
+                            TryCaptureVideoFrameForBlur(attempt + 1);
+                        }), DispatcherPriority.Background);
+                    });
+                    return;
+                }
+                // Give up after max attempts - just apply drop shadow
+                ApplyDropShadowOnly();
+                return;
+            }
+
+            // Try to capture the frame
+            try
+            {
+                // Use VisualBrush to capture the video at its natural dimensions
+                var videoBrush = new VisualBrush(VideoElement)
+                {
+                    Stretch = Stretch.Uniform,
+                    Viewbox = new Rect(0, 0, 1, 1),
+                    ViewboxUnits = BrushMappingMode.RelativeToBoundingBox
+                };
+                
+                // Create a drawing visual with the video brush
+                var drawingVisual = new DrawingVisual();
+                using (var drawingContext = drawingVisual.RenderOpen())
+                {
+                    drawingContext.DrawRectangle(
+                        videoBrush,
+                        null,
+                        new Rect(0, 0, VideoElement.NaturalVideoWidth, VideoElement.NaturalVideoHeight));
+                }
+                
+                // Render to bitmap at natural video dimensions
+                var renderTarget = new RenderTargetBitmap(
+                    VideoElement.NaturalVideoWidth,
+                    VideoElement.NaturalVideoHeight,
+                    96, 96, PixelFormats.Pbgra32);
+                
+                renderTarget.Render(drawingVisual);
+                renderTarget.Freeze();
+                
+                // Verify we're still on the same video
+                if (VideoElement.Source != null && VideoElement.Source == _currentVideoSource)
+                {
+                    // Set the source first while keeping it hidden
+                    // This allows the blur effect to be applied before the image becomes visible
+                    BlurredBackgroundImage.Source = renderTarget;
+                    BlurredBackgroundImage.Visibility = Visibility.Collapsed; // Keep hidden initially
+
+                    // Apply soft drop shadow to the video
+                    VideoElement.Effect = new DropShadowEffect
+                    {
+                        Color = Colors.Black,
+                        Direction = 270,
+                        ShadowDepth = 10,
+                        BlurRadius = 25,
+                        Opacity = 0.5
+                    };
+
+                    // Make the blurred background visible after a render pass
+                    // This ensures the blur effect is fully applied before showing the image
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        // Verify we're still on the same video before making visible
                         if (VideoElement.Source != null && VideoElement.Source == _currentVideoSource)
                         {
-                            // Use the captured frame as blurred background - tightly coupled to this video source
-                            BlurredBackgroundImage.Source = renderTarget;
                             BlurredBackgroundImage.Visibility = Visibility.Visible;
-
-                            // Apply soft drop shadow to the video
-                            VideoElement.Effect = new DropShadowEffect
-                            {
-                                Color = Colors.Black,
-                                Direction = 270,
-                                ShadowDepth = 10,
-                                BlurRadius = 25,
-                                Opacity = 0.5
-                            };
                         }
-                    }
+                    }), DispatcherPriority.Loaded);
                 }
-                catch
+            }
+            catch
+            {
+                // Capture failed - retry if we haven't exceeded max attempts
+                if (attempt < maxAttempts)
                 {
-                    // If capture fails, just apply the drop shadow without blurred background
-                    // But only if we're still on the same video
-                    if (VideoElement.Source != null && VideoElement.Source == _currentVideoSource)
+                    Task.Delay(delayMs).ContinueWith(_ =>
                     {
-                        VideoElement.Effect = new DropShadowEffect
+                        Dispatcher.BeginInvoke(new Action(() =>
                         {
-                            Color = Colors.Black,
-                            Direction = 270,
-                            ShadowDepth = 10,
-                            BlurRadius = 25,
-                            Opacity = 0.5
-                        };
-                    }
+                            TryCaptureVideoFrameForBlur(attempt + 1);
+                        }), DispatcherPriority.Background);
+                    });
                 }
-            }), System.Windows.Threading.DispatcherPriority.Render);
+                else
+                {
+                    // Give up after max attempts - just apply drop shadow
+                    ApplyDropShadowOnly();
+                }
+            }
+        }
+
+        private void ApplyDropShadowOnly()
+        {
+            // Apply drop shadow without blurred background
+            if (VideoElement != null && VideoElement.Source != null && VideoElement.Source == _currentVideoSource)
+            {
+                VideoElement.Effect = new DropShadowEffect
+                {
+                    Color = Colors.Black,
+                    Direction = 270,
+                    ShadowDepth = 10,
+                    BlurRadius = 25,
+                    Opacity = 0.5
+                };
+            }
         }
 
         // Keep the old method name for backward compatibility, but redirect to the new method
