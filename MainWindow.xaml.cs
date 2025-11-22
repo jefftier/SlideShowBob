@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -27,6 +28,7 @@ namespace SlideShowBob
         private readonly List<string> _orderedFiles = new();
         private int _currentIndex = -1;
         private readonly Dictionary<string, BitmapImage> _imageCache = new();
+        private readonly Dictionary<string, ExifOrientation> _imageOrientation = new();
         private const int MaxImageCache = 3;
         private AppSettings _settings;
 
@@ -39,6 +41,7 @@ namespace SlideShowBob
         private double _prevLeft, _prevTop, _prevWidth, _prevHeight;
         private readonly ScaleTransform _imageScale = new();
         private readonly ScaleTransform _videoScale = new();
+        private readonly RotateTransform _imageRotation = new();
 
         private readonly DispatcherTimer _slideTimer;
         private readonly DispatcherTimer _videoProgressTimer;
@@ -118,7 +121,8 @@ namespace SlideShowBob
             }
 
 
-            // ImageElement no longer uses LayoutTransform - we'll set Width/Height directly
+            // ImageElement uses rotation transform for EXIF orientation, sizing via Width/Height
+            ImageElement.LayoutTransform = _imageRotation;
             VideoElement.LayoutTransform = _videoScale;
 
             _slideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(_slideDelayMs) };
@@ -248,24 +252,130 @@ namespace SlideShowBob
             if (!isGif && _imageCache.TryGetValue(path, out var cached))
                 return cached;
 
-            var bmp = new BitmapImage();
-            bmp.BeginInit();
-            bmp.CacheOption = isGif ? BitmapCacheOption.OnDemand : BitmapCacheOption.OnLoad;
-            bmp.UriSource = new Uri(path);
-            bmp.EndInit();
+            // Read EXIF orientation first (separate from image loading)
             if (!isGif)
             {
-                bmp.Freeze();
-                _imageCache[path] = bmp;
-
-                // simple pruning
-                if (_imageCache.Count > MaxImageCache)
+                try
                 {
-                    var firstKey = _imageCache.Keys.First();
-                    _imageCache.Remove(firstKey);
+                    using (var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    {
+                        var decoder = BitmapDecoder.Create(fileStream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.None);
+                        var frame = decoder.Frames[0];
+                        var orientation = GetExifOrientation(frame.Metadata as BitmapMetadata);
+                        _imageOrientation[path] = orientation;
+                    }
+                }
+                catch
+                {
+                    _imageOrientation[path] = ExifOrientation.Normal;
                 }
             }
-            return bmp;
+
+            // Load image normally
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = isGif ? BitmapCacheOption.OnDemand : BitmapCacheOption.OnLoad;
+                bmp.UriSource = new Uri(path);
+                bmp.EndInit();
+                if (!isGif)
+                {
+                    bmp.Freeze();
+                    _imageCache[path] = bmp;
+
+                    // simple pruning
+                    if (_imageCache.Count > MaxImageCache)
+                    {
+                        var firstKey = _imageCache.Keys.First();
+                        _imageCache.Remove(firstKey);
+                        _imageOrientation.Remove(firstKey);
+                    }
+                }
+                return bmp;
+            }
+            catch
+            {
+                // Fallback to simple loading
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.CacheOption = isGif ? BitmapCacheOption.OnDemand : BitmapCacheOption.OnLoad;
+                bmp.UriSource = new Uri(path);
+                bmp.EndInit();
+                if (!isGif)
+                {
+                    bmp.Freeze();
+                    _imageCache[path] = bmp;
+
+                    // simple pruning
+                    if (_imageCache.Count > MaxImageCache)
+                    {
+                        var firstKey = _imageCache.Keys.First();
+                        _imageCache.Remove(firstKey);
+                    }
+                }
+                return bmp;
+            }
+        }
+
+        private enum ExifOrientation
+        {
+            Normal = 1,
+            Rotate90 = 6,      // 90° CCW (270° CW)
+            Rotate270 = 8      // 270° CCW (90° CW)
+        }
+
+        private ExifOrientation GetExifOrientation(BitmapMetadata? metadata)
+        {
+            if (metadata == null)
+                return ExifOrientation.Normal;
+
+            try
+            {
+                string[] orientationQueries = 
+                {
+                    "/ifd/exif:{uint=274}",
+                    "/app1/ifd/{ushort=274}",
+                    "/app1/ifd/exif/{ushort=274}"
+                };
+
+                foreach (var query in orientationQueries)
+                {
+                    try
+                    {
+                        if (metadata.ContainsQuery(query))
+                        {
+                            var orientationValue = metadata.GetQuery(query);
+                            if (orientationValue != null)
+                            {
+                                ushort orientation;
+                                if (orientationValue is ushort us)
+                                    orientation = us;
+                                else if (orientationValue is uint ui && ui <= ushort.MaxValue)
+                                    orientation = (ushort)ui;
+                                else if (ushort.TryParse(orientationValue.ToString(), out orientation))
+                                { }
+                                else
+                                    continue;
+
+                                if (orientation == 6)
+                                    return ExifOrientation.Rotate90;
+                                if (orientation == 8)
+                                    return ExifOrientation.Rotate270;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return ExifOrientation.Normal;
         }
 
         private SortMode ParseSortMode(string? value)
@@ -552,9 +662,10 @@ namespace SlideShowBob
                 double scaleY = viewportHeight / imgHeight;
                 double fitScale = Math.Min(scaleX, scaleY);
 
-                // Don't zoom in beyond 100% unless allowed
-                if (fitScale > 1.0 && !allowZoomIn)
-                    fitScale = 1.0;
+                // In fit mode, always allow zooming in to fill the window
+                // This is the expected behavior - images should fill available space
+                // Only restrict zoom-in if explicitly disabled (for backward compatibility)
+                // Note: allowZoomIn parameter is kept for GIFs which might have different behavior
 
                 // Clamp to reasonable bounds
                 if (fitScale < 0.1)
@@ -627,7 +738,7 @@ namespace SlideShowBob
                 }
                 else if (ImageElement.Source != null)
                 {
-                    SetZoomFit(_currentMediaType == MediaType.Gif);
+                    SetZoomFit(true); // Always allow zoom-in in fit mode to fill window
                 }
             }
             else if (_currentMediaType == MediaType.Video && VideoElement.Source != null)
@@ -1257,6 +1368,39 @@ namespace SlideShowBob
                     }
 
                     ImageElement.Source = img;
+                    
+                    // Apply EXIF rotation if needed
+                    // Rotation center will be set after image loads and we know its size
+                    if (_imageOrientation.TryGetValue(file, out var orientation))
+                    {
+                        if (orientation == ExifOrientation.Rotate90)
+                        {
+                            _imageRotation.Angle = -90; // WPF uses counter-clockwise, EXIF 6 is 90° CW
+                        }
+                        else if (orientation == ExifOrientation.Rotate270)
+                        {
+                            _imageRotation.Angle = 90; // WPF uses counter-clockwise, EXIF 8 is 90° CCW
+                        }
+                        else
+                        {
+                            _imageRotation.Angle = 0;
+                        }
+                        
+                        // Set rotation center after image dimensions are known
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            if (ImageElement.Source is BitmapSource bmp)
+                            {
+                                _imageRotation.CenterX = bmp.PixelWidth / 2.0;
+                                _imageRotation.CenterY = bmp.PixelHeight / 2.0;
+                            }
+                        }), System.Windows.Threading.DispatcherPriority.Loaded);
+                    }
+                    else
+                    {
+                        _imageRotation.Angle = 0;
+                    }
+                    
                     ScrollHost.ScrollToHorizontalOffset(0);
                     ScrollHost.ScrollToVerticalOffset(0);
 
@@ -1272,7 +1416,7 @@ namespace SlideShowBob
                                 LayoutUpdated -= layoutHandler;
                                 Dispatcher.BeginInvoke(new Action(() =>
                                 {
-                                    SetZoomFit(false);
+                                    SetZoomFit(true); // Always allow zoom-in in fit mode
                                 }), System.Windows.Threading.DispatcherPriority.Loaded);
                             }
                         };
@@ -1327,7 +1471,8 @@ namespace SlideShowBob
         private void ShowCurrentMedia()
         {
             // Synchronous wrapper for backward compatibility
-            _ = ShowCurrentMediaAsync();
+            // Fire-and-forget: intentionally not awaited
+            _ = ShowCurrentMediaAsync().ConfigureAwait(false);
         }
 
         private void VideoProgressBar_MouseDown(object sender, MouseButtonEventArgs e)
@@ -1657,7 +1802,7 @@ namespace SlideShowBob
                 }
                 else if (ImageElement.Source != null)
                 {
-                    SetZoomFit(_currentMediaType == MediaType.Gif);
+                    SetZoomFit(true); // Always allow zoom-in in fit mode to fill window
                 }
             }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
@@ -1916,11 +2061,148 @@ namespace SlideShowBob
         private void Media_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             ShowNext();
+            e.Handled = true; // Prevent bubbling to window handler
+        }
+
+        private void ScrollHost_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            // Don't handle if clicking directly on the image or video (they have their own handlers)
+            if (e.OriginalSource == ImageElement || e.OriginalSource == VideoElement)
+            {
+                return;
+            }
+            
+            // Check if we're clicking on toolbar or other UI elements
+            var source = e.OriginalSource as DependencyObject;
+            if (source != null)
+            {
+                var current = source;
+                while (current != null)
+                {
+                    if (current == ToolbarExpandedPanel || current == ToolbarNotchPanel ||
+                        current == StatusBar || current == TitleCountText ||
+                        current == BigSelectFolderButton ||
+                        current == ImageElement || current == VideoElement)
+                    {
+                        return; // Click is on UI element, don't handle
+                    }
+                    current = VisualTreeHelper.GetParent(current);
+                }
+            }
+            
+            // Left-click on empty space in ScrollViewer advances to next
+            ShowNext();
+            e.Handled = true;
         }
 
         private void Media_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             ShowPrevious();
+            e.Handled = true; // Prevent bubbling to window handler
+        }
+
+        private void MainGrid_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            // Don't handle if we're clicking on media elements (they have their own handlers)
+            if (e.OriginalSource == ImageElement || e.OriginalSource == VideoElement)
+            {
+                return; // Let the media element handlers deal with it
+            }
+            
+            // Check if click is on toolbar or other UI elements - if so, don't handle it
+            var source = e.OriginalSource as DependencyObject;
+            if (source != null)
+            {
+                // Walk up the visual tree to see if we're clicking on UI elements
+                var current = source;
+                while (current != null)
+                {
+                    // Exclude toolbar panels
+                    if (current == ToolbarExpandedPanel || current == ToolbarNotchPanel)
+                    {
+                        return; // Click is on toolbar, don't handle
+                    }
+                    
+                    // Exclude status bar and title count
+                    if (current == StatusBar || current == TitleCountText)
+                    {
+                        return; // Click is on status elements, don't handle
+                    }
+                    
+                    // Exclude the big select folder button
+                    if (current == BigSelectFolderButton)
+                    {
+                        return; // Click is on the folder button, don't handle
+                    }
+                    
+                    // Exclude ScrollViewer and its children (but not the background)
+                    if (current == ScrollHost || current is ScrollBar)
+                    {
+                        // Allow clicks on ScrollViewer background, but not on scrollbars
+                        if (current is ScrollBar)
+                            return;
+                        // Continue checking - we want to handle clicks on empty ScrollViewer area
+                    }
+                    
+                    current = VisualTreeHelper.GetParent(current);
+                }
+            }
+            
+            // Right-click anywhere else in the window advances to previous
+            ShowPrevious();
+            e.Handled = true;
+        }
+
+        private void MainGrid_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            // Don't handle if we're clicking on media elements (they have their own handlers)
+            if (e.OriginalSource == ImageElement || e.OriginalSource == VideoElement)
+            {
+                return; // Let the media element handlers deal with it
+            }
+            
+            // Check if click is on toolbar or other UI elements - if so, don't handle it
+            var source = e.OriginalSource as DependencyObject;
+            if (source != null)
+            {
+                // Walk up the visual tree to see if we're clicking on UI elements
+                var current = source;
+                while (current != null)
+                {
+                    // Exclude toolbar panels
+                    if (current == ToolbarExpandedPanel || current == ToolbarNotchPanel)
+                    {
+                        return; // Click is on toolbar, don't handle
+                    }
+                    
+                    // Exclude status bar and title count
+                    if (current == StatusBar || current == TitleCountText)
+                    {
+                        return; // Click is on status elements, don't handle
+                    }
+                    
+                    // Exclude the big select folder button
+                    if (current == BigSelectFolderButton)
+                    {
+                        return; // Click is on the folder button, don't handle
+                    }
+                    
+                    // Exclude ScrollViewer and its children (but not the background)
+                    if (current == ScrollHost || current is ScrollBar)
+                    {
+                        // Allow clicks on ScrollViewer background, but not on scrollbars
+                        if (current is ScrollBar)
+                            return;
+                        // Continue checking - we want to handle clicks on empty ScrollViewer area
+                    }
+                    
+                    current = VisualTreeHelper.GetParent(current);
+                }
+            }
+            
+            // Left-click anywhere else in the window advances to next
+            ShowNext();
+            e.Handled = true;
         }
 
         private void ScrollHost_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -1930,6 +2212,37 @@ namespace SlideShowBob
 
             double factor = e.Delta > 0 ? 1.1 : 0.9;
             SetZoom(_zoomFactor * factor);
+            e.Handled = true;
+        }
+
+        private void ScrollHost_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            // Don't handle if clicking directly on the image or video (they have their own handlers)
+            if (e.OriginalSource == ImageElement || e.OriginalSource == VideoElement)
+            {
+                return;
+            }
+            
+            // Check if we're clicking on toolbar or other UI elements
+            var source = e.OriginalSource as DependencyObject;
+            if (source != null)
+            {
+                var current = source;
+                while (current != null)
+                {
+                    if (current == ToolbarExpandedPanel || current == ToolbarNotchPanel ||
+                        current == StatusBar || current == TitleCountText ||
+                        current == BigSelectFolderButton ||
+                        current == ImageElement || current == VideoElement)
+                    {
+                        return; // Click is on UI element, don't handle
+                    }
+                    current = VisualTreeHelper.GetParent(current);
+                }
+            }
+            
+            // Right-click on empty space in ScrollViewer advances to previous
+            ShowPrevious();
             e.Handled = true;
         }
         public async Task ChooseFoldersFromDialogAsync()

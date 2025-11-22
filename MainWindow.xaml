@@ -325,7 +325,9 @@
     </Window.Resources>
 
 
-    <Grid Background="{StaticResource WindowBackdropBrush}">
+    <Grid Background="{StaticResource WindowBackdropBrush}" 
+          PreviewMouseRightButtonUp="MainGrid_PreviewMouseRightButtonUp"
+          PreviewMouseLeftButtonUp="MainGrid_PreviewMouseLeftButtonUp">
 
         <!-- CONTENT AREA -->
         <Grid x:Name="ContentGrid">
@@ -337,7 +339,9 @@
                                   VerticalScrollBarVisibility="Auto"
                                   CanContentScroll="False"
                                   Background="{StaticResource SurfaceBrush}"
-                                  PreviewMouseWheel="ScrollHost_PreviewMouseWheel">
+                                  PreviewMouseWheel="ScrollHost_PreviewMouseWheel"
+                                  PreviewMouseRightButtonUp="ScrollHost_PreviewMouseRightButtonUp"
+                                  PreviewMouseLeftButtonUp="ScrollHost_PreviewMouseLeftButtonUp">
                         <Grid x:Name="MediaGrid">
                             <MediaElement x:Name="VideoElement"
                                           LoadedBehavior="Manual"
