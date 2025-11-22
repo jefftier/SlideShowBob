@@ -395,20 +395,44 @@ namespace SlideShowBob
 
         private void ShowChrome()
         {
-            // Clear any opacity animations so direct values take effect
-            ToolbarExpandedPanel.BeginAnimation(OpacityProperty, null);
-            ToolbarNotchPanel.BeginAnimation(OpacityProperty, null);
-
             if (_toolbarMinimized)
             {
-                ToolbarNotchPanel.Visibility = Visibility.Visible;
-                ToolbarNotchPanel.Opacity = 1.0;
+                if (ToolbarNotchPanel.Visibility != Visibility.Visible)
+                {
+                    ToolbarNotchPanel.Visibility = Visibility.Visible;
+                    ToolbarNotchPanel.Opacity = 0.0;
+                }
+
+                // Smooth fade-in animation
+                var fadeInAnim = new DoubleAnimation(
+                    ToolbarNotchPanel.Opacity,
+                    1.0,
+                    TimeSpan.FromMilliseconds(250))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                };
+
+                ToolbarNotchPanel.BeginAnimation(OpacityProperty, fadeInAnim);
                 ToolbarNotchPanel.IsHitTestVisible = true;
             }
             else
             {
-                ToolbarExpandedPanel.Visibility = Visibility.Visible;
-                ToolbarExpandedPanel.Opacity = 1.0;
+                if (ToolbarExpandedPanel.Visibility != Visibility.Visible)
+                {
+                    ToolbarExpandedPanel.Visibility = Visibility.Visible;
+                    ToolbarExpandedPanel.Opacity = 0.0;
+                }
+
+                // Smooth fade-in animation
+                var fadeInAnim = new DoubleAnimation(
+                    ToolbarExpandedPanel.Opacity,
+                    1.0,
+                    TimeSpan.FromMilliseconds(250))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                };
+
+                ToolbarExpandedPanel.BeginAnimation(OpacityProperty, fadeInAnim);
                 ToolbarExpandedPanel.IsHitTestVisible = true;
             }
         }
@@ -417,10 +441,6 @@ namespace SlideShowBob
         {
             string behavior = _settings.ToolbarInactivityBehavior ?? "Dim"; // default
 
-            // Clear opacity animations so changes are respected
-            ToolbarExpandedPanel.BeginAnimation(OpacityProperty, null);
-            ToolbarNotchPanel.BeginAnimation(OpacityProperty, null);
-
             if (behavior == "Nothing")
             {
                 // Do nothing - keep toolbars visible and interactive
@@ -428,14 +448,40 @@ namespace SlideShowBob
             }
             else if (behavior == "Disappear")
             {
-                // Hide toolbars completely
+                // Smooth fade-out before hiding
                 if (_toolbarMinimized)
                 {
-                    ToolbarNotchPanel.Visibility = Visibility.Collapsed;
+                    var fadeOutAnim = new DoubleAnimation(
+                        ToolbarNotchPanel.Opacity,
+                        0.0,
+                        TimeSpan.FromMilliseconds(250))
+                    {
+                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+                    };
+
+                    fadeOutAnim.Completed += (s, e) =>
+                    {
+                        ToolbarNotchPanel.Visibility = Visibility.Collapsed;
+                    };
+
+                    ToolbarNotchPanel.BeginAnimation(OpacityProperty, fadeOutAnim);
                 }
                 else
                 {
-                    ToolbarExpandedPanel.Visibility = Visibility.Collapsed;
+                    var fadeOutAnim = new DoubleAnimation(
+                        ToolbarExpandedPanel.Opacity,
+                        0.0,
+                        TimeSpan.FromMilliseconds(250))
+                    {
+                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+                    };
+
+                    fadeOutAnim.Completed += (s, e) =>
+                    {
+                        ToolbarExpandedPanel.Visibility = Visibility.Collapsed;
+                    };
+
+                    ToolbarExpandedPanel.BeginAnimation(OpacityProperty, fadeOutAnim);
                 }
             }
             else // "Dim" (default)
@@ -443,12 +489,30 @@ namespace SlideShowBob
                 double dimOpacity = 0.18;
                 if (_toolbarMinimized)
                 {
-                    ToolbarNotchPanel.Opacity = dimOpacity;
+                    // Smooth fade to dimmed opacity
+                    var fadeDimAnim = new DoubleAnimation(
+                        ToolbarNotchPanel.Opacity,
+                        dimOpacity,
+                        TimeSpan.FromMilliseconds(300))
+                    {
+                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+                    };
+
+                    ToolbarNotchPanel.BeginAnimation(OpacityProperty, fadeDimAnim);
                     ToolbarNotchPanel.IsHitTestVisible = false;
                 }
                 else
                 {
-                    ToolbarExpandedPanel.Opacity = dimOpacity;
+                    // Smooth fade to dimmed opacity
+                    var fadeDimAnim = new DoubleAnimation(
+                        ToolbarExpandedPanel.Opacity,
+                        dimOpacity,
+                        TimeSpan.FromMilliseconds(300))
+                    {
+                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+                    };
+
+                    ToolbarExpandedPanel.BeginAnimation(OpacityProperty, fadeDimAnim);
                     ToolbarExpandedPanel.IsHitTestVisible = false;
                 }
             }
