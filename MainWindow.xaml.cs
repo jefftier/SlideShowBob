@@ -26,7 +26,7 @@ namespace SlideShowBob
         private readonly List<string> _allFiles = new();
         private readonly List<string> _orderedFiles = new();
         private int _currentIndex = -1;
-        private readonly Dictionary<string, BitmapSource> _imageCache = new();
+        private readonly Dictionary<string, BitmapImage> _imageCache = new();
         private const int MaxImageCache = 3;
         private AppSettings _settings;
 
@@ -241,205 +241,32 @@ namespace SlideShowBob
             }
         }
 
-        private BitmapSource? GetOrLoadImage(string path, bool isGif)
+        private BitmapImage? GetOrLoadImage(string path, bool isGif)
         {
             if (!File.Exists(path)) return null;
 
             if (!isGif && _imageCache.TryGetValue(path, out var cached))
                 return cached;
 
-            try
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.CacheOption = isGif ? BitmapCacheOption.OnDemand : BitmapCacheOption.OnLoad;
+            bmp.UriSource = new Uri(path);
+            bmp.EndInit();
+            if (!isGif)
             {
-                // Load image with metadata access for EXIF orientation
-                BitmapSource? source = null;
-                
-                using (var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                bmp.Freeze();
+                _imageCache[path] = bmp;
+
+                // simple pruning
+                if (_imageCache.Count > MaxImageCache)
                 {
-                    var decoder = BitmapDecoder.Create(fileStream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-                    var frame = decoder.Frames[0];
-                    
-                    // Get EXIF orientation
-                    var orientation = GetExifOrientation(frame.Metadata as BitmapMetadata);
-                    
-                    // Apply rotation if needed
-                    if (orientation != ExifOrientation.Normal)
-                    {
-                        source = ApplyOrientation(frame, orientation);
-                    }
-                    else
-                    {
-                        source = frame;
-                    }
-                    
-                    // Freeze the bitmap for thread safety and caching
-                    source.Freeze();
-                }
-
-                if (!isGif && source != null)
-                {
-                    _imageCache[path] = source;
-                    
-                    // simple pruning
-                    if (_imageCache.Count > MaxImageCache)
-                    {
-                        var firstKey = _imageCache.Keys.First();
-                        _imageCache.Remove(firstKey);
-                    }
-                }
-                
-                return source;
-            }
-            catch
-            {
-                // Fallback to simple BitmapImage loading if metadata reading fails
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                bmp.CacheOption = isGif ? BitmapCacheOption.OnDemand : BitmapCacheOption.OnLoad;
-                bmp.UriSource = new Uri(path);
-                bmp.EndInit();
-                if (!isGif)
-                {
-                    bmp.Freeze();
-                    _imageCache[path] = bmp;
-
-                    // simple pruning
-                    if (_imageCache.Count > MaxImageCache)
-                    {
-                        var firstKey = _imageCache.Keys.First();
-                        _imageCache.Remove(firstKey);
-                    }
-                }
-                return bmp;
-            }
-        }
-
-        private enum ExifOrientation
-        {
-            Normal = 1,           // 0° - no rotation
-            FlipHorizontal = 2,  // Mirror horizontal
-            Rotate180 = 3,       // 180° rotation
-            FlipVertical = 4,    // Mirror vertical
-            Rotate90FlipHorizontal = 5,  // 90° CCW + mirror
-            Rotate90 = 6,        // 90° CCW (270° CW)
-            Rotate90FlipVertical = 7,    // 90° CW + mirror
-            Rotate270 = 8        // 270° CCW (90° CW)
-        }
-
-        private ExifOrientation GetExifOrientation(BitmapMetadata? metadata)
-        {
-            if (metadata == null)
-                return ExifOrientation.Normal;
-
-            try
-            {
-                // Try multiple EXIF orientation query paths (different formats store it differently)
-                string[] orientationQueries = 
-                {
-                    "/ifd/exif:{uint=274}",
-                    "/app1/ifd/{ushort=274}",
-                    "/app1/ifd/exif/{ushort=274}"
-                };
-
-                foreach (var query in orientationQueries)
-                {
-                    try
-                    {
-                        if (metadata.ContainsQuery(query))
-                        {
-                            var orientationValue = metadata.GetQuery(query);
-                            if (orientationValue != null)
-                            {
-                                ushort orientation;
-                                if (orientationValue is ushort us)
-                                {
-                                    orientation = us;
-                                }
-                                else if (orientationValue is uint ui && ui <= ushort.MaxValue)
-                                {
-                                    orientation = (ushort)ui;
-                                }
-                                else if (ushort.TryParse(orientationValue.ToString(), out orientation))
-                                {
-                                    // Parsed successfully
-                                }
-                                else
-                                {
-                                    continue;
-                                }
-
-                                if (orientation >= 1 && orientation <= 8)
-                                {
-                                    return (ExifOrientation)orientation;
-                                }
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        // Try next query path
-                        continue;
-                    }
+                    var firstKey = _imageCache.Keys.First();
+                    _imageCache.Remove(firstKey);
                 }
             }
-            catch
-            {
-                // If metadata query fails, assume normal orientation
-            }
-
-            return ExifOrientation.Normal;
+            return bmp;
         }
-
-        private BitmapSource ApplyOrientation(BitmapSource source, ExifOrientation orientation)
-        {
-            double centerX = source.PixelWidth / 2.0;
-            double centerY = source.PixelHeight / 2.0;
-            Transform transform;
-            
-            switch (orientation)
-            {
-                case ExifOrientation.Rotate90:
-                    // EXIF orientation 6: Image needs to be rotated 90° clockwise
-                    // In WPF, positive rotation is counter-clockwise, so use -90
-                    transform = new RotateTransform(-90, centerX, centerY);
-                    break;
-                case ExifOrientation.Rotate180:
-                    transform = new RotateTransform(180, centerX, centerY);
-                    break;
-                case ExifOrientation.Rotate270:
-                    // EXIF orientation 8: Image needs to be rotated 90° counter-clockwise (270° clockwise)
-                    // In WPF, use 90 (counter-clockwise) or -270 (same result)
-                    transform = new RotateTransform(90, centerX, centerY);
-                    break;
-                case ExifOrientation.FlipHorizontal:
-                    transform = new ScaleTransform(-1, 1, centerX, centerY);
-                    break;
-                case ExifOrientation.FlipVertical:
-                    transform = new ScaleTransform(1, -1, centerX, centerY);
-                    break;
-                case ExifOrientation.Rotate90FlipHorizontal:
-                    // EXIF orientation 5: Rotate 90° CW then flip horizontal
-                    // Apply transforms in reverse order (right to left)
-                    var group1 = new TransformGroup();
-                    group1.Children.Add(new RotateTransform(-90, centerX, centerY));
-                    group1.Children.Add(new ScaleTransform(-1, 1, centerX, centerY));
-                    transform = group1;
-                    break;
-                case ExifOrientation.Rotate90FlipVertical:
-                    // EXIF orientation 7: Rotate 90° CW then flip vertical
-                    var group2 = new TransformGroup();
-                    group2.Children.Add(new RotateTransform(-90, centerX, centerY));
-                    group2.Children.Add(new ScaleTransform(1, -1, centerX, centerY));
-                    transform = group2;
-                    break;
-                default:
-                    return source; // No transformation needed
-            }
-
-            var transformed = new TransformedBitmap(source, transform);
-            transformed.Freeze();
-            return transformed;
-        }
-
 
         private SortMode ParseSortMode(string? value)
         {
