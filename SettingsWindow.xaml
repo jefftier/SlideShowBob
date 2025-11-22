@@ -11,29 +11,30 @@
         Foreground="{DynamicResource TextPrimaryBrush}">
     
     <Window.Resources>
-        <!-- ===== Win11-ish color palette (matching MainWindow) ===== -->
-        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#050914"/>
+        <!-- ===== Fluent 2 / Windows 11 Modern Color Palette ===== -->
+        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#0F0F0F"/>
         <LinearGradientBrush x:Key="WindowBackdropBrush" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#151A2F" Offset="0.0"/>
-            <GradientStop Color="#050914" Offset="1.0"/>
+            <GradientStop Color="#1A1A1A" Offset="0.0"/>
+            <GradientStop Color="#0F0F0F" Offset="1.0"/>
         </LinearGradientBrush>
         
-        <SolidColorBrush x:Key="SurfaceBrush" Color="#181C2C"/>
-        <SolidColorBrush x:Key="SurfaceAltBrush" Color="#1F2435"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#1C1C1C"/>
+        <SolidColorBrush x:Key="SurfaceAltBrush" Color="#242424"/>
         
-        <SolidColorBrush x:Key="AccentBrush" Color="#4C8DFF"/>
-        <SolidColorBrush x:Key="AccentBrushSecondary" Color="#82B5FF"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#0078D4"/>
+        <SolidColorBrush x:Key="AccentBrushHover" Color="#106EBE"/>
+        <SolidColorBrush x:Key="AccentBrushSecondary" Color="#005A9E"/>
         
-        <SolidColorBrush x:Key="SubtleBorderBrush" Color="#33FFFFFF"/>
-        <SolidColorBrush x:Key="SubtleBorderStrongBrush" Color="#55FFFFFF"/>
+        <SolidColorBrush x:Key="SubtleBorderBrush" Color="#2A2A2A"/>
+        <SolidColorBrush x:Key="SubtleBorderStrongBrush" Color="#3A3A3A"/>
         
-        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F9FAFB"/>
-        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#BFC3D4"/>
-        <SolidColorBrush x:Key="TextMutedBrush" Color="#8890A8"/>
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#CCCCCC"/>
+        <SolidColorBrush x:Key="TextMutedBrush" Color="#999999"/>
         
-        <SolidColorBrush x:Key="ControlBackgroundBrush" Color="#20253A"/>
-        <SolidColorBrush x:Key="ControlBackgroundMutedBrush" Color="#1B2032"/>
-        <SolidColorBrush x:Key="ControlBackgroundHoverBrush" Color="#28314A"/>
+        <SolidColorBrush x:Key="ControlBackgroundBrush" Color="Transparent"/>
+        <SolidColorBrush x:Key="ControlBackgroundHoverBrush" Color="#2A2A2A"/>
+        <SolidColorBrush x:Key="ControlBackgroundPressedBrush" Color="#333333"/>
 
         <!-- ===== Modern minimalistic scrollbar style ===== -->
         <Style TargetType="ScrollBar">
@@ -89,29 +90,31 @@
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
+            <Setter Property="FontFamily" Value="Segoe UI Variable"/>
         </Style>
         
-        <!-- ===== CheckBox style ===== -->
+        <!-- ===== Modern CheckBox style - Blue when checked ===== -->
         <Style TargetType="CheckBox">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-            <Setter Property="Margin" Value="0,6"/>
-            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="CheckBox">
                         <Grid>
                             <Border x:Name="CheckBoxBorder"
-                                    Background="{StaticResource ControlBackgroundBrush}"
+                                    Background="Transparent"
                                     BorderBrush="{StaticResource SubtleBorderBrush}"
                                     BorderThickness="1"
-                                    Width="16"
-                                    Height="16"
-                                    CornerRadius="3"
+                                    Width="18"
+                                    Height="18"
+                                    CornerRadius="2"
                                     VerticalAlignment="Center">
                             </Border>
                             <Path x:Name="CheckMark"
                                   Data="M 3,7 L 6,10 L 12,4"
-                                  Stroke="{StaticResource AccentBrush}"
+                                  Stroke="White"
                                   StrokeThickness="2"
                                   StrokeStartLineCap="Round"
                                   StrokeEndLineCap="Round"
@@ -121,14 +124,14 @@
                                   VerticalAlignment="Center"
                                   HorizontalAlignment="Center"/>
                             <ContentPresenter Content="{TemplateBinding Content}"
-                                            Margin="24,0,0,0"
+                                            Margin="26,0,0,0"
                                             VerticalAlignment="Center"/>
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/>
                                 <Setter TargetName="CheckBoxBorder" Property="Background" Value="{StaticResource AccentBrush}"/>
-                                <Setter TargetName="CheckBoxBorder" Property="BorderBrush" Value="{StaticResource AccentBrushSecondary}"/>
+                                <Setter TargetName="CheckBoxBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="CheckBoxBorder" Property="Background" Value="{StaticResource ControlBackgroundHoverBrush}"/>
@@ -140,24 +143,21 @@
             </Setter>
         </Style>
         
-        <!-- ===== Button style (matching MainWindow IconButton) ===== -->
+        <!-- ===== Modern Button style - No border, hover background ===== -->
         <Style TargetType="Button">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-            <Setter Property="Background" Value="{StaticResource ControlBackgroundBrush}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="20,10"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,8"/>
             <Setter Property="Margin" Value="0,0,8,0"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="MinWidth" Value="90"/>
+            <Setter Property="MinWidth" Value="80"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Root"
                                 Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="4"
+                                CornerRadius="2"
                                 SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Center"
                                             VerticalAlignment="Center"/>
@@ -166,15 +166,10 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Root" Property="Background"
                                         Value="{StaticResource ControlBackgroundHoverBrush}"/>
-                                <Setter TargetName="Root" Property="BorderBrush"
-                                        Value="{StaticResource SubtleBorderStrongBrush}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Root" Property="Background"
-                                        Value="{StaticResource AccentBrush}"/>
-                                <Setter Property="Foreground" Value="White"/>
-                                <Setter TargetName="Root" Property="BorderBrush"
-                                        Value="{StaticResource AccentBrushSecondary}"/>
+                                        Value="{StaticResource ControlBackgroundPressedBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -182,46 +177,143 @@
             </Setter>
         </Style>
         
-        <!-- ===== ComboBox style ===== -->
+        <!-- ===== Modern ComboBox style - Subtle border, fixed width ===== -->
         <Style TargetType="ComboBox">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-            <Setter Property="Background" Value="{StaticResource ControlBackgroundBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Padding" Value="6,4"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Width" Value="140"/>
+            <Setter Property="MinWidth" Value="140"/>
+            <Setter Property="MaxWidth" Value="140"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <Border x:Name="Border"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="2">
+                                <ToggleButton x:Name="ToggleButton"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Focusable="False"
+                                            ClickMode="Press"
+                                            IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="20"/>
+                                        </Grid.ColumnDefinitions>
+                                        <ContentPresenter x:Name="ContentSite"
+                                                        IsHitTestVisible="False"
+                                                        Content="{TemplateBinding SelectionBoxItem}"
+                                                        ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                        ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                                        Margin="{TemplateBinding Padding}"
+                                                        HorizontalAlignment="Left"
+                                                        VerticalAlignment="Center">
+                                            <ContentPresenter.Resources>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                                </Style>
+                                            </ContentPresenter.Resources>
+                                        </ContentPresenter>
+                                        <Path x:Name="Arrow"
+                                            Grid.Column="1"
+                                            Fill="{StaticResource TextSecondaryBrush}"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Data="M 0,0 L 4,4 L 8,0 Z"/>
+                                    </Grid>
+                                </ToggleButton>
+                            </Border>
+                            <TextBox x:Name="PART_EditableTextBox"
+                                   Style="{x:Null}"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Center"
+                                   Margin="{TemplateBinding Padding}"
+                                   Focusable="True"
+                                   Background="Transparent"
+                                   BorderThickness="0"
+                                   Visibility="Collapsed"
+                                   IsReadOnly="{TemplateBinding IsReadOnly}"/>
+                            <Popup x:Name="PART_Popup"
+                                 IsOpen="{TemplateBinding IsDropDownOpen}"
+                                 AllowsTransparency="True"
+                                 Focusable="False"
+                                 PopupAnimation="Slide"
+                                 Placement="Bottom">
+                                <Border x:Name="DropDownBorder"
+                                      Background="{StaticResource SurfaceBrush}"
+                                      BorderBrush="{StaticResource SubtleBorderBrush}"
+                                      BorderThickness="1"
+                                      CornerRadius="2"
+                                      MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                    <ScrollViewer>
+                                        <ItemsPresenter/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background"
+                                        Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEditable" Value="True">
+                                <Setter Property="IsTabStop" Value="False"/>
+                                <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="ContentSite" Property="Visibility" Value="Collapsed"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         
         <Style TargetType="ComboBoxItem">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-            <Setter Property="Background" Value="{StaticResource ControlBackgroundBrush}"/>
-            <Setter Property="Padding" Value="8,4"/>
-        </Style>
-        
-        <!-- ===== GroupBox style ===== -->
-        <Style TargetType="GroupBox">
-            <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Margin" Value="0,0,0,16"/>
-            <Setter Property="Padding" Value="12"/>
-            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
-            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
-            <Setter Property="HeaderTemplate">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Template">
                 <Setter.Value>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding}"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                   FontSize="12"
-                                   FontWeight="SemiBold"
-                                   Margin="0,0,0,4"/>
-                    </DataTemplate>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderThickness="0"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter>
+                                <ContentPresenter.Resources>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                    </Style>
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background"
+                                        Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background"
+                                        Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
     </Window.Resources>
     
     <Grid Background="{StaticResource WindowBackdropBrush}" Margin="0">
-        <Grid Margin="20">
+        <Grid Margin="24">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
@@ -229,62 +321,106 @@
             </Grid.RowDefinitions>
             
             <!-- Header -->
-            <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <StackPanel Grid.Row="0" Margin="0,0,0,24">
                 <TextBlock Text="Persistence Settings" 
-                           FontSize="18" 
-                           FontWeight="Bold"
+                           FontSize="20" 
+                           FontWeight="SemiBold"
                            Margin="0,0,0,8"/>
                 
                 <TextBlock Text="Control which settings are saved between sessions. When disabled, the setting will revert to its default value when the app restarts."
                            TextWrapping="Wrap"
                            Foreground="{StaticResource TextSecondaryBrush}"
-                           FontSize="12"
-                           LineHeight="18"/>
+                           FontSize="13"
+                           LineHeight="20"/>
             </StackPanel>
             
-            <!-- Content (with minimal scrolling) -->
+            <!-- Content with 2-column layout -->
             <ScrollViewer Grid.Row="1" 
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
-                          Margin="0,0,0,20">
-                <StackPanel>
-                    <GroupBox Header="Feature Persistence">
-                        <StackPanel Margin="4">
-                            <CheckBox x:Name="PersistSlideDelayCheckBox"
-                                       Content="Persist Slide Delay"/>
-                            <CheckBox x:Name="PersistIncludeVideosCheckBox"
-                                       Content="Persist Include Videos (GIF/MP4)"/>
-                            <CheckBox x:Name="PersistSortModeCheckBox"
-                                       Content="Persist Sort Mode"/>
-                            <CheckBox x:Name="PersistIsMutedCheckBox"
-                                       Content="Persist Mute State"/>
-                            <CheckBox x:Name="PersistFolderPathsCheckBox"
-                                       Content="Persist Folder Paths"/>
-                            
-                            <!-- Toolbar Inactivity Behavior - always persists -->
-                            <Grid Margin="0,6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0"
-                                           Text="Toolbar Inactivity Behavior:"
-                                           Foreground="{StaticResource TextPrimaryBrush}"
-                                           VerticalAlignment="Center"
-                                           Margin="0,0,12,0"/>
-                                <ComboBox x:Name="ToolbarInactivityBehaviorComboBox"
-                                          Grid.Column="2"
-                                          MinWidth="150"
-                                          HorizontalAlignment="Right">
-                                    <ComboBoxItem Content="Dim" Tag="Dim"/>
-                                    <ComboBoxItem Content="Disappear" Tag="Disappear"/>
-                                    <ComboBoxItem Content="Do Nothing" Tag="Nothing"/>
-                                </ComboBox>
-                            </Grid>
-                        </StackPanel>
-                    </GroupBox>
-                </StackPanel>
+                          Margin="0,0,0,24">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    
+                    <!-- Row 0: Persist Slide Delay -->
+                    <TextBlock Grid.Row="0" Grid.Column="0"
+                               Text="Persist Slide Delay"
+                               VerticalAlignment="Center"
+                               Margin="0,0,0,12"/>
+                    <CheckBox x:Name="PersistSlideDelayCheckBox"
+                              Grid.Row="0" Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Margin="0,0,0,12"
+                              HorizontalAlignment="Left"/>
+                    
+                    <!-- Row 1: Persist Include Videos -->
+                    <TextBlock Grid.Row="1" Grid.Column="0"
+                               Text="Persist Include Videos (GIF/MP4)"
+                               VerticalAlignment="Center"
+                               Margin="0,0,0,12"/>
+                    <CheckBox x:Name="PersistIncludeVideosCheckBox"
+                              Grid.Row="1" Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Margin="0,0,0,12"
+                              HorizontalAlignment="Left"/>
+                    
+                    <!-- Row 2: Persist Sort Mode -->
+                    <TextBlock Grid.Row="2" Grid.Column="0"
+                               Text="Persist Sort Mode"
+                               VerticalAlignment="Center"
+                               Margin="0,0,0,12"/>
+                    <CheckBox x:Name="PersistSortModeCheckBox"
+                              Grid.Row="2" Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Margin="0,0,0,12"
+                              HorizontalAlignment="Left"/>
+                    
+                    <!-- Row 3: Persist Mute State -->
+                    <TextBlock Grid.Row="3" Grid.Column="0"
+                               Text="Persist Mute State"
+                               VerticalAlignment="Center"
+                               Margin="0,0,0,12"/>
+                    <CheckBox x:Name="PersistIsMutedCheckBox"
+                              Grid.Row="3" Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Margin="0,0,0,12"
+                              HorizontalAlignment="Left"/>
+                    
+                    <!-- Row 4: Persist Folder Paths -->
+                    <TextBlock Grid.Row="4" Grid.Column="0"
+                               Text="Persist Folder Paths"
+                               VerticalAlignment="Center"
+                               Margin="0,0,0,12"/>
+                    <CheckBox x:Name="PersistFolderPathsCheckBox"
+                              Grid.Row="4" Grid.Column="1"
+                              VerticalAlignment="Center"
+                              Margin="0,0,0,12"
+                              HorizontalAlignment="Left"/>
+                    
+                    <!-- Row 5: Toolbar Inactivity Behavior -->
+                    <TextBlock Grid.Row="5" Grid.Column="0"
+                               Text="Toolbar Inactivity Behavior"
+                               VerticalAlignment="Center"/>
+                    <ComboBox x:Name="ToolbarInactivityBehaviorComboBox"
+                              Grid.Row="5" Grid.Column="1"
+                              VerticalAlignment="Center"
+                              HorizontalAlignment="Left">
+                        <ComboBoxItem Content="Dim" Tag="Dim"/>
+                        <ComboBoxItem Content="Disappear" Tag="Disappear"/>
+                        <ComboBoxItem Content="Do Nothing" Tag="Nothing"/>
+                    </ComboBox>
+                </Grid>
             </ScrollViewer>
             
             <!-- Buttons -->

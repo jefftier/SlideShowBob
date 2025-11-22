@@ -641,15 +641,38 @@ namespace SlideShowBob
 
         private void SetZoomFit(bool allowZoomIn = false)
         {
-            if (ScrollHost == null)
+            if (ScrollHost == null || ImageElement == null)
                 return;
 
             if (ImageElement.Source is not BitmapSource bmp)
                 return;
 
-            double viewportWidth = ScrollHost.ViewportWidth > 0 ? ScrollHost.ViewportWidth : ScrollHost.ActualWidth;
-            double viewportHeight = ScrollHost.ViewportHeight > 0 ? ScrollHost.ViewportHeight : ScrollHost.ActualHeight;
+            // Force layout update to get accurate viewport
+            ScrollHost.UpdateLayout();
+            ImageElement.UpdateLayout();
+            UpdateLayout();
 
+            // Get the actual available space - use ScrollHost's actual dimensions
+            // ScrollHost fills the content area, so use its ActualWidth/Height
+            double viewportWidth = ScrollHost.ActualWidth;
+            double viewportHeight = ScrollHost.ActualHeight;
+
+            // If ScrollHost dimensions are 0, try ViewportWidth/Height
+            if (viewportWidth <= 0)
+                viewportWidth = ScrollHost.ViewportWidth;
+            if (viewportHeight <= 0)
+                viewportHeight = ScrollHost.ViewportHeight;
+
+            // Final fallback to window dimensions minus estimated UI elements
+            if (viewportWidth <= 0)
+                viewportWidth = ActualWidth;
+            if (viewportHeight <= 0)
+            {
+                // Subtract toolbar height (approximately 50px) and status bar
+                viewportHeight = ActualHeight - 80;
+            }
+
+            // Ensure we have valid dimensions
             if (viewportWidth <= 0 || viewportHeight <= 0)
                 return;
 
@@ -658,12 +681,18 @@ namespace SlideShowBob
             if (imgWidth <= 0 || imgHeight <= 0)
                 return;
 
+            // Calculate scale to fit within viewport - ensure image fits completely
             double scaleX = viewportWidth / imgWidth;
             double scaleY = viewportHeight / imgHeight;
             double fitScale = Math.Min(scaleX, scaleY);
 
+            // Clamp to reasonable bounds - never zoom in beyond 100% unless explicitly allowed
             if (fitScale < 0.1)
                 fitScale = 0.1;
+            
+            // For fit mode, ensure we never zoom in (scale > 1.0) unless explicitly allowed
+            if (fitScale > 1.0 && !allowZoomIn)
+                fitScale = 1.0;
 
             SetZoom(fitScale);
         }
@@ -1267,10 +1296,28 @@ namespace SlideShowBob
                     ScrollHost.ScrollToHorizontalOffset(0);
                     ScrollHost.ScrollToVerticalOffset(0);
 
+                    // Wait for GIF to load and layout to complete before fitting
                     if (FitToggle.IsChecked == true)
-                        SetZoomFit(true);   // allow zoom-in fit for GIFs
+                    {
+                        // Use LayoutUpdated event to ensure accurate viewport calculation
+                        EventHandler? layoutHandler = null;
+                        layoutHandler = (s, e) =>
+                        {
+                            if (FitToggle.IsChecked == true && ImageElement.Source != null)
+                            {
+                                LayoutUpdated -= layoutHandler;
+                                Dispatcher.BeginInvoke(new Action(() =>
+                                {
+                                    SetZoomFit(true);   // allow zoom-in fit for GIFs
+                                }), System.Windows.Threading.DispatcherPriority.Loaded);
+                            }
+                        };
+                        LayoutUpdated += layoutHandler;
+                    }
                     else
+                    {
                         SetZoom(1.0);
+                    }
 
                     Title = $"Slide Show Bob - {Path.GetFileName(file)} (GIF)";
                     
@@ -1293,10 +1340,28 @@ namespace SlideShowBob
                     ScrollHost.ScrollToHorizontalOffset(0);
                     ScrollHost.ScrollToVerticalOffset(0);
 
+                    // Wait for image to load and layout to complete before fitting
                     if (FitToggle.IsChecked == true)
-                        SetZoomFit(false);
+                    {
+                        // Use LayoutUpdated event to ensure accurate viewport calculation
+                        EventHandler? layoutHandler = null;
+                        layoutHandler = (s, e) =>
+                        {
+                            if (FitToggle.IsChecked == true && ImageElement.Source != null)
+                            {
+                                LayoutUpdated -= layoutHandler;
+                                Dispatcher.BeginInvoke(new Action(() =>
+                                {
+                                    SetZoomFit(false);
+                                }), System.Windows.Threading.DispatcherPriority.Loaded);
+                            }
+                        };
+                        LayoutUpdated += layoutHandler;
+                    }
                     else
+                    {
                         SetZoom(1.0);
+                    }
 
                     Title = $"Slide Show Bob - {Path.GetFileName(file)}";
                     
@@ -1656,14 +1721,18 @@ namespace SlideShowBob
             if (ImageElement.Source == null && VideoElement.Source == null)
                 return;
 
-            if (_currentMediaType == MediaType.Video && VideoElement.Source != null)
+            // Use dispatcher to ensure layout is complete
+            Dispatcher.BeginInvoke(new Action(() =>
             {
-                SetVideoFit();
-            }
-            else if (ImageElement.Source != null)
-            {
-                SetZoomFit(_currentMediaType == MediaType.Gif);
-            }
+                if (_currentMediaType == MediaType.Video && VideoElement.Source != null)
+                {
+                    SetVideoFit();
+                }
+                else if (ImageElement.Source != null)
+                {
+                    SetZoomFit(_currentMediaType == MediaType.Gif);
+                }
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         private void FitToggle_Unchecked(object sender, RoutedEventArgs e)
