@@ -33,6 +33,9 @@ namespace SlideShowBob
             PersistIsMutedCheckBox.IsChecked = _settings.PersistIsMuted;
             PersistFolderPathsCheckBox.IsChecked = _settings.PersistFolderPaths;
             
+            // Load portrait blur effect setting
+            PortraitBlurEffectCheckBox.IsChecked = _settings.PortraitBlurEffect;
+            
             // Load current toolbar behavior setting (always persists)
             string behavior = _settings.ToolbarInactivityBehavior ?? "Dim";
             foreach (System.Windows.Controls.ComboBoxItem item in ToolbarInactivityBehaviorComboBox.Items)
@@ -87,6 +90,9 @@ namespace SlideShowBob
             bool persistIsMuted = PersistIsMutedCheckBox.IsChecked == true;
             bool persistFolderPaths = PersistFolderPathsCheckBox.IsChecked == true;
             
+            // Update portrait blur effect setting
+            bool portraitBlurEffect = PortraitBlurEffectCheckBox.IsChecked == true;
+            
             // If persistence is being disabled, reset the value to default
             if (!persistSlideDelay && _settings.PersistSlideDelay)
             {
@@ -122,6 +128,9 @@ namespace SlideShowBob
             _settings.PersistSortMode = persistSortMode;
             _settings.PersistIsMuted = persistIsMuted;
             _settings.PersistFolderPaths = persistFolderPaths;
+            
+            // Update portrait blur effect setting
+            _settings.PortraitBlurEffect = portraitBlurEffect;
             
             // Save settings
             SettingsManager.Save(_settings);

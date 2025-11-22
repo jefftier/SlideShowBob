@@ -351,6 +351,7 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     
                     <!-- Row 0: Persist Slide Delay -->
@@ -411,15 +412,26 @@
                     <!-- Row 5: Toolbar Inactivity Behavior -->
                     <TextBlock Grid.Row="5" Grid.Column="0"
                                Text="Toolbar Inactivity Behavior"
-                               VerticalAlignment="Center"/>
+                               VerticalAlignment="Center"
+                               Margin="0,0,0,12"/>
                     <ComboBox x:Name="ToolbarInactivityBehaviorComboBox"
                               Grid.Row="5" Grid.Column="1"
                               VerticalAlignment="Center"
-                              HorizontalAlignment="Left">
+                              HorizontalAlignment="Left"
+                              Margin="0,0,0,12">
                         <ComboBoxItem Content="Dim" Tag="Dim"/>
                         <ComboBoxItem Content="Disappear" Tag="Disappear"/>
                         <ComboBoxItem Content="Do Nothing" Tag="Nothing"/>
                     </ComboBox>
+                    
+                    <!-- Row 6: Portrait Blur Effect -->
+                    <TextBlock Grid.Row="6" Grid.Column="0"
+                               Text="Portrait Blur Effect"
+                               VerticalAlignment="Center"/>
+                    <CheckBox x:Name="PortraitBlurEffectCheckBox"
+                              Grid.Row="6" Grid.Column="1"
+                              VerticalAlignment="Center"
+                              HorizontalAlignment="Left"/>
                 </Grid>
             </ScrollViewer>
             

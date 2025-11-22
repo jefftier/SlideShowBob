@@ -31,6 +31,7 @@ namespace SlideShowBob
         private readonly Dictionary<string, ExifOrientation> _imageOrientation = new();
         private const int MaxImageCache = 3;
         private AppSettings _settings;
+        private Uri? _currentVideoSource = null; // Track current video source to tie blur to video
 
         private bool _isFullscreen = false;
         private WindowState _prevState;
@@ -376,6 +377,204 @@ namespace SlideShowBob
             }
 
             return ExifOrientation.Normal;
+        }
+
+        private bool IsPortraitImage(BitmapSource? image, string? filePath = null)
+        {
+            if (image == null)
+                return false;
+
+            double width = image.PixelWidth;
+            double height = image.PixelHeight;
+
+            // Account for EXIF rotation - if rotated 90/270, swap dimensions
+            if (filePath != null && _imageOrientation.TryGetValue(filePath, out var orientation))
+            {
+                if (orientation == ExifOrientation.Rotate90 || orientation == ExifOrientation.Rotate270)
+                {
+                    (width, height) = (height, width);
+                }
+            }
+
+            return height > width;
+        }
+
+        private void ClearImageDisplay()
+        {
+            // Clear video source tracking
+            _currentVideoSource = null;
+            
+            if (ImageElement != null)
+            {
+                ImageElement.Source = null;
+                ImageElement.Effect = null;
+            }
+            if (VideoElement != null)
+            {
+                VideoElement.Effect = null;
+            }
+            if (BlurredBackgroundImage != null)
+            {
+                BlurredBackgroundImage.Visibility = Visibility.Collapsed;
+                BlurredBackgroundImage.Source = null;
+            }
+        }
+
+        private bool IsPortraitVideo()
+        {
+            if (VideoElement == null || VideoElement.Source == null)
+                return false;
+
+            if (VideoElement.NaturalVideoWidth <= 0 || VideoElement.NaturalVideoHeight <= 0)
+                return false;
+
+            return VideoElement.NaturalVideoHeight > VideoElement.NaturalVideoWidth;
+        }
+
+        private void ApplyPortraitBlurEffectForImage(BitmapSource? image, string? filePath = null)
+        {
+            if (BlurredBackgroundImage == null || ImageElement == null)
+                return;
+
+            // Always clear first
+            BlurredBackgroundImage.Visibility = Visibility.Collapsed;
+            BlurredBackgroundImage.Source = null;
+            ImageElement.Effect = null;
+
+            // Check if setting is enabled
+            if (!_settings.PortraitBlurEffect)
+                return;
+
+            // Check if image is portrait
+            if (image == null || !IsPortraitImage(image, filePath))
+                return;
+
+            // Apply effect for portrait images - use the SAME source as the main image
+            // This ensures they're always in sync
+            BlurredBackgroundImage.Source = image;
+            BlurredBackgroundImage.Visibility = Visibility.Visible;
+
+            // Apply soft drop shadow to the main image
+            ImageElement.Effect = new DropShadowEffect
+            {
+                Color = Colors.Black,
+                Direction = 270,
+                ShadowDepth = 10,
+                BlurRadius = 25,
+                Opacity = 0.5
+            };
+        }
+
+        private void ApplyPortraitBlurEffectForVideo()
+        {
+            if (BlurredBackgroundImage == null || VideoElement == null)
+                return;
+
+            // Always clear first
+            BlurredBackgroundImage.Visibility = Visibility.Collapsed;
+            BlurredBackgroundImage.Source = null;
+            VideoElement.Effect = null;
+
+            // Check if setting is enabled
+            if (!_settings.PortraitBlurEffect)
+                return;
+
+            // Check if video is portrait
+            if (!IsPortraitVideo())
+                return;
+
+            // Store the current video source to tie the blur to this specific video
+            if (VideoElement.Source != null)
+            {
+                _currentVideoSource = VideoElement.Source;
+            }
+            else
+            {
+                return; // No video source, can't apply blur
+            }
+
+            // For videos, we need to wait a moment for the first frame to render
+            // Then capture it - but verify it's still the same video source
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                // CRITICAL: Verify we're still showing the SAME video source
+                // This ensures blur is tightly coupled to the video
+                if (VideoElement.Source == null || VideoElement.Source != _currentVideoSource)
+                    return;
+
+                try
+                {
+                    if (VideoElement.NaturalVideoWidth > 0 && VideoElement.NaturalVideoHeight > 0)
+                    {
+                        // Use VisualBrush to capture the video at its natural dimensions
+                        var videoBrush = new VisualBrush(VideoElement)
+                        {
+                            Stretch = Stretch.Uniform,
+                            Viewbox = new Rect(0, 0, 1, 1),
+                            ViewboxUnits = BrushMappingMode.RelativeToBoundingBox
+                        };
+                        
+                        // Create a drawing visual with the video brush
+                        var drawingVisual = new DrawingVisual();
+                        using (var drawingContext = drawingVisual.RenderOpen())
+                        {
+                            drawingContext.DrawRectangle(
+                                videoBrush,
+                                null,
+                                new Rect(0, 0, VideoElement.NaturalVideoWidth, VideoElement.NaturalVideoHeight));
+                        }
+                        
+                        // Render to bitmap at natural video dimensions
+                        var renderTarget = new RenderTargetBitmap(
+                            VideoElement.NaturalVideoWidth,
+                            VideoElement.NaturalVideoHeight,
+                            96, 96, PixelFormats.Pbgra32);
+                        
+                        renderTarget.Render(drawingVisual);
+                        renderTarget.Freeze();
+                        
+                        // FINAL VERIFICATION: Make absolutely sure we're still on the same video
+                        if (VideoElement.Source != null && VideoElement.Source == _currentVideoSource)
+                        {
+                            // Use the captured frame as blurred background - tightly coupled to this video source
+                            BlurredBackgroundImage.Source = renderTarget;
+                            BlurredBackgroundImage.Visibility = Visibility.Visible;
+
+                            // Apply soft drop shadow to the video
+                            VideoElement.Effect = new DropShadowEffect
+                            {
+                                Color = Colors.Black,
+                                Direction = 270,
+                                ShadowDepth = 10,
+                                BlurRadius = 25,
+                                Opacity = 0.5
+                            };
+                        }
+                    }
+                }
+                catch
+                {
+                    // If capture fails, just apply the drop shadow without blurred background
+                    // But only if we're still on the same video
+                    if (VideoElement.Source != null && VideoElement.Source == _currentVideoSource)
+                    {
+                        VideoElement.Effect = new DropShadowEffect
+                        {
+                            Color = Colors.Black,
+                            Direction = 270,
+                            ShadowDepth = 10,
+                            BlurRadius = 25,
+                            Opacity = 0.5
+                        };
+                    }
+                }
+            }), System.Windows.Threading.DispatcherPriority.Render);
+        }
+
+        // Keep the old method name for backward compatibility, but redirect to the new method
+        private void ApplyPortraitBlurEffect(BitmapSource? image, string? filePath = null)
+        {
+            ApplyPortraitBlurEffectForImage(image, filePath);
         }
 
         private SortMode ParseSortMode(string? value)
@@ -799,10 +998,26 @@ namespace SlideShowBob
                 if (_currentMediaType == MediaType.Video && VideoElement.Source != null)
                 {
                     SetVideoFit();
+                    // Re-apply portrait blur effect after resize
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        ApplyPortraitBlurEffectForVideo();
+                    }), System.Windows.Threading.DispatcherPriority.Loaded);
                 }
                 else if (ImageElement.Source != null)
                 {
                     SetZoomFit(true); // Always allow zoom-in in fit mode to fill window
+                    // Re-apply portrait blur effect after resize
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (ImageElement.Source is BitmapSource bmp)
+                        {
+                            string? currentFile = null;
+                            if (_currentIndex >= 0 && _currentIndex < _orderedFiles.Count)
+                                currentFile = _orderedFiles[_currentIndex];
+                            ApplyPortraitBlurEffect(bmp, currentFile);
+                        }
+                    }), System.Windows.Threading.DispatcherPriority.Loaded);
                 }
             }
             else if (_currentMediaType == MediaType.Video && VideoElement.Source != null)
@@ -1073,7 +1288,7 @@ namespace SlideShowBob
             _orderedFiles.Clear();
             _currentIndex = -1;
 
-            ImageElement.Source = null;
+            ClearImageDisplay();
             VideoElement.Source = null;
             VideoElement.Visibility = Visibility.Collapsed;
             VideoProgressBar.Visibility = Visibility.Collapsed;
@@ -1142,7 +1357,7 @@ namespace SlideShowBob
             _orderedFiles.Clear();
             _currentIndex = -1;
 
-            ImageElement.Source = null;
+            ClearImageDisplay();
             VideoElement.Source = null;
             VideoElement.Visibility = Visibility.Collapsed;
             VideoProgressBar.Visibility = Visibility.Collapsed;
@@ -1274,6 +1489,9 @@ namespace SlideShowBob
             VideoElement.Source = null;
             VideoElement.Visibility = Visibility.Collapsed;
             ResetVideoScale();
+            
+            // Clear image display when switching media - this must happen first
+            ClearImageDisplay();
 
             // Make sure image is visible by default
             ImageElement.Visibility = Visibility.Visible;
@@ -1292,6 +1510,7 @@ namespace SlideShowBob
                 _currentMediaType = MediaType.Gif;
             else
                 _currentMediaType = MediaType.Image;
+
 
             UpdateItemCount();
 
@@ -1326,7 +1545,7 @@ namespace SlideShowBob
                         VideoElement.MediaOpened -= _currentMediaOpenedHandler;
                     }
 
-                    // Set up event handler to hide overlay when video is loaded
+                    // Set up event handler to hide overlay when video is loaded and apply blur effect
                     _currentMediaOpenedHandler = (s, e) =>
                     {
                         if (_currentMediaOpenedHandler != null)
@@ -1335,6 +1554,9 @@ namespace SlideShowBob
                             _currentMediaOpenedHandler = null;
                         }
                         HideLoadingOverlay();
+                        
+                        // Apply portrait blur effect immediately when video opens - directly tied to video source
+                        ApplyPortraitBlurEffectForVideo();
                     };
                     VideoElement.MediaOpened += _currentMediaOpenedHandler;
 
@@ -1385,6 +1607,9 @@ namespace SlideShowBob
                     // Use WpfAnimatedGif to animate
                     ImageBehavior.SetAnimatedSource(ImageElement, gifImage);
 
+                    // Apply portrait blur effect immediately - directly tied to the GIF source
+                    ApplyPortraitBlurEffectForImage(gifImage, file);
+
                     ScrollHost.ScrollToHorizontalOffset(0);
                     ScrollHost.ScrollToVerticalOffset(0);
 
@@ -1432,6 +1657,9 @@ namespace SlideShowBob
                     }
 
                     ImageElement.Source = img;
+                    
+                    // Apply portrait blur effect immediately - directly tied to the image source
+                    ApplyPortraitBlurEffectForImage(img, file);
                     
                     // Apply EXIF rotation if needed
                     // Rotation center will be set after image loads and we know its size
@@ -1693,11 +1921,18 @@ namespace SlideShowBob
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     SetVideoFit();
+                    // Re-apply portrait blur effect after video is fitted
+                    ApplyPortraitBlurEffectForVideo();
                 }), System.Windows.Threading.DispatcherPriority.Background);
             }
             else
             {
                 ResetVideoScale();
+                // Apply portrait blur effect
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    ApplyPortraitBlurEffectForVideo();
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
             }
         }
         #endregion
@@ -1829,23 +2064,26 @@ namespace SlideShowBob
                 }
                 UpdateSortMenuVisuals();
                 
-                // For folders, if persistence is disabled, clear them
-                if (!_settings.PersistFolderPaths)
+                // Note: We don't clear folders here when persistence is disabled.
+                // The persistence flag only affects whether folders are saved/loaded on app start/close.
+                // Folders remain in memory during the current session regardless of the persistence setting.
+                
+                // Re-apply portrait blur effect if media is currently displayed
+                // The blur is directly tied to the media source, so just re-apply based on current state
+                Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    _folders.Clear();
-                    StatusText.Text = "";
-                    // Clear the media if folders were removed
-                    if (_allFiles.Count > 0)
+                    if (_currentMediaType == MediaType.Video && VideoElement.Source != null)
                     {
-                        _allFiles.Clear();
-                        _orderedFiles.Clear();
-                        _currentIndex = -1;
-                        ImageElement.Source = null;
-                        VideoElement.Source = null;
-                        UpdateItemCount();
-                        BigSelectFolderButton.Visibility = Visibility.Visible;
+                        ApplyPortraitBlurEffectForVideo();
                     }
-                }
+                    else if (ImageElement.Source is BitmapSource currentImage)
+                    {
+                        string? currentFile = null;
+                        if (_currentIndex >= 0 && _currentIndex < _orderedFiles.Count)
+                            currentFile = _orderedFiles[_currentIndex];
+                        ApplyPortraitBlurEffect(currentImage, currentFile);
+                    }
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
             }
         }
 
@@ -1867,6 +2105,14 @@ namespace SlideShowBob
                 else if (ImageElement.Source != null)
                 {
                     SetZoomFit(true); // Always allow zoom-in in fit mode to fill window
+                    // Re-apply portrait blur effect after resize
+                    if (ImageElement.Source is BitmapSource bmp)
+                    {
+                        string? currentFile = null;
+                        if (_currentIndex >= 0 && _currentIndex < _orderedFiles.Count)
+                            currentFile = _orderedFiles[_currentIndex];
+                        ApplyPortraitBlurEffect(bmp, currentFile);
+                    }
                 }
             }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
@@ -2390,7 +2636,7 @@ namespace SlideShowBob
             if (_orderedFiles.Count == 0)
             {
                 _currentIndex = -1;
-                ImageElement.Source = null;
+                ClearImageDisplay();
                 VideoElement.Source = null;
                 UpdateItemCount();
                 return;
@@ -2416,7 +2662,7 @@ namespace SlideShowBob
             if (_orderedFiles.Count == 0)
             {
                 _currentIndex = -1;
-                ImageElement.Source = null;
+                ClearImageDisplay();
                 VideoElement.Source = null;
                 UpdateItemCount();
                 return;
@@ -2533,3 +2779,4 @@ namespace SlideShowBob
 
     }
 }
+

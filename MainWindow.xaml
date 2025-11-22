@@ -334,11 +334,24 @@
             <!-- Media -->
             <Border Background="{StaticResource WindowBackdropBrush}">
                 <Grid x:Name="MediaContainer" Opacity="0.0">
+                    <!-- Blurred background for portrait images - behind everything -->
+                    <Image x:Name="BlurredBackgroundImage"
+                           Stretch="UniformToFill"
+                           RenderOptions.BitmapScalingMode="HighQuality"
+                           HorizontalAlignment="Stretch"
+                           VerticalAlignment="Stretch"
+                           Visibility="Collapsed"
+                           Opacity="0.5">
+                        <Image.Effect>
+                            <BlurEffect Radius="50" KernelType="Gaussian"/>
+                        </Image.Effect>
+                    </Image>
+                    
                     <ScrollViewer x:Name="ScrollHost"
                                   HorizontalScrollBarVisibility="Auto"
                                   VerticalScrollBarVisibility="Auto"
                                   CanContentScroll="False"
-                                  Background="{StaticResource SurfaceBrush}"
+                                  Background="Transparent"
                                   PreviewMouseWheel="ScrollHost_PreviewMouseWheel"
                                   PreviewMouseRightButtonUp="ScrollHost_PreviewMouseRightButtonUp"
                                   PreviewMouseLeftButtonUp="ScrollHost_PreviewMouseLeftButtonUp">
