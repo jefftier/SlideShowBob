@@ -1748,9 +1748,40 @@ namespace SlideShowBob
         #endregion
 
 
+        /// <summary>
+        /// Gets the current playlist file paths. Used by PlaylistWindow to check if files are in the playlist.
+        /// </summary>
         public IReadOnlyList<string> GetCurrentPlaylist()
         {
             return _playlist.GetAllItems().Select(i => i.FilePath).ToList();
+        }
+
+        /// <summary>
+        /// Centralized navigation method: finds a file in the playlist and displays it.
+        /// This is the single point of control for updating the slideshow's current media index.
+        /// Called by PlaylistWindow when user selects a media item.
+        /// 
+        /// Flow:
+        /// 1. Normalize and find file path in playlist
+        /// 2. Set playlist index (single source of truth for current position)
+        /// 3. Display the media via ShowCurrentMedia()
+        /// </summary>
+        public void NavigateToFile(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return;
+
+            string normalized = Path.GetFullPath(filePath);
+            var items = _playlist.GetAllItems().ToList();
+            int index = items.FindIndex(i => 
+                string.Equals(Path.GetFullPath(i.FilePath), normalized, StringComparison.OrdinalIgnoreCase));
+
+            if (index >= 0)
+            {
+                // Single source of truth: only _playlist.SetIndex() updates the current media position
+                _playlist.SetIndex(index);
+                ShowCurrentMedia();
+            }
         }
 
         public async Task AddFolderInteractiveAsync()
