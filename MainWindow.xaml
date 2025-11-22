@@ -351,7 +351,7 @@
                                           MouseLeftButtonUp="Media_MouseLeftButtonUp"
                                           MouseRightButtonUp="Media_MouseRightButtonUp"/>
                             <Image x:Name="ImageElement"
-                                   Stretch="None"
+                                   Stretch="Uniform"
                                    RenderOptions.BitmapScalingMode="HighQuality"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"

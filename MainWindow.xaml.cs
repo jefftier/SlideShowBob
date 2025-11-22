@@ -118,7 +118,7 @@ namespace SlideShowBob
             }
 
 
-            ImageElement.LayoutTransform = _imageScale;
+            // ImageElement no longer uses LayoutTransform - we'll set Width/Height directly
             VideoElement.LayoutTransform = _videoScale;
 
             _slideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(_slideDelayMs) };
@@ -461,8 +461,29 @@ namespace SlideShowBob
             if (factor > 10.0) factor = 10.0;
 
             _zoomFactor = factor;
-            _imageScale.ScaleX = factor;
-            _imageScale.ScaleY = factor;
+            
+            // Set explicit Width/Height on the Image based on zoom factor
+            if (ImageElement != null && ImageElement.Source is BitmapSource bmp)
+            {
+                double imgWidth = bmp.PixelWidth;
+                double imgHeight = bmp.PixelHeight;
+                
+                if (imgWidth > 0 && imgHeight > 0)
+                {
+                    // If factor is 1.0, clear explicit size to show at natural size
+                    if (factor == 1.0)
+                    {
+                        ImageElement.Width = double.NaN;
+                        ImageElement.Height = double.NaN;
+                    }
+                    else
+                    {
+                        ImageElement.Width = imgWidth * factor;
+                        ImageElement.Height = imgHeight * factor;
+                    }
+                }
+            }
+            
             UpdateZoomLabel();
         }
 
@@ -474,54 +495,116 @@ namespace SlideShowBob
             if (ImageElement.Source is not BitmapSource bmp)
                 return;
 
-            // Force layout update to get accurate viewport
-            ScrollHost.UpdateLayout();
-            ImageElement.UpdateLayout();
-            UpdateLayout();
+            // Hide scrollbars when fitting
+            ScrollHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden;
+            ScrollHost.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
 
-            // Get the actual available space - use ScrollHost's actual dimensions
-            // ScrollHost fills the content area, so use its ActualWidth/Height
-            double viewportWidth = ScrollHost.ActualWidth;
-            double viewportHeight = ScrollHost.ActualHeight;
-
-            // If ScrollHost dimensions are 0, try ViewportWidth/Height
-            if (viewportWidth <= 0)
-                viewportWidth = ScrollHost.ViewportWidth;
-            if (viewportHeight <= 0)
-                viewportHeight = ScrollHost.ViewportHeight;
-
-            // Final fallback to window dimensions minus estimated UI elements
-            if (viewportWidth <= 0)
-                viewportWidth = ActualWidth;
-            if (viewportHeight <= 0)
+            // Wait for layout, then calculate and set size directly
+            Dispatcher.BeginInvoke(new Action(() =>
             {
-                // Subtract toolbar height (approximately 50px) and status bar
-                viewportHeight = ActualHeight - 80;
-            }
+                // Force layout
+                ScrollHost.UpdateLayout();
+                ImageElement.UpdateLayout();
+                UpdateLayout();
 
-            // Ensure we have valid dimensions
-            if (viewportWidth <= 0 || viewportHeight <= 0)
-                return;
+                // Get viewport size - use ScrollHost's actual size
+                double viewportWidth = ScrollHost.ActualWidth;
+                double viewportHeight = ScrollHost.ActualHeight;
 
-            double imgWidth = bmp.PixelWidth;
-            double imgHeight = bmp.PixelHeight;
-            if (imgWidth <= 0 || imgHeight <= 0)
-                return;
+                // Fallback to window dimensions if ScrollHost size is invalid
+                if (viewportWidth <= 0 || double.IsNaN(viewportWidth) || double.IsInfinity(viewportWidth))
+                {
+                    viewportWidth = ActualWidth;
+                }
 
-            // Calculate scale to fit within viewport - ensure image fits completely
-            double scaleX = viewportWidth / imgWidth;
-            double scaleY = viewportHeight / imgHeight;
-            double fitScale = Math.Min(scaleX, scaleY);
+                if (viewportHeight <= 0 || double.IsNaN(viewportHeight) || double.IsInfinity(viewportHeight))
+                {
+                    // Calculate from window minus UI elements
+                    double toolbarHeight = 0;
+                    if (ToolbarExpandedPanel.Visibility == Visibility.Visible)
+                        toolbarHeight = ToolbarExpandedPanel.ActualHeight;
+                    else if (ToolbarNotchPanel.Visibility == Visibility.Visible)
+                        toolbarHeight = ToolbarNotchPanel.ActualHeight;
+                    if (toolbarHeight <= 0) toolbarHeight = 50;
 
-            // Clamp to reasonable bounds - never zoom in beyond 100% unless explicitly allowed
-            if (fitScale < 0.1)
-                fitScale = 0.1;
-            
-            // For fit mode, ensure we never zoom in (scale > 1.0) unless explicitly allowed
-            if (fitScale > 1.0 && !allowZoomIn)
-                fitScale = 1.0;
+                    double statusBarHeight = StatusBar.ActualHeight > 0 ? StatusBar.ActualHeight : 30;
+                    double titleCountHeight = TitleCountText.ActualHeight > 0 ? TitleCountText.ActualHeight : 0;
+                    
+                    viewportHeight = ActualHeight - toolbarHeight - statusBarHeight - titleCountHeight;
+                }
 
-            SetZoom(fitScale);
+                // Validate dimensions
+                if (viewportWidth <= 0 || viewportHeight <= 0 ||
+                    double.IsNaN(viewportWidth) || double.IsNaN(viewportHeight) ||
+                    double.IsInfinity(viewportWidth) || double.IsInfinity(viewportHeight))
+                {
+                    return;
+                }
+
+                // Get image dimensions
+                double imgWidth = bmp.PixelWidth;
+                double imgHeight = bmp.PixelHeight;
+                if (imgWidth <= 0 || imgHeight <= 0)
+                    return;
+
+                // Calculate scale to fit within viewport (maintain aspect ratio)
+                double scaleX = viewportWidth / imgWidth;
+                double scaleY = viewportHeight / imgHeight;
+                double fitScale = Math.Min(scaleX, scaleY);
+
+                // Don't zoom in beyond 100% unless allowed
+                if (fitScale > 1.0 && !allowZoomIn)
+                    fitScale = 1.0;
+
+                // Clamp to reasonable bounds
+                if (fitScale < 0.1)
+                    fitScale = 0.1;
+
+                // Calculate display dimensions
+                double displayWidth = imgWidth * fitScale;
+                double displayHeight = imgHeight * fitScale;
+
+                // Set the image size directly - Stretch="Uniform" will handle the rest
+                ImageElement.Width = displayWidth;
+                ImageElement.Height = displayHeight;
+                
+                // Update zoom factor for tracking
+                _zoomFactor = fitScale;
+                UpdateZoomLabel();
+
+                // Verify it fits after layout
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    ScrollHost.UpdateLayout();
+                    ImageElement.UpdateLayout();
+                    UpdateLayout();
+
+                    // Check if we need to adjust
+                    double actualWidth = ImageElement.ActualWidth;
+                    double actualHeight = ImageElement.ActualHeight;
+                    double currentViewportWidth = ScrollHost.ActualWidth;
+                    double currentViewportHeight = ScrollHost.ActualHeight;
+
+                    if (currentViewportWidth > 0 && currentViewportHeight > 0)
+                    {
+                        // If image is larger than viewport, reduce size
+                        if (actualWidth > currentViewportWidth || actualHeight > currentViewportHeight)
+                        {
+                            double adjustScaleX = actualWidth > currentViewportWidth ? currentViewportWidth / actualWidth : 1.0;
+                            double adjustScaleY = actualHeight > currentViewportHeight ? currentViewportHeight / actualHeight : 1.0;
+                            double adjustFactor = Math.Min(adjustScaleX, adjustScaleY);
+                            
+                            if (adjustFactor < 0.99)
+                            {
+                                ImageElement.Width = displayWidth * adjustFactor;
+                                ImageElement.Height = displayHeight * adjustFactor;
+                                _zoomFactor = fitScale * adjustFactor;
+                                UpdateZoomLabel();
+                            }
+                        }
+                    }
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         private void Window_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -531,6 +614,13 @@ namespace SlideShowBob
             // If Fit is on, keep media auto-fitted as the window changes
             if (FitToggle.IsChecked == true)
             {
+                // Ensure scrollbars are hidden when in fit mode
+                if (ScrollHost != null)
+                {
+                    ScrollHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden;
+                    ScrollHost.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
+                }
+
                 if (_currentMediaType == MediaType.Video && VideoElement.Source != null)
                 {
                     SetVideoFit();
@@ -1143,6 +1233,9 @@ namespace SlideShowBob
                     }
                     else
                     {
+                        // Re-enable scrollbars when fit mode is disabled
+                        ScrollHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+                        ScrollHost.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
                         SetZoom(1.0);
                     }
 
@@ -1187,7 +1280,14 @@ namespace SlideShowBob
                     }
                     else
                     {
-                        SetZoom(1.0);
+                        // Re-enable scrollbars when fit mode is disabled
+                        ScrollHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+                        ScrollHost.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+                        // Clear explicit size to show at natural size
+                        ImageElement.Width = double.NaN;
+                        ImageElement.Height = double.NaN;
+                        _zoomFactor = 1.0;
+                        UpdateZoomLabel();
                     }
 
                     Title = $"Slide Show Bob - {Path.GetFileName(file)}";
@@ -1567,13 +1667,21 @@ namespace SlideShowBob
             if (!IsLoaded || ScrollHost == null || ImageElement == null || VideoElement == null)
                 return;
 
+            // Re-enable scrollbars when fit mode is disabled
+            ScrollHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+            ScrollHost.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+
             if (_currentMediaType == MediaType.Video)
             {
                 ResetVideoScale();
             }
             else
             {
-                SetZoom(1.0);
+                // Clear explicit size to show at natural size
+                ImageElement.Width = double.NaN;
+                ImageElement.Height = double.NaN;
+                _zoomFactor = 1.0;
+                UpdateZoomLabel();
             }
         }
 
