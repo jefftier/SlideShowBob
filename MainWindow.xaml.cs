@@ -24,12 +24,12 @@ namespace SlideShowBob
 {
     public partial class MainWindow : Window
     {
-        private readonly List<string> _allFiles = new();
-        private readonly List<string> _orderedFiles = new();
-        private int _currentIndex = -1;
-        private readonly Dictionary<string, BitmapImage> _imageCache = new();
-        private readonly Dictionary<string, ExifOrientation> _imageOrientation = new();
-        private const int MaxImageCache = 3;
+        // New service-based architecture
+        private readonly MediaPlaylistManager _playlist = new();
+        private readonly MediaLoaderService _mediaLoader = new();
+        private readonly VideoPlaybackService _videoService;
+        private readonly SlideshowController _slideshowController;
+        
         private AppSettings _settings;
         private Uri? _currentVideoSource = null; // Track current video source to tie blur to video
 
@@ -44,35 +44,22 @@ namespace SlideShowBob
         private readonly ScaleTransform _videoScale = new();
         private readonly RotateTransform _imageRotation = new();
 
-        private readonly DispatcherTimer _slideTimer;
-        private readonly DispatcherTimer _videoProgressTimer;
         private readonly DispatcherTimer _chromeTimer;
 
-        private DateTime _mediaStartTime;
         private int _slideDelayMs = 2000;
-        private bool _videoEnded = false;
         private bool _isMuted = true;
 
         private readonly List<string> _folders = new();
         private string? _currentFolder;
 
-        private enum MediaType { Image, Gif, Video }
-        private MediaType _currentMediaType = MediaType.Image;
-
         private bool _toolbarMinimized = false;
-        private RoutedEventHandler? _currentMediaOpenedHandler;
         private CancellationTokenSource? _loadingOverlayDelayCts;
 
-        private enum SortMode
-        {
-            NameAZ,
-            NameZA,
-            DateOldest,
-            DateNewest,
-            Random
-        }
-
+        // Sort mode (still needed for UI)
         private SortMode _sortMode = SortMode.NameAZ;
+
+        // Helper property to get current media type
+        private MediaType? CurrentMediaType => _playlist.CurrentItem?.Type;
 
 
         public MainWindow()
@@ -126,11 +113,17 @@ namespace SlideShowBob
             ImageElement.LayoutTransform = _imageRotation;
             VideoElement.LayoutTransform = _videoScale;
 
-            _slideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(_slideDelayMs) };
-            _slideTimer.Tick += SlideTimer_Tick;
+            // Initialize services
+            _videoService = new VideoPlaybackService(VideoElement, VideoProgressBar);
+            _videoService.IsMuted = _isMuted;
+            _videoService.MediaOpened += VideoService_MediaOpened;
+            _videoService.MediaEnded += VideoService_MediaEnded;
 
-            _videoProgressTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
-            _videoProgressTimer.Tick += VideoProgressTimer_Tick;
+            _slideshowController = new SlideshowController(_playlist);
+            _slideshowController.SlideDelayMs = _slideDelayMs;
+            _slideshowController.NavigateToIndex += SlideshowController_NavigateToIndex;
+            _slideshowController.SlideshowStarted += (s, e) => SetSlideshowState(true);
+            _slideshowController.SlideshowStopped += (s, e) => SetSlideshowState(false);
 
             _chromeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
             _chromeTimer.Tick += ChromeTimer_Tick;
@@ -199,6 +192,52 @@ namespace SlideShowBob
             }
         }
 
+        #region Service Event Handlers
+
+        private void SlideshowController_NavigateToIndex(object? sender, int index)
+        {
+            Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                await ShowCurrentMediaAsync();
+            }), DispatcherPriority.Normal);
+        }
+
+        private void VideoService_MediaOpened(object? sender, EventArgs e)
+        {
+            HideLoadingOverlay();
+            ApplyPortraitBlurEffectForVideo();
+            
+            if (FitToggle.IsChecked == true)
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    SetVideoFit();
+                    ApplyPortraitBlurEffectForVideo();
+                }), DispatcherPriority.Background);
+            }
+            else
+            {
+                ResetVideoScale();
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    ApplyPortraitBlurEffectForVideo();
+                }), DispatcherPriority.Loaded);
+            }
+
+            var currentItem = _playlist.CurrentItem;
+            if (currentItem != null)
+            {
+                _slideshowController.OnMediaDisplayed(MediaType.Video);
+            }
+        }
+
+        private void VideoService_MediaEnded(object? sender, EventArgs e)
+        {
+            _slideshowController.OnVideoEnded();
+        }
+
+        #endregion
+
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             Loaded -= MainWindow_Loaded; // Only run once
@@ -246,138 +285,7 @@ namespace SlideShowBob
             }
         }
 
-        private BitmapImage? GetOrLoadImage(string path, bool isGif)
-        {
-            if (!File.Exists(path)) return null;
-
-            if (!isGif && _imageCache.TryGetValue(path, out var cached))
-                return cached;
-
-            // Read EXIF orientation first (separate from image loading)
-            if (!isGif)
-            {
-                try
-                {
-                    using (var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
-                    {
-                        var decoder = BitmapDecoder.Create(fileStream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.None);
-                        var frame = decoder.Frames[0];
-                        var orientation = GetExifOrientation(frame.Metadata as BitmapMetadata);
-                        _imageOrientation[path] = orientation;
-                    }
-                }
-                catch
-                {
-                    _imageOrientation[path] = ExifOrientation.Normal;
-                }
-            }
-
-            // Load image normally
-            try
-            {
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                bmp.CacheOption = isGif ? BitmapCacheOption.OnDemand : BitmapCacheOption.OnLoad;
-                bmp.UriSource = new Uri(path);
-                bmp.EndInit();
-                if (!isGif)
-                {
-                    bmp.Freeze();
-                    _imageCache[path] = bmp;
-
-                    // simple pruning
-                    if (_imageCache.Count > MaxImageCache)
-                    {
-                        var firstKey = _imageCache.Keys.First();
-                        _imageCache.Remove(firstKey);
-                        _imageOrientation.Remove(firstKey);
-                    }
-                }
-                return bmp;
-            }
-            catch
-            {
-                // Fallback to simple loading
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                bmp.CacheOption = isGif ? BitmapCacheOption.OnDemand : BitmapCacheOption.OnLoad;
-                bmp.UriSource = new Uri(path);
-                bmp.EndInit();
-                if (!isGif)
-                {
-                    bmp.Freeze();
-                    _imageCache[path] = bmp;
-
-                    // simple pruning
-                    if (_imageCache.Count > MaxImageCache)
-                    {
-                        var firstKey = _imageCache.Keys.First();
-                        _imageCache.Remove(firstKey);
-                    }
-                }
-                return bmp;
-            }
-        }
-
-        private enum ExifOrientation
-        {
-            Normal = 1,
-            Rotate90 = 6,      // 90° CCW (270° CW)
-            Rotate270 = 8      // 270° CCW (90° CW)
-        }
-
-        private ExifOrientation GetExifOrientation(BitmapMetadata? metadata)
-        {
-            if (metadata == null)
-                return ExifOrientation.Normal;
-
-            try
-            {
-                string[] orientationQueries = 
-                {
-                    "/ifd/exif:{uint=274}",
-                    "/app1/ifd/{ushort=274}",
-                    "/app1/ifd/exif/{ushort=274}"
-                };
-
-                foreach (var query in orientationQueries)
-                {
-                    try
-                    {
-                        if (metadata.ContainsQuery(query))
-                        {
-                            var orientationValue = metadata.GetQuery(query);
-                            if (orientationValue != null)
-                            {
-                                ushort orientation;
-                                if (orientationValue is ushort us)
-                                    orientation = us;
-                                else if (orientationValue is uint ui && ui <= ushort.MaxValue)
-                                    orientation = (ushort)ui;
-                                else if (ushort.TryParse(orientationValue.ToString(), out orientation))
-                                { }
-                                else
-                                    continue;
-
-                                if (orientation == 6)
-                                    return ExifOrientation.Rotate90;
-                                if (orientation == 8)
-                                    return ExifOrientation.Rotate270;
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        continue;
-                    }
-                }
-            }
-            catch
-            {
-            }
-
-            return ExifOrientation.Normal;
-        }
+        // GetOrLoadImage and ExifOrientation enum removed - now handled by MediaLoaderService
 
         private bool IsPortraitImage(BitmapSource? image, string? filePath = null)
         {
@@ -388,8 +296,9 @@ namespace SlideShowBob
             double height = image.PixelHeight;
 
             // Account for EXIF rotation - if rotated 90/270, swap dimensions
-            if (filePath != null && _imageOrientation.TryGetValue(filePath, out var orientation))
+            if (filePath != null)
             {
+                var orientation = _mediaLoader.GetOrientation(filePath);
                 if (orientation == ExifOrientation.Rotate90 || orientation == ExifOrientation.Rotate270)
                 {
                     (width, height) = (height, width);
@@ -809,8 +718,8 @@ namespace SlideShowBob
 
         private void UpdateItemCount()
         {
-            int total = _orderedFiles.Count;
-            int index = _currentIndex >= 0 && _currentIndex < total ? _currentIndex + 1 : 0;
+            int total = _playlist.Count;
+            int index = _playlist.CurrentIndex >= 0 ? _playlist.CurrentIndex + 1 : 0;
             TitleCountText.Text = $"{index} / {total}";
         }
 
@@ -818,7 +727,7 @@ namespace SlideShowBob
 
         private void UpdateZoomLabel()
         {
-            if (_currentMediaType == MediaType.Video)
+            if (CurrentMediaType == MediaType.Video)
             {
                 ZoomLabel.Text = "Auto";
                 return;
@@ -995,7 +904,7 @@ namespace SlideShowBob
                     ScrollHost.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
                 }
 
-                if (_currentMediaType == MediaType.Video && VideoElement.Source != null)
+                if (CurrentMediaType == MediaType.Video && VideoElement.Source != null)
                 {
                     SetVideoFit();
                     // Re-apply portrait blur effect after resize
@@ -1012,15 +921,13 @@ namespace SlideShowBob
                     {
                         if (ImageElement.Source is BitmapSource bmp)
                         {
-                            string? currentFile = null;
-                            if (_currentIndex >= 0 && _currentIndex < _orderedFiles.Count)
-                                currentFile = _orderedFiles[_currentIndex];
+                            string? currentFile = _playlist.CurrentItem?.FilePath;
                             ApplyPortraitBlurEffect(bmp, currentFile);
                         }
                     }), System.Windows.Threading.DispatcherPriority.Loaded);
                 }
             }
-            else if (_currentMediaType == MediaType.Video && VideoElement.Source != null)
+            else if (CurrentMediaType == MediaType.Video && VideoElement.Source != null)
             {
                 // If not fitting, at least keep the progress bar width in sync
                 UpdateVideoProgressWidth();
@@ -1071,7 +978,7 @@ namespace SlideShowBob
 
         private void UpdateVideoProgressWidth()
         {
-            if (_currentMediaType != MediaType.Video)
+            if (CurrentMediaType != MediaType.Video)
                 return;
 
             double scale = _videoScale.ScaleX;
@@ -1116,7 +1023,7 @@ namespace SlideShowBob
             }
 
             NotchPlayPauseButton.Content = running ? "⏸" : "⏵";
-            ReplayButton.IsEnabled = !running && _currentMediaType == MediaType.Video;
+            ReplayButton.IsEnabled = !running && CurrentMediaType == MediaType.Video;
         }
 
 
@@ -1198,18 +1105,28 @@ namespace SlideShowBob
 
             UpdateSortMenuVisuals();
 
-            if (_allFiles.Count == 0) return;
+            if (!_playlist.HasItems) return;
 
-            string? currentFile = null;
-            if (_currentIndex >= 0 && _currentIndex < _orderedFiles.Count)
-                currentFile = _orderedFiles[_currentIndex];
+            // Preserve current item if possible
+            var currentItem = _playlist.CurrentItem;
+            string? currentFilePath = currentItem?.FilePath;
 
             ApplySort();
 
-            if (currentFile != null && _orderedFiles.Contains(currentFile))
-                _currentIndex = _orderedFiles.IndexOf(currentFile);
+            // Try to restore position
+            if (currentFilePath != null)
+            {
+                var items = _playlist.GetAllItems().ToList();
+                int foundIndex = items.FindIndex(i => i.FilePath == currentFilePath);
+                if (foundIndex >= 0)
+                    _playlist.SetIndex(foundIndex);
+                else
+                    _playlist.SetIndex(0);
+            }
             else
-                _currentIndex = 0;
+            {
+                _playlist.SetIndex(0);
+            }
 
             ShowCurrentMedia();
         }
@@ -1249,30 +1166,8 @@ namespace SlideShowBob
 
         private void ApplySort()
         {
-            _orderedFiles.Clear();
-            if (_allFiles.Count == 0) return;
-
-            switch (_sortMode)
-            {
-                case SortMode.NameAZ:
-                    _orderedFiles.AddRange(_allFiles.OrderBy(f => Path.GetFileName(f)));
-                    break;
-                case SortMode.NameZA:
-                    _orderedFiles.AddRange(_allFiles.OrderByDescending(f => Path.GetFileName(f)));
-                    break;
-                case SortMode.DateOldest:
-                    _orderedFiles.AddRange(_allFiles
-                        .OrderBy(f => File.GetLastWriteTime(f)));
-                    break;
-                case SortMode.DateNewest:
-                    _orderedFiles.AddRange(_allFiles
-                        .OrderByDescending(f => File.GetLastWriteTime(f)));
-                    break;
-                case SortMode.Random:
-                    var rnd = new Random();
-                    _orderedFiles.AddRange(_allFiles.OrderBy(_ => rnd.Next()));
-                    break;
-            }
+            _playlist.Sort(_sortMode);
+            UpdateItemCount();
         }
 
         #endregion
@@ -1284,50 +1179,25 @@ namespace SlideShowBob
             _currentFolder = path;
             SetStatus("Loading...");
             Cursor = Cursors.Wait;
-            _allFiles.Clear();
-            _orderedFiles.Clear();
-            _currentIndex = -1;
 
             ClearImageDisplay();
-            VideoElement.Source = null;
-            VideoElement.Visibility = Visibility.Collapsed;
-            VideoProgressBar.Visibility = Visibility.Collapsed;
-            VideoProgressBar.Value = 0;
-            _videoProgressTimer.Stop();
-            _slideTimer.Stop();
-            SetSlideshowState(false);
+            _videoService.Stop();
+            _slideshowController.Stop();
             UpdateItemCount();
 
             try
             {
                 bool includeVideos = IncludeVideoToggle.IsChecked == true;
 
-                string[] imageExts = { ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff" };
-                string[] motionExts = { ".gif", ".mp4" };
-
-                // Run folder enumeration off the UI thread
-                var files = await Task.Run(() =>
-                {
-                    return Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
-                        .Where(f =>
-                        {
-                            string ext = Path.GetExtension(f).ToLowerInvariant();
-                            if (imageExts.Contains(ext)) return true;
-                            if (includeVideos && motionExts.Contains(ext)) return true;
-                            return false;
-                        })
-                        .ToList();
-                });
-
-                // Update UI on the UI thread
-                _allFiles.AddRange(files);
+                // Load files using MediaPlaylistManager
+                _playlist.LoadFiles(new[] { path }, includeVideos);
                 ApplySort();
                 UpdateItemCount();
 
-                if (_orderedFiles.Count > 0)
+                if (_playlist.HasItems)
                 {
-                    _currentIndex = 0;
-                    ShowCurrentMedia();
+                    _playlist.SetIndex(0);
+                    await ShowCurrentMediaAsync();
                     SetStatus("");
                     BigSelectFolderButton.Visibility = Visibility.Collapsed;
                 }
@@ -1353,18 +1223,10 @@ namespace SlideShowBob
             SetStatus("Loading...");
             Cursor = Cursors.Wait;
             ShowLoadingOverlayDelayed();
-            _allFiles.Clear();
-            _orderedFiles.Clear();
-            _currentIndex = -1;
 
             ClearImageDisplay();
-            VideoElement.Source = null;
-            VideoElement.Visibility = Visibility.Collapsed;
-            VideoProgressBar.Visibility = Visibility.Collapsed;
-            VideoProgressBar.Value = 0;
-            _videoProgressTimer.Stop();
-            _slideTimer.Stop();
-            SetSlideshowState(false);
+            _videoService.Stop();
+            _slideshowController.Stop();
             UpdateItemCount();
 
             if (_folders.Count == 0)
@@ -1380,54 +1242,14 @@ namespace SlideShowBob
             {
                 bool includeVideos = IncludeVideoToggle.IsChecked == true;
 
-                string[] imageExts = { ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff" };
-                string[] motionExts = { ".gif", ".mp4" };
-
-                // Run all folder enumeration off the UI thread
-                var distinctFiles = await Task.Run(() =>
-                {
-                    var collected = new List<string>();
-
-                    foreach (var folder in _folders)
-                    {
-                        if (!Directory.Exists(folder))
-                            continue;
-
-                        try
-                        {
-                            var files = Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories)
-                                .Where(f =>
-                                {
-                                    string ext = Path.GetExtension(f).ToLowerInvariant();
-                                    if (imageExts.Contains(ext)) return true;
-                                    if (includeVideos && motionExts.Contains(ext)) return true;
-                                    return false;
-                                });
-
-                            lock (collected)
-                            {
-                                collected.AddRange(files);
-                            }
-                        }
-                        catch
-                        {
-                            // ignore individual folder access issues
-                        }
-                    }
-
-                    return collected
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToList();
-                });
-
-                // Update UI on the UI thread
-                _allFiles.AddRange(distinctFiles);
+                // Load files using MediaPlaylistManager
+                _playlist.LoadFiles(_folders, includeVideos);
                 ApplySort();
                 UpdateItemCount();
 
-                if (_orderedFiles.Count > 0)
+                if (_playlist.HasItems)
                 {
-                    _currentIndex = 0;
+                    _playlist.SetIndex(0);
                     await ShowCurrentMediaAsync();
                     SetStatus("");
                     BigSelectFolderButton.Visibility = Visibility.Collapsed;
@@ -1468,54 +1290,33 @@ namespace SlideShowBob
             {
                 // if the resource is missing, ignore
             }
-            if (_orderedFiles.Count == 0)
+
+            if (!_playlist.HasItems)
             {
                 HideLoadingOverlay();
                 return;
             }
-            if (_currentIndex < 0) _currentIndex = 0;
-            if (_currentIndex >= _orderedFiles.Count) _currentIndex = 0;
 
-            _mediaStartTime = DateTime.UtcNow;
-            _videoEnded = false;
+            var currentItem = _playlist.CurrentItem;
+            if (currentItem == null || !File.Exists(currentItem.FilePath))
+            {
+                HideLoadingOverlay();
+                return;
+            }
 
-            // Reset progress UI
-            _videoProgressTimer.Stop();
-            VideoProgressBar.Visibility = Visibility.Collapsed;
-            VideoProgressBar.Value = 0;
+            // Stop video playback cleanly
+            _videoService.Stop();
 
-            // Reset video state
-            VideoElement.Stop();
-            VideoElement.Source = null;
-            VideoElement.Visibility = Visibility.Collapsed;
-            ResetVideoScale();
-            
             // Clear image display when switching media - this must happen first
             ClearImageDisplay();
 
             // Make sure image is visible by default
             ImageElement.Visibility = Visibility.Visible;
 
-            string file = _orderedFiles[_currentIndex];
-            if (!File.Exists(file))
-            {
-                HideLoadingOverlay();
-                return;
-            }
-
-            string ext = Path.GetExtension(file).ToLowerInvariant();
-            if (ext == ".mp4")
-                _currentMediaType = MediaType.Video;
-            else if (ext == ".gif")
-                _currentMediaType = MediaType.Gif;
-            else
-                _currentMediaType = MediaType.Image;
-
-
             UpdateItemCount();
 
             // Zoom controls behavior
-            if (_currentMediaType == MediaType.Video)
+            if (currentItem.Type == MediaType.Video)
             {
                 ZoomResetButton.IsEnabled = false;
                 ZoomLabel.Text = "Auto";
@@ -1526,89 +1327,62 @@ namespace SlideShowBob
             }
 
             // Replay only makes sense when slideshow NOT running and current is video
-            ReplayButton.IsEnabled = !_slideTimer.IsEnabled && _currentMediaType == MediaType.Video;
+            ReplayButton.IsEnabled = !_slideshowController.IsRunning && currentItem.Type == MediaType.Video;
 
             try
             {
                 // -------------------------
                 // VIDEO (MP4)
                 // -------------------------
-                if (_currentMediaType == MediaType.Video)
+                if (currentItem.Type == MediaType.Video)
                 {
                     ImageElement.Source = null;
                     ScrollHost.ScrollToHorizontalOffset(0);
                     ScrollHost.ScrollToVerticalOffset(0);
 
-                    // Remove previous handler if exists
-                    if (_currentMediaOpenedHandler != null)
-                    {
-                        VideoElement.MediaOpened -= _currentMediaOpenedHandler;
-                    }
+                    // Load video using VideoPlaybackService for smooth transition
+                    var videoUri = new Uri(currentItem.FilePath);
+                    _videoService.LoadVideo(videoUri);
 
-                    // Set up event handler to hide overlay when video is loaded and apply blur effect
-                    _currentMediaOpenedHandler = (s, e) =>
-                    {
-                        if (_currentMediaOpenedHandler != null)
-                        {
-                            VideoElement.MediaOpened -= _currentMediaOpenedHandler;
-                            _currentMediaOpenedHandler = null;
-                        }
-                        HideLoadingOverlay();
-                        
-                        // Apply portrait blur effect immediately when video opens - directly tied to video source
-                        ApplyPortraitBlurEffectForVideo();
-                    };
-                    VideoElement.MediaOpened += _currentMediaOpenedHandler;
-
-                    VideoElement.Source = new Uri(file);
-                    VideoElement.Visibility = Visibility.Visible;
-                    VideoElement.IsMuted = _isMuted;
                     ResetVideoScale();
-                    VideoElement.Play();
-
-                    VideoProgressBar.Visibility = Visibility.Visible;
-                    VideoProgressBar.Value = 0;
                     UpdateVideoProgressWidth();
-                    _videoProgressTimer.Start();
 
-                    Title = $"Slide Show Bob - {Path.GetFileName(file)} (Video)";
+                    Title = $"Slide Show Bob - {currentItem.FileName} (Video)";
+                    
+                    // Notify controller that media is displayed
+                    _slideshowController.OnMediaDisplayed(MediaType.Video);
                     return;
                 }
 
                 // -------------------------
                 // IMAGES + GIFs
                 // -------------------------
-                if (_currentMediaType == MediaType.Gif)
+                if (currentItem.Type == MediaType.Gif)
                 {
                     // Clear any previous static image
                     ImageElement.Source = null;
 
-                    var uri = new Uri(file);
-                    var gifImage = new BitmapImage();
-                    gifImage.BeginInit();
-                    gifImage.UriSource = uri;
-
-                    // Let WPF stream the data instead of loading everything up front.
-                    gifImage.CacheOption = BitmapCacheOption.OnDemand;
-
-                    // Downscale at decode time to roughly the viewport width
-                    // so giant GIFs don't waste time decoding off-screen pixels.
+                    // Calculate viewport width for optimized decode
                     double viewportWidth = ScrollHost.ViewportWidth > 0
                         ? ScrollHost.ViewportWidth
                         : ScrollHost.ActualWidth;
 
-                    if (viewportWidth > 0)
-                    {
-                        gifImage.DecodePixelWidth = (int)viewportWidth;
-                    }
+                    // Load GIF asynchronously with optimized decoding
+                    var gifImage = await _mediaLoader.LoadGifAsync(
+                        currentItem.FilePath,
+                        viewportWidth > 0 ? viewportWidth : null);
 
-                    gifImage.EndInit();
+                    if (gifImage == null)
+                    {
+                        HideLoadingOverlay();
+                        return;
+                    }
 
                     // Use WpfAnimatedGif to animate
                     ImageBehavior.SetAnimatedSource(ImageElement, gifImage);
 
                     // Apply portrait blur effect immediately - directly tied to the GIF source
-                    ApplyPortraitBlurEffectForImage(gifImage, file);
+                    ApplyPortraitBlurEffectForImage(gifImage, currentItem.FilePath);
 
                     ScrollHost.ScrollToHorizontalOffset(0);
                     ScrollHost.ScrollToVerticalOffset(0);
@@ -1626,7 +1400,7 @@ namespace SlideShowBob
                                 Dispatcher.BeginInvoke(new Action(() =>
                                 {
                                     SetZoomFit(true);   // allow zoom-in fit for GIFs
-                                }), System.Windows.Threading.DispatcherPriority.Loaded);
+                                }), DispatcherPriority.Loaded);
                             }
                         };
                         LayoutUpdated += layoutHandler;
@@ -1639,17 +1413,27 @@ namespace SlideShowBob
                         SetZoom(1.0);
                     }
 
-                    Title = $"Slide Show Bob - {Path.GetFileName(file)} (GIF)";
+                    Title = $"Slide Show Bob - {currentItem.FileName} (GIF)";
                     
                     // For GIFs, hide overlay after a short delay to allow initial load
                     await Task.Delay(100);
                     HideLoadingOverlay();
+                    
+                    // Notify controller
+                    _slideshowController.OnMediaDisplayed(MediaType.Gif);
                     return;
                 }
                 else
                 {
-                    // Load image asynchronously
-                    var img = await Task.Run(() => GetOrLoadImage(file, isGif: false));
+                    // Load image asynchronously with optimized decoding
+                    double viewportWidth = ScrollHost.ViewportWidth > 0
+                        ? ScrollHost.ViewportWidth
+                        : ScrollHost.ActualWidth;
+
+                    var img = await _mediaLoader.LoadImageAsync(
+                        currentItem.FilePath,
+                        viewportWidth > 0 ? viewportWidth : null);
+
                     if (img == null)
                     {
                         HideLoadingOverlay();
@@ -1659,39 +1443,32 @@ namespace SlideShowBob
                     ImageElement.Source = img;
                     
                     // Apply portrait blur effect immediately - directly tied to the image source
-                    ApplyPortraitBlurEffectForImage(img, file);
+                    ApplyPortraitBlurEffectForImage(img, currentItem.FilePath);
                     
                     // Apply EXIF rotation if needed
-                    // Rotation center will be set after image loads and we know its size
-                    if (_imageOrientation.TryGetValue(file, out var orientation))
+                    var orientation = _mediaLoader.GetOrientation(currentItem.FilePath);
+                    if (orientation == ExifOrientation.Rotate90)
                     {
-                        if (orientation == ExifOrientation.Rotate90)
-                        {
-                            _imageRotation.Angle = -90; // WPF uses counter-clockwise, EXIF 6 is 90° CW
-                        }
-                        else if (orientation == ExifOrientation.Rotate270)
-                        {
-                            _imageRotation.Angle = 90; // WPF uses counter-clockwise, EXIF 8 is 90° CCW
-                        }
-                        else
-                        {
-                            _imageRotation.Angle = 0;
-                        }
-                        
-                        // Set rotation center after image dimensions are known
-                        Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            if (ImageElement.Source is BitmapSource bmp)
-                            {
-                                _imageRotation.CenterX = bmp.PixelWidth / 2.0;
-                                _imageRotation.CenterY = bmp.PixelHeight / 2.0;
-                            }
-                        }), System.Windows.Threading.DispatcherPriority.Loaded);
+                        _imageRotation.Angle = -90; // WPF uses counter-clockwise, EXIF 6 is 90° CW
+                    }
+                    else if (orientation == ExifOrientation.Rotate270)
+                    {
+                        _imageRotation.Angle = 90; // WPF uses counter-clockwise, EXIF 8 is 90° CCW
                     }
                     else
                     {
                         _imageRotation.Angle = 0;
                     }
+                    
+                    // Set rotation center after image dimensions are known
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (ImageElement.Source is BitmapSource bmp)
+                        {
+                            _imageRotation.CenterX = bmp.PixelWidth / 2.0;
+                            _imageRotation.CenterY = bmp.PixelHeight / 2.0;
+                        }
+                    }), DispatcherPriority.Loaded);
                     
                     ScrollHost.ScrollToHorizontalOffset(0);
                     ScrollHost.ScrollToVerticalOffset(0);
@@ -1709,7 +1486,7 @@ namespace SlideShowBob
                                 Dispatcher.BeginInvoke(new Action(() =>
                                 {
                                     SetZoomFit(true); // Always allow zoom-in in fit mode
-                                }), System.Windows.Threading.DispatcherPriority.Loaded);
+                                }), DispatcherPriority.Loaded);
                             }
                         };
                         LayoutUpdated += layoutHandler;
@@ -1726,10 +1503,13 @@ namespace SlideShowBob
                         UpdateZoomLabel();
                     }
 
-                    Title = $"Slide Show Bob - {Path.GetFileName(file)}";
+                    Title = $"Slide Show Bob - {currentItem.FileName}";
                     
                     // Hide overlay after image is set
                     HideLoadingOverlay();
+                    
+                    // Notify controller
+                    _slideshowController.OnMediaDisplayed(MediaType.Image);
                 }
             }
             catch
@@ -1738,38 +1518,36 @@ namespace SlideShowBob
                 HideLoadingOverlay();
             }
             
-            // Preload neighbors (images only)
+            // Preload neighbors (images only) for smooth transitions
             try
             {
-                if (_orderedFiles.Count > 1)
-                {
-                    int next = (_currentIndex + 1) % _orderedFiles.Count;
-                    int prev = (_currentIndex - 1 + _orderedFiles.Count) % _orderedFiles.Count;
-
-                    foreach (var idx in new[] { next, prev })
-                    {
-                        string path = _orderedFiles[idx];
-                        string exts = System.IO.Path.GetExtension(path).ToLowerInvariant();
-                        if (exts == ".jpg" || exts == ".jpeg" || exts == ".png" || exts == ".bmp" || exts == ".tif" || exts == ".tiff")
-                        {
-                            _ = Task.Run(() => GetOrLoadImage(path, isGif: false));
-                        }
-                    }
-                }
+                double viewportWidth = ScrollHost.ViewportWidth > 0
+                    ? ScrollHost.ViewportWidth
+                    : ScrollHost.ActualWidth;
+                
+                _mediaLoader.PreloadNeighbors(
+                    _playlist.GetAllItems(),
+                    _playlist.CurrentIndex,
+                    viewportWidth > 0 ? viewportWidth : null);
             }
             catch { }
+            
+            // Mark transition as complete
+            _slideshowController.OnTransitionComplete();
         }
 
         private void ShowCurrentMedia()
         {
             // Synchronous wrapper for backward compatibility
             // Fire-and-forget: intentionally not awaited
-            _ = ShowCurrentMediaAsync().ConfigureAwait(false);
+#pragma warning disable CS4014 // Fire-and-forget async call
+            _ = ShowCurrentMediaAsync();
+#pragma warning restore CS4014
         }
 
         private void VideoProgressBar_MouseDown(object sender, MouseButtonEventArgs e)
         {
-            if (_currentMediaType != MediaType.Video || VideoElement.Source == null)
+            if (CurrentMediaType != MediaType.Video || VideoElement.Source == null)
                 return;
 
             if (!VideoElement.NaturalDuration.HasTimeSpan)
@@ -1787,7 +1565,7 @@ namespace SlideShowBob
 
         private void VideoProgressBar_MouseMove(object sender, MouseEventArgs e)
         {
-            if (_currentMediaType != MediaType.Video || VideoElement.Source == null)
+            if (CurrentMediaType != MediaType.Video || VideoElement.Source == null)
                 return;
 
             if (!VideoElement.NaturalDuration.HasTimeSpan)
@@ -1813,65 +1591,22 @@ namespace SlideShowBob
 
         private void ShowNext()
         {
-            if (_orderedFiles.Count == 0) return;
-            _currentIndex = (_currentIndex + 1) % _orderedFiles.Count;
-            ShowCurrentMedia();
+            _slideshowController.NavigateNext();
         }
 
         private void ShowPrevious()
         {
-            if (_orderedFiles.Count == 0) return;
-            _currentIndex--;
-            if (_currentIndex < 0) _currentIndex = _orderedFiles.Count - 1;
-            ShowCurrentMedia();
+            _slideshowController.NavigatePrevious();
         }
 
         #endregion
 
         #region Timers
-
-        private void SlideTimer_Tick(object? sender, EventArgs e)
-        {
-            if (_orderedFiles.Count == 0) return;
-
-            var elapsedMs = (DateTime.UtcNow - _mediaStartTime).TotalMilliseconds;
-            if (elapsedMs < _slideDelayMs)
-                return;
-
-            if (_currentMediaType == MediaType.Video && !_videoEnded)
-                return;
-
-            ShowNext();
-        }
-
-        private void VideoProgressTimer_Tick(object? sender, EventArgs e)
-        {
-            if (_currentMediaType != MediaType.Video || VideoElement.Source == null)
-            {
-                VideoProgressBar.Visibility = Visibility.Collapsed;
-                VideoProgressBar.Value = 0;
-                return;
-            }
-
-            if (VideoElement.NaturalDuration.HasTimeSpan)
-            {
-                var duration = VideoElement.NaturalDuration.TimeSpan;
-                if (duration.TotalMilliseconds > 0)
-                {
-                    var pos = VideoElement.Position;
-                    double percent = pos.TotalMilliseconds / duration.TotalMilliseconds * 100.0;
-                    if (percent < 0) percent = 0;
-                    if (percent > 100) percent = 100;
-                    VideoProgressBar.Value = percent;
-                }
-            }
-
-            UpdateVideoProgressWidth();
-        }
+        // Timer logic is now handled by SlideshowController and VideoPlaybackService
 
         private void VideoProgressBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (_currentMediaType != MediaType.Video)
+            if (CurrentMediaType != MediaType.Video)
                 return;
 
             if (VideoElement.Source == null)
@@ -1892,11 +1627,7 @@ namespace SlideShowBob
             var duration = VideoElement.NaturalDuration.TimeSpan;
             var target = TimeSpan.FromMilliseconds(duration.TotalMilliseconds * ratio);
 
-            VideoElement.Position = target;
-
-            _mediaStartTime = DateTime.UtcNow;
-            _videoEnded = false;
-
+            _videoService.SeekTo(ratio);
             VideoProgressBar.Value = ratio * 100.0;
             e.Handled = true;
         }
@@ -1905,36 +1636,7 @@ namespace SlideShowBob
 
         #region Video events
 
-        private void VideoElement_MediaEnded(object sender, RoutedEventArgs e)
-        {
-            _videoEnded = true;
-            VideoElement.Stop();
-            VideoProgressBar.Value = 100;
-            _videoProgressTimer.Stop();
-        }
-
-        private void VideoElement_MediaOpened(object sender, RoutedEventArgs e)
-        {
-            if (FitToggle.IsChecked == true)
-            {
-                // Defer until layout is ready so ScrollHost has a valid viewport
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    SetVideoFit();
-                    // Re-apply portrait blur effect after video is fitted
-                    ApplyPortraitBlurEffectForVideo();
-                }), System.Windows.Threading.DispatcherPriority.Background);
-            }
-            else
-            {
-                ResetVideoScale();
-                // Apply portrait blur effect
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    ApplyPortraitBlurEffectForVideo();
-                }), System.Windows.Threading.DispatcherPriority.Loaded);
-            }
-        }
+        // Video event handlers are now in VideoPlaybackService
         #endregion
 
         #region Folder selection helpers
@@ -1994,7 +1696,7 @@ namespace SlideShowBob
 
         public IReadOnlyList<string> GetCurrentPlaylist()
         {
-            return _orderedFiles.ToList();
+            return _playlist.GetAllItems().Select(i => i.FilePath).ToList();
         }
 
         public async Task AddFolderInteractiveAsync()
@@ -2007,8 +1709,9 @@ namespace SlideShowBob
 
         private void PlaylistButton_Click(object sender, RoutedEventArgs e)
         {
-            // _folders and _allFiles should be your in-memory playlist sources
-            var window = new PlaylistWindow(this, _folders, _allFiles);
+            // Get file paths from playlist
+            var allFilePaths = _playlist.GetAllItems().Select(i => i.FilePath).ToList();
+            var window = new PlaylistWindow(this, _folders, allFilePaths);
             window.Owner = this;
             window.Show();
         }
@@ -2072,15 +1775,13 @@ namespace SlideShowBob
                 // The blur is directly tied to the media source, so just re-apply based on current state
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    if (_currentMediaType == MediaType.Video && VideoElement.Source != null)
+                    if (CurrentMediaType == MediaType.Video && VideoElement.Source != null)
                     {
                         ApplyPortraitBlurEffectForVideo();
                     }
                     else if (ImageElement.Source is BitmapSource currentImage)
                     {
-                        string? currentFile = null;
-                        if (_currentIndex >= 0 && _currentIndex < _orderedFiles.Count)
-                            currentFile = _orderedFiles[_currentIndex];
+                        string? currentFile = _playlist.CurrentItem?.FilePath;
                         ApplyPortraitBlurEffect(currentImage, currentFile);
                     }
                 }), System.Windows.Threading.DispatcherPriority.Loaded);
@@ -2098,7 +1799,7 @@ namespace SlideShowBob
             // Use dispatcher to ensure layout is complete
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (_currentMediaType == MediaType.Video && VideoElement.Source != null)
+                if (CurrentMediaType == MediaType.Video && VideoElement.Source != null)
                 {
                     SetVideoFit();
                 }
@@ -2108,9 +1809,7 @@ namespace SlideShowBob
                     // Re-apply portrait blur effect after resize
                     if (ImageElement.Source is BitmapSource bmp)
                     {
-                        string? currentFile = null;
-                        if (_currentIndex >= 0 && _currentIndex < _orderedFiles.Count)
-                            currentFile = _orderedFiles[_currentIndex];
+                        string? currentFile = _playlist.CurrentItem?.FilePath;
                         ApplyPortraitBlurEffect(bmp, currentFile);
                     }
                 }
@@ -2126,7 +1825,7 @@ namespace SlideShowBob
             ScrollHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
             ScrollHost.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
 
-            if (_currentMediaType == MediaType.Video)
+            if (CurrentMediaType == MediaType.Video)
             {
                 ResetVideoScale();
             }
@@ -2142,14 +1841,14 @@ namespace SlideShowBob
 
         private void ZoomResetButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentMediaType == MediaType.Video) return;
+            if (CurrentMediaType == MediaType.Video) return;
             FitToggle.IsChecked = false;
             SetZoom(1.0);
         }
 
         private void StartButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_orderedFiles.Count == 0)
+            if (!_playlist.HasItems)
             {
                 MessageBox.Show("Please select a folder with images or videos first.",
                                 "No Media", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -2163,11 +1862,9 @@ namespace SlideShowBob
                 return;
             }
 
-         
             _slideDelayMs = delay;
-            _slideTimer.Interval = TimeSpan.FromMilliseconds(delay);
-            _slideTimer.Start();
-            SetSlideshowState(true);
+            _slideshowController.SlideDelayMs = delay;
+            _slideshowController.Start();
 
             // Auto-minimize toolbar when slideshow starts
             MinimizeToolbar();
@@ -2181,8 +1878,7 @@ namespace SlideShowBob
 
         private void StopButton_Click(object sender, RoutedEventArgs e)
         {
-            _slideTimer.Stop();
-            SetSlideshowState(false);
+            _slideshowController.Stop();
         }
 
         private void FullscreenButton_Click(object sender, RoutedEventArgs e)
@@ -2249,13 +1945,13 @@ namespace SlideShowBob
             }
 
             // Re-apply fit so media matches new size
-            if (_currentMediaType == MediaType.Video && VideoElement.Source != null && FitToggle.IsChecked == true)
+            if (CurrentMediaType == MediaType.Video && VideoElement.Source != null && FitToggle.IsChecked == true)
             {
                 SetVideoFit();
             }
             else if (ImageElement.Source != null && FitToggle.IsChecked == true)
             {
-                SetZoomFit(_currentMediaType == MediaType.Gif);
+                SetZoomFit(CurrentMediaType == MediaType.Gif);
             }
         }
 
@@ -2275,21 +1971,9 @@ namespace SlideShowBob
 
         private void ReplayButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentMediaType != MediaType.Video) return;
-            if (_slideTimer.IsEnabled) return;
-            if (VideoElement.Source == null) return;
-
-            _videoEnded = false;
-            _mediaStartTime = DateTime.UtcNow;
-            VideoElement.Stop();
-            VideoElement.Position = TimeSpan.Zero;
-            VideoElement.IsMuted = _isMuted;
-            VideoElement.Play();
-
-            VideoProgressBar.Visibility = Visibility.Visible;
-            VideoProgressBar.Value = 0;
-            UpdateVideoProgressWidth();
-            _videoProgressTimer.Start();
+            if (CurrentMediaType != MediaType.Video) return;
+            if (_slideshowController.IsRunning) return;
+            _videoService.Replay();
         }
 
         private void PrevButton_Click(object sender, RoutedEventArgs e) => ShowPrevious();
@@ -2334,7 +2018,7 @@ namespace SlideShowBob
 
         private void NotchPlayPauseButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_slideTimer.IsEnabled)
+            if (_slideshowController.IsRunning)
                 StopButton_Click(sender, e);
             else
                 StartButton_Click(sender, e);
@@ -2517,7 +2201,7 @@ namespace SlideShowBob
 
         private void ScrollHost_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
-            if (_currentMediaType == MediaType.Video) return;
+            if (CurrentMediaType == MediaType.Video) return;
             if (FitToggle.IsChecked == true) return;
 
             double factor = e.Delta > 0 ? 1.1 : 0.9;
@@ -2630,21 +2314,28 @@ namespace SlideShowBob
             SaveFoldersToSettings();
 
             // Remove all files under that folder from playlist
-            _allFiles.RemoveAll(f => PlaylistWindow_IsUnderFolderStatic(f, folderPath));
-            _orderedFiles.RemoveAll(f => PlaylistWindow_IsUnderFolderStatic(f, folderPath));
+            var items = _playlist.GetAllItems().ToList();
+            var itemsToRemove = items.Where(i => PlaylistWindow_IsUnderFolderStatic(i.FilePath, folderPath)).ToList();
+            
+            // Reload playlist without removed items
+            var remainingItems = items.Except(itemsToRemove).Select(i => i.FilePath).ToList();
+            bool includeVideos = IncludeVideoToggle.IsChecked == true;
+            
+            // Rebuild playlist
+            _playlist.LoadFiles(_folders, includeVideos);
+            ApplySort();
 
-            if (_orderedFiles.Count == 0)
+            if (!_playlist.HasItems)
             {
-                _currentIndex = -1;
                 ClearImageDisplay();
-                VideoElement.Source = null;
+                _videoService.Stop();
                 UpdateItemCount();
                 return;
             }
 
-            // Fix current index if needed
-            if (_currentIndex >= _orderedFiles.Count)
-                _currentIndex = _orderedFiles.Count - 1;
+            // Ensure index is valid
+            if (_playlist.CurrentIndex >= _playlist.Count)
+                _playlist.SetIndex(_playlist.Count - 1);
 
             ShowCurrentMedia();
         }
@@ -2655,21 +2346,47 @@ namespace SlideShowBob
                 return;
 
             string normalized = Path.GetFullPath(filePath);
+            var items = _playlist.GetAllItems().ToList();
+            var itemToRemove = items.FirstOrDefault(i => string.Equals(Path.GetFullPath(i.FilePath), normalized, StringComparison.OrdinalIgnoreCase));
+            
+            if (itemToRemove == null)
+                return;
 
-            _allFiles.RemoveAll(f => string.Equals(Path.GetFullPath(f), normalized, StringComparison.OrdinalIgnoreCase));
-            _orderedFiles.RemoveAll(f => string.Equals(Path.GetFullPath(f), normalized, StringComparison.OrdinalIgnoreCase));
+            // Preserve current item if it's not being removed
+            var currentItem = _playlist.CurrentItem;
+            string? currentFilePath = currentItem?.FilePath;
 
-            if (_orderedFiles.Count == 0)
+            // Remove from playlist by reloading without this file
+            var remainingItems = items.Except(new[] { itemToRemove }).Select(i => i.FilePath).ToList();
+            bool includeVideos = IncludeVideoToggle.IsChecked == true;
+            
+            // Rebuild playlist
+            _playlist.LoadFiles(_folders, includeVideos);
+            ApplySort();
+
+            if (!_playlist.HasItems)
             {
-                _currentIndex = -1;
                 ClearImageDisplay();
-                VideoElement.Source = null;
+                _videoService.Stop();
                 UpdateItemCount();
                 return;
             }
 
-            if (_currentIndex >= _orderedFiles.Count)
-                _currentIndex = _orderedFiles.Count - 1;
+            // Try to restore position
+            if (currentFilePath != null && currentFilePath != normalized)
+            {
+                var itemsAfter = _playlist.GetAllItems();
+                var itemsAfterList = itemsAfter.ToList();
+                int foundIndex = itemsAfterList.FindIndex(i => i.FilePath == currentFilePath);
+                if (foundIndex >= 0)
+                    _playlist.SetIndex(foundIndex);
+                else
+                    _playlist.SetIndex(0);
+            }
+            else
+            {
+                _playlist.SetIndex(0);
+            }
 
             ShowCurrentMedia();
         }

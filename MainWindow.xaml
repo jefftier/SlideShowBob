@@ -363,8 +363,6 @@
                                           HorizontalAlignment="Center"
                                           VerticalAlignment="Center"
                                           Visibility="Collapsed"
-                                          MediaEnded="VideoElement_MediaEnded"
-                                          MediaOpened="VideoElement_MediaOpened"
                                           MouseLeftButtonUp="Media_MouseLeftButtonUp"
                                           MouseRightButtonUp="Media_MouseRightButtonUp"/>
                             <Image x:Name="ImageElement"
