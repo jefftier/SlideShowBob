@@ -2,10 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+using FFMediaToolkit;
+using FFMediaToolkit.Decoding;
+using FFMediaToolkit.Graphics;
 using SlideShowBob.Models;
 
 namespace SlideShowBob
@@ -16,8 +23,47 @@ namespace SlideShowBob
     /// </summary>
     public class ThumbnailService
     {
+        private static bool _ffmpegAvailable = false;
+        private static bool _ffmpegChecked = false;
+        private static readonly object _ffmpegCheckLock = new object();
+
+        // Note: FFmpeg configuration is handled in App.xaml.cs static constructor
+        // to ensure it happens before any FFMediaToolkit code runs.
+        // This static constructor is intentionally minimal to avoid early FFMediaToolkit initialization.
+
+        /// <summary>
+        /// Checks if FFmpeg is available. Returns true if available, false if unavailable.
+        /// If not yet checked, returns true to allow one attempt (will be marked unavailable on failure).
+        /// </summary>
+        private static bool CheckFFmpegAvailability()
+        {
+            lock (_ffmpegCheckLock)
+            {
+                // If already checked, return cached result
+                if (_ffmpegChecked)
+                    return _ffmpegAvailable;
+
+                // Not checked yet - allow one attempt
+                // If it fails, ExtractVideoFrameAsync will mark it as unavailable
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Marks FFmpeg as unavailable after a failure. Thread-safe.
+        /// </summary>
+        private static void MarkFFmpegUnavailable()
+        {
+            lock (_ffmpegCheckLock)
+            {
+                _ffmpegAvailable = false;
+                _ffmpegChecked = true;
+            }
+        }
+
         private readonly Dictionary<string, CachedThumbnail> _cache = new();
         private readonly object _cacheLock = new();
+        private readonly SemaphoreSlim _videoExtractionSemaphore = new SemaphoreSlim(1, 1); // Limit concurrent video extractions
         private const int MaxCacheSize = 200; // Maximum number of thumbnails to cache
         private const int ThumbnailSize = 200; // Thumbnail size in pixels
 
@@ -66,7 +112,7 @@ namespace SlideShowBob
 
             try
             {
-                BitmapSource? thumbnail = await Task.Run(() => GenerateThumbnail(normalizedPath));
+                BitmapSource? thumbnail = await GenerateThumbnailAsync(normalizedPath);
 
                 lock (_cacheLock)
                 {
@@ -96,28 +142,31 @@ namespace SlideShowBob
             }
         }
 
-        private BitmapSource? GenerateThumbnail(string filePath)
+        private async Task<BitmapSource?> GenerateThumbnailAsync(string filePath)
         {
             try
             {
                 string extension = Path.GetExtension(filePath).ToLowerInvariant();
 
-                // Handle images
+                // Handle images (including GIFs - they're treated as images for thumbnails)
                 if (extension is ".jpg" or ".jpeg" or ".png" or ".bmp" or ".tif" or ".tiff" or ".gif")
                 {
                     return LoadImageThumbnail(filePath);
                 }
 
-                // Handle videos - use placeholder for now
+                // Handle videos - extract a frame from the video
                 if (extension == ".mp4")
                 {
-                    return CreateVideoPlaceholder();
+                    return await ExtractVideoFrameAsync(filePath);
                 }
 
+                // Unknown format - return null
                 return null;
             }
-            catch
+            catch (Exception ex)
             {
+                // Log error for debugging
+                System.Diagnostics.Debug.WriteLine($"Error generating thumbnail for {filePath}: {ex.Message}");
                 return null;
             }
         }
@@ -172,6 +221,176 @@ namespace SlideShowBob
             bitmap.EndInit();
             bitmap.Freeze();
             return bitmap;
+        }
+
+        /// <summary>
+        /// Extracts a frame from a video file using FFMediaToolkit (FFmpeg-based).
+        /// Much more memory-efficient than MediaPlayer - only loads the specific frame needed.
+        /// Can run on background threads without UI thread dependency.
+        /// Handles AccessViolationException which can occur if FFmpeg binaries are missing.
+        /// </summary>
+        private async Task<BitmapSource?> ExtractVideoFrameAsync(string filePath)
+        {
+            // Check FFmpeg availability first (only checks once)
+            if (!CheckFFmpegAvailability())
+            {
+                // FFmpeg not available - return placeholder immediately without attempting extraction
+                System.Diagnostics.Debug.WriteLine($"FFmpeg not available, using placeholder for: {Path.GetFileName(filePath)}");
+                return CreateVideoPlaceholder();
+            }
+
+            // Limit concurrent video extractions to avoid overwhelming the system
+            await _videoExtractionSemaphore.WaitAsync();
+            try
+            {
+                // FFMediaToolkit can run on background threads - much better than MediaPlayer
+                return await Task.Run(() =>
+                {
+                    MediaFile? mediaFile = null;
+                    ImageData frame = default;
+                    bool frameDisposed = false;
+                    
+                    try
+                    {
+                        // Configure media options for video-only decoding
+                        var mediaOptions = new MediaOptions
+                        {
+                            StreamsToLoad = MediaMode.Video,
+                            VideoPixelFormat = ImagePixelFormat.Bgra32 // Match WPF format
+                        };
+
+                        // Open video file with FFMediaToolkit
+                        // This can throw DirectoryNotFoundException if FFmpeg binaries are missing
+                        mediaFile = MediaFile.Open(filePath, mediaOptions);
+                        
+                        if (mediaFile.Video == null)
+                        {
+                            return CreateVideoPlaceholder();
+                        }
+
+                        // Get the first frame at timestamp 0 (FFMediaToolkit 4.8.1 API)
+                        frame = mediaFile.Video.GetFrame(TimeSpan.Zero);
+                        
+                        // Get video dimensions from frame (ImageData is a struct, so check dimensions)
+                        int width = frame.ImageSize.Width;
+                        int height = frame.ImageSize.Height;
+
+                        if (width <= 0 || height <= 0)
+                        {
+                            frame.Dispose();
+                            frameDisposed = true;
+                            return CreateVideoPlaceholder();
+                        }
+
+                        // Calculate thumbnail dimensions maintaining aspect ratio
+                        int thumbWidth, thumbHeight;
+                        if (width >= height)
+                        {
+                            thumbWidth = ThumbnailSize;
+                            thumbHeight = (int)(ThumbnailSize * height / (double)width);
+                        }
+                        else
+                        {
+                            thumbHeight = ThumbnailSize;
+                            thumbWidth = (int)(ThumbnailSize * width / (double)height);
+                        }
+
+                        // Convert FFMediaToolkit frame data to WPF BitmapSource
+                        // Frame.Data is a Span<byte>, need to convert to array for WritePixels
+                        var pixelDataSpan = frame.Data;
+                        var stride = width * 4; // Bgra32 = 4 bytes per pixel
+                        
+                        // Convert Span<byte> to byte array for WritePixels
+                        byte[] pixelDataArray = new byte[pixelDataSpan.Length];
+                        pixelDataSpan.CopyTo(pixelDataArray);
+                        
+                        // Create full-size bitmap first
+                        var fullBitmap = new WriteableBitmap(
+                            width,
+                            height,
+                            96, 96, PixelFormats.Bgra32, null);
+                        
+                        fullBitmap.WritePixels(
+                            new Int32Rect(0, 0, width, height),
+                            pixelDataArray,
+                            stride,
+                            0);
+
+                        // Scale down to thumbnail size efficiently using TransformedBitmap
+                        var scaledBitmap = new TransformedBitmap(
+                            fullBitmap,
+                            new ScaleTransform(
+                                (double)thumbWidth / width,
+                                (double)thumbHeight / height));
+
+                        scaledBitmap.Freeze();
+                        
+                        // Dispose frame before returning
+                        frame.Dispose();
+                        frameDisposed = true;
+                        
+                        return scaledBitmap;
+                    }
+                    catch (DirectoryNotFoundException ex)
+                    {
+                        // FFmpeg binaries not found - mark as unavailable for future attempts
+                        MarkFFmpegUnavailable();
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpeg DirectoryNotFoundException for {Path.GetFileName(filePath)}: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpegLoader.FFmpegPath = {FFmpegLoader.FFmpegPath ?? "null"}");
+                        return CreateVideoPlaceholder();
+                    }
+                    catch (AccessViolationException ex)
+                    {
+                        // FFmpeg not properly initialized or memory issue
+                        // This often happens when FFmpeg binaries are missing or incompatible
+                        MarkFFmpegUnavailable();
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpeg AccessViolationException for {Path.GetFileName(filePath)}: {ex.Message}");
+                        return CreateVideoPlaceholder();
+                    }
+                    catch (DllNotFoundException ex)
+                    {
+                        // FFmpeg DLLs not found - mark as unavailable
+                        MarkFFmpegUnavailable();
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpeg DllNotFoundException for {Path.GetFileName(filePath)}: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpegLoader.FFmpegPath = {FFmpegLoader.FFmpegPath ?? "null"}");
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Check that FFmpeg DLLs are in the configured path and all dependencies are available.");
+                        return CreateVideoPlaceholder();
+                    }
+                    catch (Exception ex)
+                    {
+                        // Any other error - return placeholder
+                        MarkFFmpegUnavailable();
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpeg error for {Path.GetFileName(filePath)}: {ex.GetType().Name}: {ex.Message}");
+                        if (ex.InnerException != null)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Inner exception: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                        }
+                        return CreateVideoPlaceholder();
+                    }
+                    finally
+                    {
+                        // Always dispose resources safely
+                        try
+                        {
+                            if (!frameDisposed)
+                            {
+                                frame.Dispose();
+                            }
+                        }
+                        catch { }
+                        
+                        try
+                        {
+                            mediaFile?.Dispose();
+                        }
+                        catch { }
+                    }
+                });
+            }
+            finally
+            {
+                _videoExtractionSemaphore.Release();
+            }
         }
 
         private BitmapSource CreateVideoPlaceholder()

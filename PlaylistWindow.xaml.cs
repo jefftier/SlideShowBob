@@ -569,17 +569,28 @@ namespace SlideShowBob
             // Load thumbnails for visible items first, then the rest
             var itemsToLoad = _mediaItems.ToList();
             
+            if (itemsToLoad.Count == 0)
+            {
+                System.Diagnostics.Debug.WriteLine("LoadThumbnailsAsync: No items to load");
+                return;
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"LoadThumbnailsAsync: Starting to load {itemsToLoad.Count} thumbnails");
+            
             // Load thumbnails in batches to avoid overwhelming the UI thread
-            const int batchSize = 10;
+            const int batchSize = 5; // Reduced batch size for more responsive loading
+            int loadedCount = 0;
+            
             for (int i = 0; i < itemsToLoad.Count; i += batchSize)
             {
-                var batch = itemsToLoad.Skip(i).Take(batchSize);
+                var batch = itemsToLoad.Skip(i).Take(batchSize).ToList();
                 
-                foreach (var item in batch)
+                // Process batch in parallel for faster loading
+                var tasks = batch.Select(async item =>
                 {
                     // Skip if already has thumbnail
                     if (item.Thumbnail != null)
-                        continue;
+                        return;
 
                     try
                     {
@@ -590,18 +601,30 @@ namespace SlideShowBob
                             Dispatcher.Invoke(() =>
                             {
                                 item.Thumbnail = thumbnail;
+                                loadedCount++;
                             });
+                            System.Diagnostics.Debug.WriteLine($"Loaded thumbnail for: {item.Name}");
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Thumbnail is null for: {item.Name}");
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        // Skip failed thumbnails
+                        // Log error for debugging
+                        System.Diagnostics.Debug.WriteLine($"Failed to load thumbnail for {item.FullPath}: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                     }
-                }
+                });
+                
+                await Task.WhenAll(tasks);
 
                 // Small delay between batches to keep UI responsive
-                await Task.Delay(50);
+                await Task.Delay(100);
             }
+            
+            System.Diagnostics.Debug.WriteLine($"LoadThumbnailsAsync: Completed. Loaded {loadedCount} thumbnails");
         }
 
         private void UpdateViewModeButtons()
