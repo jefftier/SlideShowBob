@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -34,6 +35,15 @@ namespace SlideShowBob
         private PlaylistViewMode _currentViewMode = PlaylistViewMode.Detailed;
         private PlaylistMediaItem? _selectedItem;
         private readonly ThumbnailService _thumbnailService = new ThumbnailService();
+        
+        // Virtual scrolling support
+        private CancellationTokenSource? _thumbnailLoadCancellation;
+        private readonly object _thumbnailLoadLock = new object();
+        private const int ItemWidth = 140; // Width of each thumbnail item (from XAML)
+        private const int ItemHeight = 140; // Height of each thumbnail item (from XAML)
+        private const int ItemMargin = 3; // Margin around each item (from XAML)
+        private const int TotalItemWidth = ItemWidth + (ItemMargin * 2); // Total width including margins
+        private const int TotalItemHeight = ItemHeight + (ItemMargin * 2); // Total height including margins
 
         // Dark title bar constants (same pattern as MainWindow)
         private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
@@ -74,12 +84,65 @@ namespace SlideShowBob
             // Initialize view mode
             UpdateViewMode();
             
+            // Set up scroll event handler for virtual scrolling
+            ThumbnailViewContainer.ScrollChanged += ThumbnailViewContainer_ScrollChanged;
+            
+            // Handle window resize to recalculate visible items
+            SizeChanged += PlaylistWindow_SizeChanged;
+            
             BuildFolderTree();
         }
 
         private void PlaylistWindow_Loaded(object sender, RoutedEventArgs e)
         {
             EnableDarkTitleBar();
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            // Clean up cancellation token
+            lock (_thumbnailLoadLock)
+            {
+                _thumbnailLoadCancellation?.Cancel();
+                _thumbnailLoadCancellation?.Dispose();
+                _thumbnailLoadCancellation = null;
+            }
+            base.OnClosed(e);
+        }
+
+        /// <summary>
+        /// Handles window resize to recalculate visible thumbnails when viewport size changes.
+        /// </summary>
+        private void PlaylistWindow_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (_currentViewMode == PlaylistViewMode.Thumbnail && _mediaItems.Count > 0)
+            {
+                // Trigger recalculation of visible items after resize
+                lock (_thumbnailLoadLock)
+                {
+                    _thumbnailLoadCancellation?.Cancel();
+                    _thumbnailLoadCancellation?.Dispose();
+                    _thumbnailLoadCancellation = new CancellationTokenSource();
+                }
+
+                var cancellationToken = _thumbnailLoadCancellation.Token;
+#pragma warning disable CS4014 // Fire-and-forget: intentionally not awaited
+                _ = Task.Delay(200, cancellationToken).ContinueWith(async _ =>
+                {
+                    if (!cancellationToken.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            await LoadVisibleThumbnailsAsync(cancellationToken);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // Expected when resizing quickly - ignore (TaskCanceledException inherits from this)
+                        }
+                    }
+                }, cancellationToken, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+#pragma warning restore CS4014
+            }
         }
 
         private void EnableDarkTitleBar()
@@ -362,11 +425,12 @@ namespace SlideShowBob
                         }
                         
                         // Start loading thumbnails asynchronously if in thumbnail view
+                        // Use a small delay to ensure layout is complete before calculating visible range
                         if (_currentViewMode == PlaylistViewMode.Thumbnail)
                         {
                             // Fire-and-forget: intentionally not awaited
 #pragma warning disable CS4014
-                            _ = LoadThumbnailsAsync();
+                            _ = Task.Delay(100).ContinueWith(async _ => await LoadThumbnailsAsync(), TaskScheduler.Default);
 #pragma warning restore CS4014
                         }
                     });
@@ -440,6 +504,13 @@ namespace SlideShowBob
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
+            // Clean up cancellation token
+            lock (_thumbnailLoadLock)
+            {
+                _thumbnailLoadCancellation?.Cancel();
+                _thumbnailLoadCancellation?.Dispose();
+                _thumbnailLoadCancellation = null;
+            }
             Close();
         }
 
@@ -555,39 +626,162 @@ namespace SlideShowBob
                 : Visibility.Collapsed;
 
             // Start loading thumbnails if switching to thumbnail view
+            // Use a small delay to ensure layout is complete before calculating visible range
             if (_currentViewMode == PlaylistViewMode.Thumbnail && _mediaItems.Count > 0)
             {
                 // Fire-and-forget: intentionally not awaited
 #pragma warning disable CS4014
-                _ = LoadThumbnailsAsync();
+                _ = Task.Delay(100).ContinueWith(async _ => await LoadThumbnailsAsync(), TaskScheduler.Default);
 #pragma warning restore CS4014
             }
         }
 
-        private async Task LoadThumbnailsAsync()
+        /// <summary>
+        /// Handles scroll changes in the thumbnail view to implement virtual scrolling.
+        /// Only loads thumbnails for visible items plus a buffer zone.
+        /// </summary>
+        private void ThumbnailViewContainer_ScrollChanged(object sender, ScrollChangedEventArgs e)
         {
-            // Load thumbnails for visible items first, then the rest
-            var itemsToLoad = _mediaItems.ToList();
-            
-            if (itemsToLoad.Count == 0)
-            {
-                System.Diagnostics.Debug.WriteLine("LoadThumbnailsAsync: No items to load");
+            if (_currentViewMode != PlaylistViewMode.Thumbnail || _mediaItems.Count == 0)
                 return;
-            }
-            
-            System.Diagnostics.Debug.WriteLine($"LoadThumbnailsAsync: Starting to load {itemsToLoad.Count} thumbnails");
-            
-            // Load thumbnails in batches to avoid overwhelming the UI thread
-            const int batchSize = 5; // Reduced batch size for more responsive loading
-            int loadedCount = 0;
-            
-            for (int i = 0; i < itemsToLoad.Count; i += batchSize)
+
+            // Debounce rapid scroll events - reload thumbnails after scrolling stops
+            // Cancel any pending load operation
+            lock (_thumbnailLoadLock)
             {
-                var batch = itemsToLoad.Skip(i).Take(batchSize).ToList();
+                _thumbnailLoadCancellation?.Cancel();
+                _thumbnailLoadCancellation?.Dispose();
+                _thumbnailLoadCancellation = new CancellationTokenSource();
+            }
+
+            // Delay loading to avoid loading during rapid scrolling
+            var cancellationToken = _thumbnailLoadCancellation.Token;
+#pragma warning disable CS4014 // Fire-and-forget: intentionally not awaited
+            _ = Task.Delay(150, cancellationToken).ContinueWith(async _ =>
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    return;
+
+                try
+                {
+                    await LoadVisibleThumbnailsAsync(cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected when scrolling quickly - ignore (TaskCanceledException inherits from this)
+                }
+            }, cancellationToken, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default);
+#pragma warning restore CS4014
+        }
+
+        /// <summary>
+        /// Calculates which items are visible in the viewport plus buffer zones.
+        /// Returns a range of indices that should have thumbnails loaded.
+        /// </summary>
+        private (int startIndex, int endIndex) CalculateVisibleRange()
+        {
+            if (_mediaItems.Count == 0)
+                return (0, 0);
+
+            var scrollViewer = ThumbnailViewContainer;
+
+            // Get viewport dimensions
+            double viewportHeight = scrollViewer.ViewportHeight;
+            double viewportWidth = scrollViewer.ViewportWidth;
+            double verticalOffset = scrollViewer.VerticalOffset;
+
+            // Calculate how many items fit per row (accounting for margins)
+            int itemsPerRow;
+            
+            // If viewport dimensions are not yet available, return a safe default range
+            if (viewportHeight <= 0 || viewportWidth <= 0)
+            {
+                // Load first page of items as fallback
+                itemsPerRow = Math.Max(1, (int)Math.Floor(600.0 / TotalItemWidth)); // Assume ~600px width
+                int rowsToLoad = Math.Max(3, (int)Math.Ceiling(viewportHeight > 0 ? viewportHeight / TotalItemHeight : 3.0));
+                return (0, Math.Min(_mediaItems.Count - 1, itemsPerRow * rowsToLoad - 1));
+            }
+
+            itemsPerRow = Math.Max(1, (int)Math.Floor(viewportWidth / TotalItemWidth));
+
+            // Calculate which rows are visible
+            double topVisibleY = verticalOffset;
+            double bottomVisibleY = verticalOffset + viewportHeight;
+
+            // Add buffer: 1 viewport height above and below
+            double bufferHeight = viewportHeight;
+            double topBufferY = Math.Max(0, topVisibleY - bufferHeight);
+            double bottomBufferY = bottomVisibleY + bufferHeight;
+
+            // Calculate row indices (0-based)
+            int topRow = (int)Math.Floor(topBufferY / TotalItemHeight);
+            int bottomRow = (int)Math.Ceiling(bottomBufferY / TotalItemHeight);
+
+            // Calculate item indices
+            int startIndex = Math.Max(0, topRow * itemsPerRow);
+            int endIndex = Math.Min(_mediaItems.Count - 1, (bottomRow + 1) * itemsPerRow - 1);
+
+            return (startIndex, endIndex);
+        }
+
+        /// <summary>
+        /// Loads thumbnails only for visible items plus buffer zones.
+        /// Releases thumbnails that are outside the buffer zone.
+        /// </summary>
+        private async Task LoadVisibleThumbnailsAsync(CancellationToken cancellationToken)
+        {
+            if (_mediaItems.Count == 0)
+                return;
+
+            var (startIndex, endIndex) = CalculateVisibleRange();
+
+            System.Diagnostics.Debug.WriteLine($"LoadVisibleThumbnailsAsync: Loading thumbnails for indices {startIndex} to {endIndex} (total: {_mediaItems.Count})");
+
+            // Release thumbnails outside the buffer zone
+            await Dispatcher.InvokeAsync(() =>
+            {
+                for (int i = 0; i < _mediaItems.Count; i++)
+                {
+                    if (i < startIndex || i > endIndex)
+                    {
+                        // Item is outside buffer zone - release thumbnail
+                        if (_mediaItems[i].Thumbnail != null)
+                        {
+                            _mediaItems[i].Thumbnail = null;
+                        }
+                    }
+                }
+            });
+
+            // Load thumbnails for visible range
+            const int batchSize = 5;
+            int loadedCount = 0;
+
+            for (int i = startIndex; i <= endIndex && !cancellationToken.IsCancellationRequested; i += batchSize)
+            {
+                var batchEnd = Math.Min(i + batchSize - 1, endIndex);
+                var batch = new List<PlaylistMediaItem>();
                 
-                // Process batch in parallel for faster loading
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    for (int j = i; j <= batchEnd; j++)
+                    {
+                        if (j < _mediaItems.Count)
+                        {
+                            batch.Add(_mediaItems[j]);
+                        }
+                    }
+                });
+
+                if (batch.Count == 0)
+                    break;
+
+                // Process batch in parallel
                 var tasks = batch.Select(async item =>
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                        return;
+
                     // Skip if already has thumbnail
                     if (item.Thumbnail != null)
                         return;
@@ -595,36 +789,76 @@ namespace SlideShowBob
                     try
                     {
                         var thumbnail = await _thumbnailService.LoadThumbnailAsync(item.FullPath);
-                        if (thumbnail != null)
+                        if (thumbnail != null && !cancellationToken.IsCancellationRequested)
                         {
                             // Update on UI thread
-                            Dispatcher.Invoke(() =>
+                            await Dispatcher.InvokeAsync(() =>
                             {
-                                item.Thumbnail = thumbnail;
-                                loadedCount++;
+                                if (!cancellationToken.IsCancellationRequested && item.Thumbnail == null)
+                                {
+                                    item.Thumbnail = thumbnail;
+                                    loadedCount++;
+                                }
                             });
-                            System.Diagnostics.Debug.WriteLine($"Loaded thumbnail for: {item.Name}");
                         }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Thumbnail is null for: {item.Name}");
-                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when scrolling quickly - ignore (TaskCanceledException inherits from this)
                     }
                     catch (Exception ex)
                     {
-                        // Log error for debugging
-                        System.Diagnostics.Debug.WriteLine($"Failed to load thumbnail for {item.FullPath}: {ex.Message}");
-                        System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                        if (!cancellationToken.IsCancellationRequested)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Failed to load thumbnail for {item.FullPath}: {ex.Message}");
+                        }
                     }
                 });
-                
-                await Task.WhenAll(tasks);
+
+                try
+                {
+                    await Task.WhenAll(tasks);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected when scrolling quickly - ignore (TaskCanceledException inherits from this)
+                }
 
                 // Small delay between batches to keep UI responsive
-                await Task.Delay(100);
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await Task.Delay(50, cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when scrolling quickly - ignore (TaskCanceledException inherits from this)
+                    }
+                }
             }
-            
-            System.Diagnostics.Debug.WriteLine($"LoadThumbnailsAsync: Completed. Loaded {loadedCount} thumbnails");
+
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                System.Diagnostics.Debug.WriteLine($"LoadVisibleThumbnailsAsync: Completed. Loaded {loadedCount} thumbnails");
+            }
+        }
+
+        /// <summary>
+        /// Legacy method - now delegates to LoadVisibleThumbnailsAsync for virtual scrolling.
+        /// </summary>
+        private async Task LoadThumbnailsAsync()
+        {
+            // Cancel any existing load operation
+            lock (_thumbnailLoadLock)
+            {
+                _thumbnailLoadCancellation?.Cancel();
+                _thumbnailLoadCancellation?.Dispose();
+                _thumbnailLoadCancellation = new CancellationTokenSource();
+            }
+
+            // Load thumbnails for visible items only
+            await LoadVisibleThumbnailsAsync(_thumbnailLoadCancellation.Token);
         }
 
         private void UpdateViewModeButtons()
