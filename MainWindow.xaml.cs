@@ -112,12 +112,14 @@ namespace SlideShowBob
             // ImageElement uses rotation transform for EXIF orientation, sizing via Width/Height
             ImageElement.LayoutTransform = _imageRotation;
             VideoElement.LayoutTransform = _videoScale;
+            VideoFrameImage.LayoutTransform = _videoScale; // Use same scale as video
 
             // Initialize services
             _videoService = new VideoPlaybackService(VideoElement, VideoProgressBar);
             _videoService.IsMuted = _isMuted;
             _videoService.MediaOpened += VideoService_MediaOpened;
             _videoService.MediaEnded += VideoService_MediaEnded;
+            _videoService.FrameCaptured += VideoService_FrameCaptured;
 
             _slideshowController = new SlideshowController(_playlist);
             _slideshowController.SlideDelayMs = _slideDelayMs;
@@ -205,6 +207,23 @@ namespace SlideShowBob
         private void VideoService_MediaOpened(object? sender, EventArgs e)
         {
             HideLoadingOverlay();
+            
+            // Make sure video is visible and ready
+            if (VideoElement != null)
+            {
+                VideoElement.Visibility = Visibility.Visible;
+            }
+            
+            // Wait a short moment for video to start rendering, then fade from static frame
+            // Use a simple delay since MediaElement doesn't expose playback state directly
+            var fadeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+            fadeTimer.Tick += (s, args) =>
+            {
+                fadeTimer.Stop();
+                FadeFromFrameToVideo();
+            };
+            fadeTimer.Start();
+            
             ApplyPortraitBlurEffectForVideo();
             
             if (FitToggle.IsChecked == true)
@@ -234,6 +253,23 @@ namespace SlideShowBob
         private void VideoService_MediaEnded(object? sender, EventArgs e)
         {
             _slideshowController.OnVideoEnded();
+        }
+
+        private void VideoService_FrameCaptured(object? sender, System.Windows.Media.Imaging.BitmapSource frame)
+        {
+            // Display the captured last frame immediately
+            if (frame != null)
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    // Hide video element and show the last frame
+                    if (VideoElement != null)
+                    {
+                        VideoElement.Visibility = Visibility.Collapsed;
+                    }
+                    ShowVideoFrame(frame, fadeIn: true);
+                }), DispatcherPriority.Normal);
+            }
         }
 
         #endregion
@@ -321,6 +357,12 @@ namespace SlideShowBob
             if (VideoElement != null)
             {
                 VideoElement.Effect = null;
+            }
+            if (VideoFrameImage != null)
+            {
+                VideoFrameImage.Source = null;
+                VideoFrameImage.Visibility = Visibility.Collapsed;
+                VideoFrameImage.Opacity = 0;
             }
             if (BlurredBackgroundImage != null)
             {
@@ -538,6 +580,88 @@ namespace SlideShowBob
         private void ApplyPortraitBlurEffect(BitmapSource? image, string? filePath = null)
         {
             ApplyPortraitBlurEffectForImage(image, filePath);
+        }
+
+        /// <summary>
+        /// Displays a video frame in the VideoFrameImage element with optional fade-in animation.
+        /// </summary>
+        private void ShowVideoFrame(System.Windows.Media.Imaging.BitmapSource frame, bool fadeIn = false)
+        {
+            if (VideoFrameImage == null || frame == null)
+                return;
+
+            VideoFrameImage.Source = frame;
+            VideoFrameImage.Visibility = Visibility.Visible;
+
+            if (fadeIn)
+            {
+                // Fade in animation
+                var fadeInAnim = new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(300))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                };
+                VideoFrameImage.BeginAnimation(OpacityProperty, fadeInAnim);
+            }
+            else
+            {
+                VideoFrameImage.Opacity = 1.0;
+            }
+        }
+
+        /// <summary>
+        /// Fades from the static video frame to the actual video playback.
+        /// </summary>
+        private void FadeFromFrameToVideo()
+        {
+            if (VideoFrameImage == null || VideoElement == null)
+                return;
+
+            // Make sure video is visible and on top (z-order)
+            VideoElement.Visibility = Visibility.Visible;
+            
+            // Ensure video element is in front of frame image
+            // The XAML order determines z-order, but we can also use Panel.ZIndex if needed
+
+            // Only fade out if frame is actually visible
+            if (VideoFrameImage.Visibility == Visibility.Visible && VideoFrameImage.Opacity > 0)
+            {
+                // Fade out the static frame quickly so video is visible
+                var fadeOutAnim = new DoubleAnimation(VideoFrameImage.Opacity, 0.0, TimeSpan.FromMilliseconds(200))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+                };
+
+                fadeOutAnim.Completed += (s, e) =>
+                {
+                    // Hide frame image after fade out
+                    if (VideoFrameImage != null)
+                    {
+                        VideoFrameImage.Visibility = Visibility.Collapsed;
+                        VideoFrameImage.Source = null;
+                        VideoFrameImage.Opacity = 0;
+                    }
+                };
+
+                VideoFrameImage.BeginAnimation(OpacityProperty, fadeOutAnim);
+            }
+            else
+            {
+                // Frame wasn't shown, just make sure it's hidden
+                HideVideoFrame();
+            }
+        }
+
+        /// <summary>
+        /// Hides the video frame image immediately.
+        /// </summary>
+        private void HideVideoFrame()
+        {
+            if (VideoFrameImage != null)
+            {
+                VideoFrameImage.Visibility = Visibility.Collapsed;
+                VideoFrameImage.Source = null;
+                VideoFrameImage.Opacity = 0;
+            }
         }
 
         private SortMode ParseSortMode(string? value)
@@ -1358,8 +1482,8 @@ namespace SlideShowBob
                 return;
             }
 
-            // Stop video playback cleanly
-            _videoService.Stop();
+            // Stop video playback cleanly (don't capture frame when switching)
+            _videoService.Stop(captureLastFrame: false);
 
             // Clear image display when switching media - this must happen first
             ClearImageDisplay();
@@ -1393,6 +1517,13 @@ namespace SlideShowBob
                     ImageElement.Source = null;
                     ScrollHost.ScrollToHorizontalOffset(0);
                     ScrollHost.ScrollToVerticalOffset(0);
+
+                    // Extract and display first frame immediately for instant visual feedback
+                    var firstFrame = await VideoFrameService.ExtractFirstFrameAsync(currentItem.FilePath);
+                    if (firstFrame != null)
+                    {
+                        ShowVideoFrame(firstFrame, fadeIn: true);
+                    }
 
                     // Load video using VideoPlaybackService for smooth transition
                     var videoUri = new Uri(currentItem.FilePath);

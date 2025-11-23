@@ -356,6 +356,16 @@
                                   PreviewMouseRightButtonUp="ScrollHost_PreviewMouseRightButtonUp"
                                   PreviewMouseLeftButtonUp="ScrollHost_PreviewMouseLeftButtonUp">
                         <Grid x:Name="MediaGrid">
+                            <!-- Static frame image for video (first/last frame) - behind video -->
+                            <Image x:Name="VideoFrameImage"
+                                   Stretch="Uniform"
+                                   RenderOptions.BitmapScalingMode="HighQuality"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Visibility="Collapsed"
+                                   Opacity="0"
+                                   MouseLeftButtonUp="Media_MouseLeftButtonUp"
+                                   MouseRightButtonUp="Media_MouseRightButtonUp" />
                             <MediaElement x:Name="VideoElement"
                                           LoadedBehavior="Manual"
                                           UnloadedBehavior="Stop"

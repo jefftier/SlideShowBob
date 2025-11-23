@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace SlideShowBob
@@ -24,6 +25,7 @@ namespace SlideShowBob
         public event EventHandler? MediaOpened;
         public event EventHandler? MediaEnded;
         public event EventHandler<double>? ProgressUpdated;
+        public event EventHandler<BitmapSource>? FrameCaptured; // For last frame capture
 
         public bool IsPlaying => _isPlaying;
         public bool IsMuted
@@ -70,6 +72,25 @@ namespace SlideShowBob
             // Set up new handlers
             _mediaOpenedHandler = (s, e) =>
             {
+                // Ensure playback is started (in case the immediate Play() call didn't work)
+                if (_mediaElement.Source == source)
+                {
+                    try
+                    {
+                        _mediaElement.Play();
+                    }
+                    catch
+                    {
+                        // If play fails, ignore - it might already be playing
+                    }
+                }
+                // Ensure progress timer is running
+                if (!_progressTimer.IsEnabled)
+                {
+                    _progressTimer.Start();
+                    _progressBar.Visibility = Visibility.Visible;
+                    _progressBar.Value = 0;
+                }
                 _isPlaying = true;
                 MediaOpened?.Invoke(this, EventArgs.Empty);
                 onMediaOpened?.Invoke();
@@ -78,7 +99,14 @@ namespace SlideShowBob
             _mediaEndedHandler = (s, e) =>
             {
                 _isPlaying = false;
-                Stop();
+                // Capture last frame BEFORE stopping (while video is still visible)
+                var lastFrame = CaptureCurrentFrame();
+                if (lastFrame != null)
+                {
+                    FrameCaptured?.Invoke(this, lastFrame);
+                }
+                // Now stop the video
+                Stop(captureLastFrame: false);
                 MediaEnded?.Invoke(this, EventArgs.Empty);
                 onMediaEnded?.Invoke();
             };
@@ -87,29 +115,94 @@ namespace SlideShowBob
             _mediaElement.MediaEnded += _mediaEndedHandler;
 
             // Sequence the load: set source first, then visibility, then play
-            // Use dispatcher to avoid blocking UI thread
             _currentSource = source;
             _mediaElement.Source = source;
             _mediaElement.Visibility = Visibility.Visible;
 
-            // Defer play until after layout pass to prevent stutter
+            // Try to start playing immediately - MediaElement will queue it if not ready yet
+            // This reduces delay compared to waiting for MediaOpened
             _mediaElement.Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (_mediaElement.Source == source) // Verify source hasn't changed
                 {
-                    _mediaElement.Play();
-                    _progressTimer.Start();
-                    _progressBar.Visibility = Visibility.Visible;
-                    _progressBar.Value = 0;
+                    try
+                    {
+                        _mediaElement.Play();
+                        _progressTimer.Start();
+                        _progressBar.Visibility = Visibility.Visible;
+                        _progressBar.Value = 0;
+                    }
+                    catch
+                    {
+                        // If play fails (media not ready), MediaOpened handler will retry
+                    }
                 }
-            }), DispatcherPriority.Loaded);
+            }), DispatcherPriority.Normal);
+        }
+
+        /// <summary>
+        /// Captures the current frame from the video element.
+        /// Returns null if video is not ready or capture fails.
+        /// </summary>
+        public BitmapSource? CaptureCurrentFrame()
+        {
+            if (_mediaElement == null || _mediaElement.Source == null)
+                return null;
+
+            if (_mediaElement.NaturalVideoWidth <= 0 || _mediaElement.NaturalVideoHeight <= 0)
+                return null;
+
+            try
+            {
+                // Use VisualBrush to capture the video frame
+                var videoBrush = new VisualBrush(_mediaElement)
+                {
+                    Stretch = Stretch.Uniform,
+                    Viewbox = new Rect(0, 0, 1, 1),
+                    ViewboxUnits = BrushMappingMode.RelativeToBoundingBox
+                };
+
+                var drawingVisual = new DrawingVisual();
+                using (var drawingContext = drawingVisual.RenderOpen())
+                {
+                    drawingContext.DrawRectangle(
+                        videoBrush,
+                        null,
+                        new Rect(0, 0, _mediaElement.NaturalVideoWidth, _mediaElement.NaturalVideoHeight));
+                }
+
+                var renderTarget = new RenderTargetBitmap(
+                    _mediaElement.NaturalVideoWidth,
+                    _mediaElement.NaturalVideoHeight,
+                    96, 96, PixelFormats.Pbgra32);
+
+                renderTarget.Render(drawingVisual);
+                renderTarget.Freeze();
+
+                return renderTarget;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>
         /// Stops playback and clears the video source.
+        /// Optionally captures the last frame before stopping.
         /// </summary>
-        public void Stop()
+        public void Stop(bool captureLastFrame = false)
         {
+            // Capture last frame before stopping if requested
+            if (captureLastFrame && _isPlaying)
+            {
+                var lastFrame = CaptureCurrentFrame();
+                if (lastFrame != null)
+                {
+                    FrameCaptured?.Invoke(this, lastFrame);
+                }
+            }
+
             _isPlaying = false;
             _progressTimer.Stop();
 
