@@ -29,3 +29,7 @@ packages/
 *.svclog
 _ReSharper*/
 *.DotSettings.user
+
+## FFMPEG (large binaries, should not be in repo)
+ffmpeg/
+FFMPEG/
