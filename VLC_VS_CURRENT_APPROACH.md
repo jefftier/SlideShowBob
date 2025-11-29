@@ -230,3 +230,5 @@ mediaPlayer.TimeChanged += (s, e) => { /* progress */ };
 
 **My vote**: **Optimize current approach first**, then **consider VLC migration** as a future enhancement if issues persist or new requirements emerge.
 
+
+

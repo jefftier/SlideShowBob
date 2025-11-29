@@ -152,3 +152,5 @@ SlideshowController.OnTransitionComplete()
 4. **Memory**: Run slideshow for extended period - memory should remain stable
 5. **Video End**: Let videos play to end - should auto-advance correctly
 
+
+

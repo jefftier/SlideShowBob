@@ -54,6 +54,24 @@ namespace SlideShowBob
 
         private bool _toolbarMinimized = false;
         private CancellationTokenSource? _loadingOverlayDelayCts;
+        private CancellationTokenSource? _showMediaCancellation;
+        private readonly object _showMediaLock = new object();
+
+        protected override void OnClosed(EventArgs e)
+        {
+            // Clean up cancellation tokens
+            lock (_showMediaLock)
+            {
+                _showMediaCancellation?.Cancel();
+                _showMediaCancellation?.Dispose();
+                _showMediaCancellation = null;
+            }
+            
+            _loadingOverlayDelayCts?.Cancel();
+            _loadingOverlayDelayCts?.Dispose();
+            
+            base.OnClosed(e);
+        }
 
         // Sort mode (still needed for UI)
         private SortMode _sortMode = SortMode.NameAZ;
@@ -1457,6 +1475,16 @@ namespace SlideShowBob
 
         private async Task ShowCurrentMediaAsync()
         {
+            // Cancel any previous media loading operation to prevent race conditions
+            CancellationToken cancellationToken;
+            lock (_showMediaLock)
+            {
+                _showMediaCancellation?.Cancel();
+                _showMediaCancellation?.Dispose();
+                _showMediaCancellation = new CancellationTokenSource();
+                cancellationToken = _showMediaCancellation.Token;
+            }
+
             ShowLoadingOverlayDelayed();
             
             try
@@ -1477,6 +1505,13 @@ namespace SlideShowBob
 
             var currentItem = _playlist.CurrentItem;
             if (currentItem == null || !File.Exists(currentItem.FilePath))
+            {
+                HideLoadingOverlay();
+                return;
+            }
+
+            // Check if operation was cancelled
+            if (cancellationToken.IsCancellationRequested)
             {
                 HideLoadingOverlay();
                 return;
@@ -1519,10 +1554,28 @@ namespace SlideShowBob
                     ScrollHost.ScrollToVerticalOffset(0);
 
                     // Extract and display first frame immediately for instant visual feedback
-                    var firstFrame = await VideoFrameService.ExtractFirstFrameAsync(currentItem.FilePath);
-                    if (firstFrame != null)
+                    BitmapSource? firstFrame = null;
+                    try
+                    {
+                        firstFrame = await VideoFrameService.ExtractFirstFrameAsync(currentItem.FilePath);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when navigating quickly (includes TaskCanceledException)
+                        HideLoadingOverlay();
+                        return;
+                    }
+                    
+                    if (firstFrame != null && !cancellationToken.IsCancellationRequested)
                     {
                         ShowVideoFrame(firstFrame, fadeIn: true);
+                    }
+                    
+                    // Check cancellation before continuing
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        HideLoadingOverlay();
+                        return;
                     }
 
                     // Load video using VideoPlaybackService for smooth transition
@@ -1553,11 +1606,21 @@ namespace SlideShowBob
                         : ScrollHost.ActualWidth;
 
                     // Load GIF asynchronously with optimized decoding
-                    var gifImage = await _mediaLoader.LoadGifAsync(
-                        currentItem.FilePath,
-                        viewportWidth > 0 ? viewportWidth : null);
+                    BitmapImage? gifImage = null;
+                    try
+                    {
+                        gifImage = await _mediaLoader.LoadGifAsync(
+                            currentItem.FilePath,
+                            viewportWidth > 0 ? viewportWidth : null);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when navigating quickly (includes TaskCanceledException)
+                        HideLoadingOverlay();
+                        return;
+                    }
 
-                    if (gifImage == null)
+                    if (gifImage == null || cancellationToken.IsCancellationRequested)
                     {
                         HideLoadingOverlay();
                         return;
@@ -1615,11 +1678,21 @@ namespace SlideShowBob
                         ? ScrollHost.ViewportWidth
                         : ScrollHost.ActualWidth;
 
-                    var img = await _mediaLoader.LoadImageAsync(
-                        currentItem.FilePath,
-                        viewportWidth > 0 ? viewportWidth : null);
+                    BitmapImage? img = null;
+                    try
+                    {
+                        img = await _mediaLoader.LoadImageAsync(
+                            currentItem.FilePath,
+                            viewportWidth > 0 ? viewportWidth : null);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when navigating quickly (includes TaskCanceledException)
+                        HideLoadingOverlay();
+                        return;
+                    }
 
-                    if (img == null)
+                    if (img == null || cancellationToken.IsCancellationRequested)
                     {
                         HideLoadingOverlay();
                         return;
@@ -1696,6 +1769,11 @@ namespace SlideShowBob
                     // Notify controller
                     _slideshowController.OnMediaDisplayed(MediaType.Image);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when navigating quickly - ignore (includes TaskCanceledException)
+                HideLoadingOverlay();
             }
             catch
             {

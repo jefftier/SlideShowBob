@@ -202,3 +202,5 @@ var media = new Media(libVLC, videoPath, FromType.FromPath);
 4. Test with large video collections
 5. Monitor memory usage improvements
 
+
+

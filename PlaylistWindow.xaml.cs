@@ -39,6 +39,7 @@ namespace SlideShowBob
         // Virtual scrolling support
         private CancellationTokenSource? _thumbnailLoadCancellation;
         private readonly object _thumbnailLoadLock = new object();
+        private bool _isClosed = false;
         private const int ItemWidth = 140; // Width of each thumbnail item (from XAML)
         private const int ItemHeight = 140; // Height of each thumbnail item (from XAML)
         private const int ItemMargin = 3; // Margin around each item (from XAML)
@@ -100,6 +101,8 @@ namespace SlideShowBob
 
         protected override void OnClosed(EventArgs e)
         {
+            _isClosed = true;
+            
             // Clean up cancellation token
             lock (_thumbnailLoadLock)
             {
@@ -738,20 +741,35 @@ namespace SlideShowBob
             System.Diagnostics.Debug.WriteLine($"LoadVisibleThumbnailsAsync: Loading thumbnails for indices {startIndex} to {endIndex} (total: {_mediaItems.Count})");
 
             // Release thumbnails outside the buffer zone
-            await Dispatcher.InvokeAsync(() =>
+            try
             {
-                for (int i = 0; i < _mediaItems.Count; i++)
+                await Dispatcher.InvokeAsync(() =>
                 {
-                    if (i < startIndex || i > endIndex)
+                    if (_isClosed) return;
+                    
+                    for (int i = 0; i < _mediaItems.Count; i++)
                     {
-                        // Item is outside buffer zone - release thumbnail
-                        if (_mediaItems[i].Thumbnail != null)
+                        if (i < startIndex || i > endIndex)
                         {
-                            _mediaItems[i].Thumbnail = null;
+                            // Item is outside buffer zone - release thumbnail
+                            if (_mediaItems[i].Thumbnail != null)
+                            {
+                                _mediaItems[i].Thumbnail = null;
+                            }
                         }
                     }
-                }
-            });
+                }, System.Windows.Threading.DispatcherPriority.Normal, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when window closes or operation is cancelled (includes TaskCanceledException)
+                return;
+            }
+            catch (InvalidOperationException)
+            {
+                // Expected when window is closing or dispatcher is shutting down
+                return;
+            }
 
             // Load thumbnails for visible range
             const int batchSize = 5;
@@ -762,16 +780,31 @@ namespace SlideShowBob
                 var batchEnd = Math.Min(i + batchSize - 1, endIndex);
                 var batch = new List<PlaylistMediaItem>();
                 
-                await Dispatcher.InvokeAsync(() =>
+                try
                 {
-                    for (int j = i; j <= batchEnd; j++)
+                    await Dispatcher.InvokeAsync(() =>
                     {
-                        if (j < _mediaItems.Count)
+                        if (_isClosed) return;
+                        
+                        for (int j = i; j <= batchEnd; j++)
                         {
-                            batch.Add(_mediaItems[j]);
+                            if (j < _mediaItems.Count)
+                            {
+                                batch.Add(_mediaItems[j]);
+                            }
                         }
-                    }
-                });
+                    }, System.Windows.Threading.DispatcherPriority.Normal, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected when window closes or operation is cancelled (includes TaskCanceledException)
+                    break;
+                }
+                catch (InvalidOperationException)
+                {
+                    // Expected when window is closing or dispatcher is shutting down
+                    break;
+                }
 
                 if (batch.Count == 0)
                     break;
@@ -791,20 +824,34 @@ namespace SlideShowBob
                         var thumbnail = await _thumbnailService.LoadThumbnailAsync(item.FullPath);
                         if (thumbnail != null && !cancellationToken.IsCancellationRequested)
                         {
-                            // Update on UI thread
-                            await Dispatcher.InvokeAsync(() =>
+                            // Update on UI thread - check if window is still valid
+                            try
                             {
-                                if (!cancellationToken.IsCancellationRequested && item.Thumbnail == null)
+                                await Dispatcher.InvokeAsync(() =>
                                 {
-                                    item.Thumbnail = thumbnail;
-                                    loadedCount++;
-                                }
-                            });
+                                    // Check if window is still open and cancellation hasn't been requested
+                                    if (!cancellationToken.IsCancellationRequested && 
+                                        !_isClosed && 
+                                        item.Thumbnail == null)
+                                    {
+                                        item.Thumbnail = thumbnail;
+                                        loadedCount++;
+                                    }
+                                }, System.Windows.Threading.DispatcherPriority.Normal, cancellationToken);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                // Expected when window closes or operation is cancelled (includes TaskCanceledException)
+                            }
+                            catch (InvalidOperationException)
+                            {
+                                // Expected when window is closing or dispatcher is shutting down
+                            }
                         }
                     }
                     catch (OperationCanceledException)
                     {
-                        // Expected when scrolling quickly - ignore (TaskCanceledException inherits from this)
+                        // Expected when scrolling quickly - ignore (includes TaskCanceledException)
                     }
                     catch (Exception ex)
                     {
@@ -813,7 +860,7 @@ namespace SlideShowBob
                             System.Diagnostics.Debug.WriteLine($"Failed to load thumbnail for {item.FullPath}: {ex.Message}");
                         }
                     }
-                });
+                }).ToArray(); // Convert to array for Task.WhenAll
 
                 try
                 {
@@ -821,7 +868,24 @@ namespace SlideShowBob
                 }
                 catch (OperationCanceledException)
                 {
-                    // Expected when scrolling quickly - ignore (TaskCanceledException inherits from this)
+                    // Expected when scrolling quickly - ignore (includes TaskCanceledException)
+                }
+                catch (AggregateException aggEx)
+                {
+                    // Task.WhenAll can throw AggregateException containing cancelled tasks
+                    // Filter out expected cancellation exceptions (TaskCanceledException inherits from OperationCanceledException)
+                    var nonCancellationExceptions = aggEx.Flatten().InnerExceptions
+                        .Where(ex => !(ex is OperationCanceledException))
+                        .ToList();
+                    
+                    if (nonCancellationExceptions.Any())
+                    {
+                        // Only log if there are non-cancellation exceptions
+                        foreach (var ex in nonCancellationExceptions)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Unexpected error in thumbnail loading: {ex.Message}");
+                        }
+                    }
                 }
 
                 // Small delay between batches to keep UI responsive
