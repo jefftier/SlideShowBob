@@ -40,8 +40,10 @@
 	<ItemGroup>
 		<Content Include="SlideShowBob.ico" />
 		<!-- Copy ffmpeg folder to output directory -->
+		<!-- For single-file publishing, these will be extracted alongside the executable -->
 		<Content Include="ffmpeg\**\*">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 		</Content>
 	</ItemGroup>
 

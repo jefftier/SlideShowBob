@@ -10,12 +10,13 @@ public class AppSettings
 
     public string ToolbarInactivityBehavior { get; set; } = "Dim"; // "Dim", "Disappear", "Nothing"
     public bool PortraitBlurEffect { get; set; } = true; // Enable blurred background for portrait images
+    public bool UseFfmpegForPlayback { get; set; } = true; // Enable FFMPEG for video processing (thumbnails and future playback features)
 
-    // Persistence flags - control whether each setting is saved
-    public bool PersistSlideDelay { get; set; } = true;
-    public bool PersistIncludeVideos { get; set; } = true;
-    public bool PersistSortMode { get; set; } = true;
-    public bool PersistIsMuted { get; set; } = true;
-    public bool PersistFolderPaths { get; set; } = true;
-    public bool PersistPortraitBlurEffect { get; set; } = true;
+    // Save flags - control whether each setting is saved
+    public bool SaveSlideDelay { get; set; } = true;
+    public bool SaveIncludeVideos { get; set; } = true;
+    public bool SaveSortMode { get; set; } = true;
+    public bool SaveIsMuted { get; set; } = true;
+    public bool SaveFolderPaths { get; set; } = true;
+    public bool SavePortraitBlurEffect { get; set; } = true;
 }

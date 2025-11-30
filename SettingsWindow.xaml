@@ -322,7 +322,7 @@
             
             <!-- Header -->
             <StackPanel Grid.Row="0" Margin="0,0,0,24">
-                <TextBlock Text="Persistence Settings" 
+                <TextBlock Text="Save Settings" 
                            FontSize="20" 
                            FontWeight="SemiBold"
                            Margin="0,0,0,8"/>
@@ -352,58 +352,60 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     
-                    <!-- Row 0: Persist Slide Delay -->
+                    <!-- Row 0: Save Slide Delay -->
                     <TextBlock Grid.Row="0" Grid.Column="0"
-                               Text="Persist Slide Delay"
+                               Text="Save Slide Delay"
                                VerticalAlignment="Center"
                                Margin="0,0,0,12"/>
-                    <CheckBox x:Name="PersistSlideDelayCheckBox"
+                    <CheckBox x:Name="SaveSlideDelayCheckBox"
                               Grid.Row="0" Grid.Column="1"
                               VerticalAlignment="Center"
                               Margin="0,0,0,12"
                               HorizontalAlignment="Left"/>
                     
-                    <!-- Row 1: Persist Include Videos -->
+                    <!-- Row 1: Save Include Videos -->
                     <TextBlock Grid.Row="1" Grid.Column="0"
-                               Text="Persist Include Videos (GIF/MP4)"
+                               Text="Save Include Videos (GIF/MP4)"
                                VerticalAlignment="Center"
                                Margin="0,0,0,12"/>
-                    <CheckBox x:Name="PersistIncludeVideosCheckBox"
+                    <CheckBox x:Name="SaveIncludeVideosCheckBox"
                               Grid.Row="1" Grid.Column="1"
                               VerticalAlignment="Center"
                               Margin="0,0,0,12"
                               HorizontalAlignment="Left"/>
                     
-                    <!-- Row 2: Persist Sort Mode -->
+                    <!-- Row 2: Save Sort Mode -->
                     <TextBlock Grid.Row="2" Grid.Column="0"
-                               Text="Persist Sort Mode"
+                               Text="Save Sort Mode"
                                VerticalAlignment="Center"
                                Margin="0,0,0,12"/>
-                    <CheckBox x:Name="PersistSortModeCheckBox"
+                    <CheckBox x:Name="SaveSortModeCheckBox"
                               Grid.Row="2" Grid.Column="1"
                               VerticalAlignment="Center"
                               Margin="0,0,0,12"
                               HorizontalAlignment="Left"/>
                     
-                    <!-- Row 3: Persist Mute State -->
+                    <!-- Row 3: Save Mute State -->
                     <TextBlock Grid.Row="3" Grid.Column="0"
-                               Text="Persist Mute State"
+                               Text="Save Mute State"
                                VerticalAlignment="Center"
                                Margin="0,0,0,12"/>
-                    <CheckBox x:Name="PersistIsMutedCheckBox"
+                    <CheckBox x:Name="SaveIsMutedCheckBox"
                               Grid.Row="3" Grid.Column="1"
                               VerticalAlignment="Center"
                               Margin="0,0,0,12"
                               HorizontalAlignment="Left"/>
                     
-                    <!-- Row 4: Persist Folder Paths -->
+                    <!-- Row 4: Save Folder Paths -->
                     <TextBlock Grid.Row="4" Grid.Column="0"
-                               Text="Persist Folder Paths"
+                               Text="Save Folder Paths"
                                VerticalAlignment="Center"
                                Margin="0,0,0,12"/>
-                    <CheckBox x:Name="PersistFolderPathsCheckBox"
+                    <CheckBox x:Name="SaveFolderPathsCheckBox"
                               Grid.Row="4" Grid.Column="1"
                               VerticalAlignment="Center"
                               Margin="0,0,0,12"
@@ -427,11 +429,38 @@
                     <!-- Row 6: Portrait Blur Effect -->
                     <TextBlock Grid.Row="6" Grid.Column="0"
                                Text="Portrait Blur Effect"
-                               VerticalAlignment="Center"/>
+                               VerticalAlignment="Center"
+                               Margin="0,0,0,12"/>
                     <CheckBox x:Name="PortraitBlurEffectCheckBox"
                               Grid.Row="6" Grid.Column="1"
                               VerticalAlignment="Center"
-                              HorizontalAlignment="Left"/>
+                              HorizontalAlignment="Left"
+                              Margin="0,0,0,12"/>
+                    
+                    <!-- Row 7: Use FFMPEG for Playback -->
+                    <TextBlock Grid.Row="7" Grid.Column="0"
+                               Text="Use FFMPEG for Video Processing"
+                               VerticalAlignment="Center"
+                               Margin="0,0,0,12"/>
+                    <CheckBox x:Name="UseFfmpegForPlaybackCheckBox"
+                              Grid.Row="7" Grid.Column="1"
+                              VerticalAlignment="Center"
+                              HorizontalAlignment="Left"
+                              Margin="0,0,0,12"
+                              Checked="UseFfmpegForPlaybackCheckBox_Changed"
+                              Unchecked="UseFfmpegForPlaybackCheckBox_Changed"/>
+                    
+                    <!-- Row 8: FFMPEG Status Indicator -->
+                    <TextBlock Grid.Row="8" Grid.Column="0"
+                               Text="FFMPEG Status"
+                               VerticalAlignment="Center"
+                               Margin="0,0,0,0"/>
+                    <TextBlock x:Name="FfmpegStatusTextBlock"
+                              Grid.Row="8" Grid.Column="1"
+                              VerticalAlignment="Center"
+                              HorizontalAlignment="Left"
+                              FontSize="13"
+                              Margin="0,0,0,0"/>
                 </Grid>
             </ScrollViewer>
             

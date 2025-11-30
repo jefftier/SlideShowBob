@@ -26,17 +26,23 @@ namespace SlideShowBob
             InitializeComponent();
             _settings = settings;
             
-            // Load current persistence settings
-            PersistSlideDelayCheckBox.IsChecked = _settings.PersistSlideDelay;
-            PersistIncludeVideosCheckBox.IsChecked = _settings.PersistIncludeVideos;
-            PersistSortModeCheckBox.IsChecked = _settings.PersistSortMode;
-            PersistIsMutedCheckBox.IsChecked = _settings.PersistIsMuted;
-            PersistFolderPathsCheckBox.IsChecked = _settings.PersistFolderPaths;
+            // Load current save settings
+            SaveSlideDelayCheckBox.IsChecked = _settings.SaveSlideDelay;
+            SaveIncludeVideosCheckBox.IsChecked = _settings.SaveIncludeVideos;
+            SaveSortModeCheckBox.IsChecked = _settings.SaveSortMode;
+            SaveIsMutedCheckBox.IsChecked = _settings.SaveIsMuted;
+            SaveFolderPathsCheckBox.IsChecked = _settings.SaveFolderPaths;
             
             // Load portrait blur effect setting
             PortraitBlurEffectCheckBox.IsChecked = _settings.PortraitBlurEffect;
             
-            // Load current toolbar behavior setting (always persists)
+            // Load FFMPEG setting
+            UseFfmpegForPlaybackCheckBox.IsChecked = _settings.UseFfmpegForPlayback;
+            
+            // Update FFMPEG status indicator
+            UpdateFfmpegStatus();
+            
+            // Load current toolbar behavior setting (always saves)
             string behavior = _settings.ToolbarInactivityBehavior ?? "Dim";
             foreach (System.Windows.Controls.ComboBoxItem item in ToolbarInactivityBehaviorComboBox.Items)
             {
@@ -83,60 +89,91 @@ namespace SlideShowBob
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
         {
-            // Update persistence flags
-            bool persistSlideDelay = PersistSlideDelayCheckBox.IsChecked == true;
-            bool persistIncludeVideos = PersistIncludeVideosCheckBox.IsChecked == true;
-            bool persistSortMode = PersistSortModeCheckBox.IsChecked == true;
-            bool persistIsMuted = PersistIsMutedCheckBox.IsChecked == true;
-            bool persistFolderPaths = PersistFolderPathsCheckBox.IsChecked == true;
+            // Update save flags
+            bool saveSlideDelay = SaveSlideDelayCheckBox.IsChecked == true;
+            bool saveIncludeVideos = SaveIncludeVideosCheckBox.IsChecked == true;
+            bool saveSortMode = SaveSortModeCheckBox.IsChecked == true;
+            bool saveIsMuted = SaveIsMutedCheckBox.IsChecked == true;
+            bool saveFolderPaths = SaveFolderPathsCheckBox.IsChecked == true;
             
             // Update portrait blur effect setting
             bool portraitBlurEffect = PortraitBlurEffectCheckBox.IsChecked == true;
             
-            // If persistence is being disabled, reset the value to default
-            if (!persistSlideDelay && _settings.PersistSlideDelay)
+            // If saving is being disabled, reset the value to default
+            if (!saveSlideDelay && _settings.SaveSlideDelay)
             {
                 _settings.SlideDelayMs = 2000; // default
             }
-            if (!persistIncludeVideos && _settings.PersistIncludeVideos)
+            if (!saveIncludeVideos && _settings.SaveIncludeVideos)
             {
                 _settings.IncludeVideos = false; // default
             }
-            if (!persistSortMode && _settings.PersistSortMode)
+            if (!saveSortMode && _settings.SaveSortMode)
             {
                 _settings.SortMode = "NameAZ"; // default
             }
-            if (!persistIsMuted && _settings.PersistIsMuted)
+            if (!saveIsMuted && _settings.SaveIsMuted)
             {
                 _settings.IsMuted = true; // default
             }
-            if (!persistFolderPaths && _settings.PersistFolderPaths)
+            if (!saveFolderPaths && _settings.SaveFolderPaths)
             {
                 _settings.FolderPaths = new List<string>(); // default (empty)
             }
             
-            // Update toolbar behavior setting (always persists)
+            // Update toolbar behavior setting (always saves)
             if (ToolbarInactivityBehaviorComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem selectedItem)
             {
                 string behavior = selectedItem.Tag?.ToString() ?? "Dim";
                 _settings.ToolbarInactivityBehavior = behavior;
             }
             
-            // Update persistence flags
-            _settings.PersistSlideDelay = persistSlideDelay;
-            _settings.PersistIncludeVideos = persistIncludeVideos;
-            _settings.PersistSortMode = persistSortMode;
-            _settings.PersistIsMuted = persistIsMuted;
-            _settings.PersistFolderPaths = persistFolderPaths;
+            // Update save flags
+            _settings.SaveSlideDelay = saveSlideDelay;
+            _settings.SaveIncludeVideos = saveIncludeVideos;
+            _settings.SaveSortMode = saveSortMode;
+            _settings.SaveIsMuted = saveIsMuted;
+            _settings.SaveFolderPaths = saveFolderPaths;
             
             // Update portrait blur effect setting
             _settings.PortraitBlurEffect = portraitBlurEffect;
+            
+            // Update FFMPEG setting
+            bool useFfmpegForPlayback = UseFfmpegForPlaybackCheckBox.IsChecked == true;
+            _settings.UseFfmpegForPlayback = useFfmpegForPlayback;
             
             // Save settings
             SettingsManager.Save(_settings);
             
             DialogResult = true;
             Close();
+        }
+
+        private void UseFfmpegForPlaybackCheckBox_Changed(object sender, RoutedEventArgs e)
+        {
+            // Update status indicator reactively when checkbox changes
+            UpdateFfmpegStatus();
+        }
+
+        private void UpdateFfmpegStatus()
+        {
+            bool useFfmpegSetting = UseFfmpegForPlaybackCheckBox.IsChecked == true;
+            bool isEnabled = ThumbnailService.IsFfmpegEnabled(useFfmpegSetting);
+            
+            if (isEnabled)
+            {
+                FfmpegStatusTextBlock.Text = "FFMPEG: Active";
+                // Use green color for active status
+                FfmpegStatusTextBlock.Foreground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(76, 175, 80)); // Green
+            }
+            else
+            {
+                FfmpegStatusTextBlock.Text = "FFMPEG: Not Active";
+                // Use muted/red color for inactive status
+                FfmpegStatusTextBlock.Foreground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(158, 158, 158)); // Gray
+            }
         }
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)

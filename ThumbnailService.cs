@@ -50,6 +50,39 @@ namespace SlideShowBob
         }
 
         /// <summary>
+        /// Public method to check if FFmpeg is enabled and available.
+        /// Checks both the setting flag and actual FFmpeg availability.
+        /// </summary>
+        public static bool IsFfmpegEnabled(bool useFfmpegSetting)
+        {
+            // First check if the setting allows FFmpeg usage
+            if (!useFfmpegSetting)
+                return false;
+
+            // Check if FFmpeg directory exists
+            var appDir = AppDomain.CurrentDomain.BaseDirectory;
+            var ffmpegPath = Path.Combine(appDir, "ffmpeg");
+            
+            if (!Directory.Exists(ffmpegPath))
+                return false;
+
+            // Check if FFmpeg DLLs are present
+            var dllFiles = Directory.GetFiles(ffmpegPath, "avcodec-*.dll");
+            if (dllFiles.Length == 0)
+                return false;
+
+            // If we've already checked and marked it as unavailable, return that result
+            lock (_ffmpegCheckLock)
+            {
+                if (_ffmpegChecked)
+                    return _ffmpegAvailable;
+            }
+
+            // If not yet checked, assume available (will be marked unavailable on first failure)
+            return true;
+        }
+
+        /// <summary>
         /// Marks FFmpeg as unavailable after a failure. Thread-safe.
         /// </summary>
         private static void MarkFFmpegUnavailable()

@@ -87,8 +87,8 @@ namespace SlideShowBob
 
             _settings = SettingsManager.Load();
 
-            // Apply settings only if persistence is enabled, otherwise use defaults
-            if (_settings.PersistSlideDelay)
+            // Apply settings only if saving is enabled, otherwise use defaults
+            if (_settings.SaveSlideDelay)
             {
                 _slideDelayMs = _settings.SlideDelayMs;
             }
@@ -98,7 +98,7 @@ namespace SlideShowBob
             }
             DelayBox.Text = _slideDelayMs.ToString();
 
-            if (_settings.PersistIncludeVideos)
+            if (_settings.SaveIncludeVideos)
             {
                 IncludeVideoToggle.IsChecked = _settings.IncludeVideos;
             }
@@ -108,7 +108,7 @@ namespace SlideShowBob
             }
 
             // muted comes from bool in settings
-            if (_settings.PersistIsMuted)
+            if (_settings.SaveIsMuted)
             {
                 _isMuted = _settings.IsMuted;
             }
@@ -118,7 +118,7 @@ namespace SlideShowBob
             }
 
             // convert stored string ("NameAZ", etc.) to enum
-            if (_settings.PersistSortMode)
+            if (_settings.SaveSortMode)
             {
                 _sortMode = ParseSortMode(_settings.SortMode);
             }
@@ -174,8 +174,8 @@ namespace SlideShowBob
             ShowChrome();
             ResetChromeTimer();
 
-            // Load previously used folders from settings only if persistence is enabled
-            if (_settings.PersistFolderPaths)
+            // Load previously used folders from settings only if saving is enabled
+            if (_settings.SaveFolderPaths)
             {
                 // Initialize FolderPaths if null (for backward compatibility with old settings files)
                 if (_settings.FolderPaths == null)
@@ -204,7 +204,7 @@ namespace SlideShowBob
             }
             else
             {
-                // Persistence disabled - clear folders
+                // Saving disabled - clear folders
                 _folders.Clear();
                 if (_settings.FolderPaths != null)
                 {
@@ -217,10 +217,11 @@ namespace SlideShowBob
 
         private void SlideshowController_NavigateToIndex(object? sender, int index)
         {
-            Dispatcher.BeginInvoke(new Action(async () =>
+            // Fire-and-forget: intentionally not awaited
+            _ = Dispatcher.InvokeAsync(async () =>
             {
                 await ShowCurrentMediaAsync();
-            }), DispatcherPriority.Normal);
+            }, DispatcherPriority.Normal);
         }
 
         private void VideoService_MediaOpened(object? sender, EventArgs e)
@@ -1294,7 +1295,7 @@ namespace SlideShowBob
                     _sortMode = SortMode.Random;
                     break;
             }
-            if (_settings.PersistSortMode)
+            if (_settings.SaveSortMode)
             {
                 _settings.SortMode = _sortMode.ToString();
                 SettingsManager.Save(_settings);
@@ -1907,7 +1908,7 @@ namespace SlideShowBob
 
         private void SaveFoldersToSettings()
         {
-            if (_settings.PersistFolderPaths)
+            if (_settings.SaveFolderPaths)
             {
                 _settings.FolderPaths = new List<string>(_folders);
                 SettingsManager.Save(_settings);
@@ -1941,8 +1942,8 @@ namespace SlideShowBob
 
         private async Task OnIncludeVideoToggleChanged()
         {
-            // Persist setting
-            if (_settings.PersistIncludeVideos)
+            // Save setting
+            if (_settings.SaveIncludeVideos)
             {
                 _settings.IncludeVideos = IncludeVideoToggle.IsChecked == true;
                 SettingsManager.Save(_settings);
@@ -2017,12 +2018,12 @@ namespace SlideShowBob
             window.Owner = this;
             if (window.ShowDialog() == true)
             {
-                // Settings were saved, reload to get updated persistence flags
+                // Settings were saved, reload to get updated save flags
                 _settings = SettingsManager.Load();
                 
-                // Re-apply settings based on updated persistence flags
-                // If persistence is disabled, reset to defaults
-                if (_settings.PersistSlideDelay)
+                // Re-apply settings based on updated save flags
+                // If saving is disabled, reset to defaults
+                if (_settings.SaveSlideDelay)
                 {
                     _slideDelayMs = _settings.SlideDelayMs;
                 }
@@ -2032,7 +2033,7 @@ namespace SlideShowBob
                 }
                 DelayBox.Text = _slideDelayMs.ToString();
                 
-                if (_settings.PersistIncludeVideos)
+                if (_settings.SaveIncludeVideos)
                 {
                     IncludeVideoToggle.IsChecked = _settings.IncludeVideos;
                 }
@@ -2041,7 +2042,7 @@ namespace SlideShowBob
                     IncludeVideoToggle.IsChecked = false; // default
                 }
                 
-                if (_settings.PersistIsMuted)
+                if (_settings.SaveIsMuted)
                 {
                     _isMuted = _settings.IsMuted;
                 }
@@ -2052,7 +2053,7 @@ namespace SlideShowBob
                 VideoElement.IsMuted = _isMuted;
                 MuteButton.Content = _isMuted ? "🔇" : "🔊";
                 
-                if (_settings.PersistSortMode)
+                if (_settings.SaveSortMode)
                 {
                     _sortMode = ParseSortMode(_settings.SortMode);
                 }
@@ -2062,9 +2063,9 @@ namespace SlideShowBob
                 }
                 UpdateSortMenuVisuals();
                 
-                // Note: We don't clear folders here when persistence is disabled.
-                // The persistence flag only affects whether folders are saved/loaded on app start/close.
-                // Folders remain in memory during the current session regardless of the persistence setting.
+                // Note: We don't clear folders here when saving is disabled.
+                // The save flag only affects whether folders are saved/loaded on app start/close.
+                // Folders remain in memory during the current session regardless of the save setting.
                 
                 // Re-apply portrait blur effect if media is currently displayed
                 // The blur is directly tied to the media source, so just re-apply based on current state
@@ -2164,7 +2165,7 @@ namespace SlideShowBob
             // Auto-minimize toolbar when slideshow starts
             MinimizeToolbar();
 
-            if (_settings.PersistSlideDelay)
+            if (_settings.SaveSlideDelay)
             {
                 _settings.SlideDelayMs = _slideDelayMs;
                 SettingsManager.Save(_settings);
@@ -2259,7 +2260,7 @@ namespace SlideShowBob
             VideoElement.IsMuted = _isMuted;
             MuteButton.Content = _isMuted ? "🔇" : "🔊";
 
-            if (_settings.PersistIsMuted)
+            if (_settings.SaveIsMuted)
             {
                 _settings.IsMuted = _isMuted;
                 SettingsManager.Save(_settings);

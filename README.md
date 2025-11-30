@@ -102,7 +102,7 @@ Access settings via the Settings button in the toolbar:
 - **Mute Videos**: Enable/disable video audio
 - **Toolbar Behavior**: Control toolbar auto-hide behavior
 - **Portrait Blur Effect**: Enable blurred background for portrait images
-- **Persistence Options**: Control which settings are saved
+- **Save Options**: Control which settings are saved
 
 ### Playlist Window
 - Open the Playlist window to see all media files
@@ -137,9 +137,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation.
 ## Configuration
 
 Settings are stored in `AppSettings.json` (location varies by installation). The application supports:
-- Persistent settings (saved between sessions)
+- Saved settings (saved between sessions)
 - Session-only settings (reset on restart)
-- Per-setting persistence control
+- Per-setting save control
 
 ## Troubleshooting
 
@@ -178,7 +178,7 @@ SlideShowBob/
 ├── ThumbnailService.cs         # Video thumbnail generation
 ├── VideoFrameService.cs        # Video frame extraction
 ├── PlaylistService.cs          # Playlist operations
-├── SettingsManager.cs          # Settings persistence
+├── SettingsManager.cs          # Settings saving
 ├── AppSettings.cs              # Settings data model
 ├── Models/                      # Additional data models
 ├── Assets/                      # Application icons
