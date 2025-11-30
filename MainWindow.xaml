@@ -66,7 +66,7 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Root" Property="Background"
-                                        Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                        Value="{StaticResource HoverOverlayBrush}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Root" Property="Background"
@@ -74,6 +74,7 @@
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.4"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -152,22 +153,17 @@
                                         Value="{StaticResource ControlBackgroundHoverBrush}"/>
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
-                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                                 <Setter TargetName="Pill" Property="Background"
                                         Value="{StaticResource AccentBrush}"/>
                             </Trigger>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Trigger.EnterActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <ColorAnimation Storyboard.TargetName="Pill"
-                                                           Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
-                                                           To="#0078D4"
-                                                           Duration="0:0:0.15"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </Trigger.EnterActions>
-                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsChecked" Value="True"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Pill" Property="Background" Value="{StaticResource AccentBrushHover}"/>
+                            </MultiTrigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.4"/>
                             </Trigger>
@@ -181,7 +177,7 @@
         <Style TargetType="ProgressBar">
             <Setter Property="Height" Value="3"/>
             <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
-            <Setter Property="Background" Value="#2A2A2A"/>
+            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
         </Style>
@@ -211,11 +207,13 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Border" Property="Background"
-                                        Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                        Value="{StaticResource HoverOverlayBrush}"/>
                             </Trigger>
                             <Trigger Property="IsFocused" Value="True">
                                 <Setter TargetName="Border" Property="Background"
-                                        Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                        Value="{StaticResource HoverOverlayBrush}"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="Border" Property="BorderThickness" Value="1"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -341,7 +339,7 @@
                             VerticalAlignment="Bottom"
                             Margin="0,0,0,0"
                             CornerRadius="4,4,0,0"
-                            Background="#E61C1C1C"
+                            Background="{StaticResource SurfaceAltBrush}"
                             BorderThickness="0"
                             Padding="8,6"
                             Opacity="0.98"
@@ -535,7 +533,7 @@
                     VerticalAlignment="Bottom"
                     Margin="0,0,0,0"
                     CornerRadius="4,4,0,0"
-                    Background="#E61C1C1C"
+                    Background="{StaticResource SurfaceAltBrush}"
                     BorderThickness="0"
                     Padding="6,4"
                     Opacity="0"
@@ -645,7 +643,7 @@
         <TextBlock x:Name="HoverTimeText"
                    Margin="8,0,0,0"
                    VerticalAlignment="Center"
-                   Foreground="#AAAAAA"
+                   Foreground="{StaticResource TextSecondaryBrush}"
                    FontSize="10"
                    Visibility="Collapsed"/>
     </Grid>

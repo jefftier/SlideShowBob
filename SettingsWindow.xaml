@@ -46,7 +46,7 @@
                             </Border>
                             <Path x:Name="CheckMark"
                                   Data="M 3,7 L 6,10 L 12,4"
-                                  Stroke="White"
+                                  Stroke="{StaticResource TextPrimaryBrush}"
                                   StrokeThickness="2"
                                   StrokeStartLineCap="Round"
                                   StrokeEndLineCap="Round"
@@ -66,8 +66,20 @@
                                 <Setter TargetName="CheckBoxBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="CheckBoxBorder" Property="Background" Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                <Setter TargetName="CheckBoxBorder" Property="Background" Value="{StaticResource HoverOverlayBrush}"/>
                                 <Setter TargetName="CheckBoxBorder" Property="BorderBrush" Value="{StaticResource SubtleBorderStrongBrush}"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsChecked" Value="True"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="CheckBoxBorder" Property="Background" Value="{StaticResource AccentBrushHover}"/>
+                                <Setter TargetName="CheckBoxBorder" Property="BorderBrush" Value="{StaticResource AccentBrushHover}"/>
+                            </MultiTrigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
+                                <Setter TargetName="CheckBoxBorder" Property="Opacity" Value="0.5"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -97,11 +109,14 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Root" Property="Background"
-                                        Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                        Value="{StaticResource HoverOverlayBrush}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="Root" Property="Background"
                                         Value="{StaticResource ControlBackgroundPressedBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

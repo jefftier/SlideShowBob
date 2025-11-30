@@ -4,34 +4,38 @@
              xmlns:local="clr-namespace:SlideShowBob"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <!-- ===== Fluent 2 / Windows 11 Modern Color Palette (Global) ===== -->
-        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#0F0F0F"/>
-        <LinearGradientBrush x:Key="WindowBackdropBrush" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#1A1A1A" Offset="0.0"/>
-            <GradientStop Color="#0F0F0F" Offset="1.0"/>
-        </LinearGradientBrush>
+        <!-- ===== Dark Theme Color Palette (Global) ===== -->
+        <!-- Backgrounds -->
+        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#05070A"/>
+        <SolidColorBrush x:Key="WindowBackdropBrush" Color="#05070A"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#0B1020"/>
+        <SolidColorBrush x:Key="SurfaceAltBrush" Color="#111827"/>
+        <SolidColorBrush x:Key="RaisedBrush" Color="#182033"/>
 
-        <SolidColorBrush x:Key="SurfaceBrush" Color="#1C1C1C"/>
-        <SolidColorBrush x:Key="SurfaceAltBrush" Color="#242424"/>
+        <!-- Accent Colors (Blue for active/selected/focused only) -->
+        <SolidColorBrush x:Key="AccentBrush" Color="#3B82F6"/>
+        <SolidColorBrush x:Key="AccentBrushHover" Color="#60A5FA"/>
+        <SolidColorBrush x:Key="AccentBrushSecondary" Color="#3B82F6"/>
 
-        <SolidColorBrush x:Key="AccentBrush" Color="#0078D4"/>
-        <SolidColorBrush x:Key="AccentBrushHover" Color="#106EBE"/>
-        <SolidColorBrush x:Key="AccentBrushSecondary" Color="#005A9E"/>
+        <!-- Borders -->
+        <SolidColorBrush x:Key="SubtleBorderBrush" Color="#1F2933"/>
+        <SolidColorBrush x:Key="SubtleBorderStrongBrush" Color="#374151"/>
 
-        <SolidColorBrush x:Key="SubtleBorderBrush" Color="#2A2A2A"/>
-        <SolidColorBrush x:Key="SubtleBorderStrongBrush" Color="#3A3A3A"/>
+        <!-- Text -->
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F9FAFB"/>
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#D1D5DB"/>
+        <SolidColorBrush x:Key="TextMutedBrush" Color="#6B7280"/>
+        <SolidColorBrush x:Key="TextDisabledBrush" Color="#6B7280"/>
 
-        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#CCCCCC"/>
-        <SolidColorBrush x:Key="TextMutedBrush" Color="#999999"/>
-
+        <!-- Control States -->
         <SolidColorBrush x:Key="ControlBackgroundBrush" Color="Transparent"/>
-        <SolidColorBrush x:Key="ControlBackgroundHoverBrush" Color="#2A2A2A"/>
-        <SolidColorBrush x:Key="ControlBackgroundPressedBrush" Color="#333333"/>
+        <SolidColorBrush x:Key="HoverOverlayBrush" Color="#14FFFFFF"/>
+        <SolidColorBrush x:Key="ControlBackgroundHoverBrush" Color="#14FFFFFF"/>
+        <SolidColorBrush x:Key="ControlBackgroundPressedBrush" Color="#20FFFFFF"/>
 
         <!-- ===== Global ContextMenu Style - Dark Theme ===== -->
         <Style TargetType="ContextMenu">
-            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
             <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
@@ -56,9 +60,9 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <!-- Icon column with dark background -->
+                                <!-- Icon column - use theme background -->
                                 <Border Grid.Column="0" 
-                                        Background="Transparent"
+                                        Background="{StaticResource SurfaceAltBrush}"
                                         Width="20"
                                         HorizontalAlignment="Left">
                                     <ContentPresenter x:Name="Icon"
@@ -78,18 +82,21 @@
                                          Text="{TemplateBinding InputGestureText}"
                                          Margin="20,0,0,0"
                                          VerticalAlignment="Center"
-                                         Foreground="{StaticResource TextMutedBrush}"/>
+                                         Foreground="{StaticResource TextSecondaryBrush}"/>
                             </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Border" Property="Background" Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource HoverOverlayBrush}"/>
                             </Trigger>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="Border" Property="Background" Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource HoverOverlayBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource RaisedBrush}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
                                 <Setter Property="Opacity" Value="0.5"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -99,9 +106,9 @@
             <Style.Resources>
                 <!-- Override system colors for menu items to prevent white backgrounds -->
                 <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="Transparent"/>
-                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FFFFFF"/>
-                <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#1C1C1C"/>
-                <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#FFFFFF"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F9FAFB"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#111827"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#F9FAFB"/>
             </Style.Resources>
         </Style>
 
@@ -114,7 +121,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ScrollBar">
-                        <Grid x:Name="GridRoot" Background="Transparent">
+                        <Grid x:Name="GridRoot" Background="#111827">
                             <Track x:Name="PART_Track" IsDirectionReversed="False" Focusable="False">
                                 <Track.Thumb>
                                     <Thumb x:Name="Thumb" 
@@ -122,19 +129,18 @@
                                            Margin="2,0">
                                         <Thumb.Style>
                                             <Style TargetType="Thumb">
-                                                <Setter Property="Background" Value="{StaticResource SubtleBorderStrongBrush}"/>
+                                                <Setter Property="Background" Value="#4B5563"/>
                                                 <Setter Property="Template">
                                                     <Setter.Value>
                                                         <ControlTemplate TargetType="Thumb">
                                                             <Border Background="{TemplateBinding Background}" 
-                                                                    CornerRadius="6" 
-                                                                    Opacity="0.6"/>
+                                                                    CornerRadius="6"/>
                                                             <ControlTemplate.Triggers>
                                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                                    <Setter Property="Opacity" Value="0.9"/>
+                                                                    <Setter Property="Background" Value="#9CA3AF"/>
                                                                 </Trigger>
                                                                 <Trigger Property="IsDragging" Value="True">
-                                                                    <Setter Property="Opacity" Value="1.0"/>
+                                                                    <Setter Property="Background" Value="#9CA3AF"/>
                                                                 </Trigger>
                                                             </ControlTemplate.Triggers>
                                                         </ControlTemplate>
@@ -158,9 +164,14 @@
             <Setter Property="BorderBrush" Value="Transparent"/>
         </Style>
 
-        <!-- ===== Global ListViewItem Style - Single Color Hover ===== -->
+        <!-- Pre-blended hover colors (bg-surface + hover-overlay) -->
+        <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#0E1524"/>
+        <SolidColorBrush x:Key="RaisedHoverBrush" Color="#1A2539"/>
+
+        <!-- ===== Global ListViewItem Style - Dark Theme ===== -->
         <Style TargetType="ListViewItem">
-            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="4,1"/>
             <Setter Property="Margin" Value="0"/>
@@ -169,18 +180,22 @@
                     <ControlTemplate TargetType="ListViewItem">
                         <Border x:Name="Border"
                                 Background="{TemplateBinding Background}"
-                                BorderThickness="0"
+                                BorderThickness="{TemplateBinding BorderThickness}"
                                 Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                            VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                                            SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                            <GridViewRowPresenter x:Name="PART_GridViewRowPresenter"
+                                                Content="{TemplateBinding Content}"
+                                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Border" Property="Background" Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Border" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource RaisedBrush}"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="Border" Property="BorderThickness" Value="0,0,0,2"/>
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                             </Trigger>
                             <MultiTrigger>
@@ -188,22 +203,26 @@
                                     <Condition Property="IsSelected" Value="True"/>
                                     <Condition Property="IsMouseOver" Value="True"/>
                                 </MultiTrigger.Conditions>
-                                <Setter TargetName="Border" Property="Background" Value="{StaticResource AccentBrushHover}"/>
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource RaisedHoverBrush}"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource AccentBrushHover}"/>
                             </MultiTrigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
             <Style.Resources>
                 <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="Transparent"/>
-                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FFFFFF"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F9FAFB"/>
             </Style.Resources>
         </Style>
 
         <!-- ===== Global GridViewColumnHeader Style - Single Line Separators ===== -->
         <Style TargetType="GridViewColumnHeader">
             <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
-            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
             <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
             <Setter Property="BorderThickness" Value="0,0,1,0"/>
             <Setter Property="Padding" Value="6,4"/>
@@ -227,7 +246,7 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                <Setter TargetName="Border" Property="Background" Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -238,30 +257,118 @@
         <!-- ===== Global TreeViewItem Style - Dark Theme Selection ===== -->
         <Style TargetType="TreeViewItem">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="3,1"/>
             <Setter Property="Margin" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TreeViewItem">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition MinWidth="19" Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition/>
+                            </Grid.RowDefinitions>
+                            
+                            <!-- Toggle button for expand/collapse -->
+                            <ToggleButton x:Name="Expander"
+                                        Grid.Column="0"
+                                        ClickMode="Press"
+                                        IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Style>
+                                    <Style TargetType="ToggleButton">
+                                        <Setter Property="Focusable" Value="False"/>
+                                        <Setter Property="Width" Value="16"/>
+                                        <Setter Property="Height" Value="16"/>
+                                        <Setter Property="Margin" Value="1,0,0,0"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ToggleButton">
+                                                    <Border Background="Transparent"
+                                                            Width="16"
+                                                            Height="16"
+                                                            SnapsToDevicePixels="True">
+                                                        <Path x:Name="ExpandPath"
+                                                              Margin="1,1,1,1"
+                                                              Fill="{StaticResource TextSecondaryBrush}"
+                                                              Data="M 0 0 L 0 6 L 6 6 Z">
+                                                            <Path.RenderTransform>
+                                                                <RotateTransform Angle="135" CenterX="3" CenterY="3"/>
+                                                            </Path.RenderTransform>
+                                                        </Path>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsChecked" Value="True">
+                                                            <Setter TargetName="ExpandPath" Property="RenderTransform">
+                                                                <Setter.Value>
+                                                                    <RotateTransform Angle="180" CenterX="3" CenterY="3"/>
+                                                                </Setter.Value>
+                                                            </Setter>
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ToggleButton.Style>
+                            </ToggleButton>
+                            
+                            <!-- Border for selection/hover -->
+                            <Border x:Name="Bd"
+                                    Grid.Column="1"
+                                    Grid.ColumnSpan="2"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter x:Name="PART_Header"
+                                                ContentSource="Header"
+                                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"/>
+                            </Border>
+                            
+                            <!-- Items presenter for children -->
+                            <ItemsPresenter x:Name="ItemsHost"
+                                          Grid.Row="1"
+                                          Grid.Column="1"
+                                          Grid.ColumnSpan="2"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsExpanded" Value="False">
+                                <Setter TargetName="ItemsHost" Property="Visibility" Value="Collapsed"/>
+                            </Trigger>
+                            <Trigger Property="HasItems" Value="False">
+                                <Setter TargetName="Expander" Property="Visibility" Value="Hidden"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource RaisedBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="True"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource RaisedHoverBrush}"/>
+                            </MultiTrigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
             <Style.Resources>
                 <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="Transparent"/>
-                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="{StaticResource TextPrimaryBrush}"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F9FAFB"/>
             </Style.Resources>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource ControlBackgroundHoverBrush}"/>
-                </Trigger>
-                <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
-                    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                </Trigger>
-                <MultiTrigger>
-                    <MultiTrigger.Conditions>
-                        <Condition Property="IsSelected" Value="True"/>
-                        <Condition Property="IsMouseOver" Value="True"/>
-                    </MultiTrigger.Conditions>
-                    <Setter Property="Background" Value="{StaticResource AccentBrushHover}"/>
-                </MultiTrigger>
-            </Style.Triggers>
         </Style>
 
         <!-- ===== Global ComboBox Style - Consistent Hover ===== -->
@@ -333,7 +440,7 @@
                                  PopupAnimation="Slide"
                                  Placement="Bottom">
                                 <Border x:Name="DropDownBorder"
-                                      Background="{StaticResource SurfaceBrush}"
+                                      Background="{StaticResource SurfaceAltBrush}"
                                       BorderBrush="{StaticResource SubtleBorderBrush}"
                                       BorderThickness="1"
                                       CornerRadius="2"
@@ -347,7 +454,10 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Border" Property="Background"
-                                        Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                        Value="{StaticResource HoverOverlayBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
                             </Trigger>
                             <Trigger Property="IsEditable" Value="True">
                                 <Setter Property="IsTabStop" Value="False"/>
@@ -383,12 +493,22 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Border" Property="Background"
-                                        Value="{StaticResource ControlBackgroundHoverBrush}"/>
+                                        Value="{StaticResource HoverOverlayBrush}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter TargetName="Border" Property="Background"
-                                        Value="{StaticResource AccentBrush}"/>
+                                        Value="{StaticResource RaisedBrush}"/>
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="True"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource RaisedHoverBrush}"/>
+                            </MultiTrigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

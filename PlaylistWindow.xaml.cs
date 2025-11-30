@@ -267,6 +267,33 @@ namespace SlideShowBob
             }
 
             FolderTree.ItemsSource = _folderTreeRoots;
+            
+            // Auto-select the first folder if available
+            // Use Dispatcher to ensure TreeView is rendered before selecting
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_folderTreeRoots.Count > 0)
+                {
+                    var firstFolder = _folderTreeRoots[0];
+                    // Find the TreeViewItem container and select it
+                    var container = FindTreeViewItem(FolderTree, firstFolder);
+                    if (container != null)
+                    {
+                        container.IsSelected = true;
+                        container.Focus();
+                    }
+                    else
+                    {
+                        // Fallback: Set IsSelected on the node and manually trigger file loading
+                        ClearSelection();
+                        firstFolder.IsSelected = true;
+                        // Manually load files for the first folder
+#pragma warning disable CS4014 // Fire-and-forget: intentionally not awaited
+                        _ = LoadMediaItemsForFolderAsync(firstFolder.FullPath);
+#pragma warning restore CS4014
+                    }
+                }
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         private void BuildFolderTreeRecursive(FolderNode parentNode, List<string> allFolders, string parentPath)
@@ -464,6 +491,30 @@ namespace SlideShowBob
             {
                 ClearSelectionRecursive(child);
             }
+        }
+
+        /// <summary>
+        /// Finds the TreeViewItem container for a given data item.
+        /// </summary>
+        private TreeViewItem? FindTreeViewItem(ItemsControl parent, object item)
+        {
+            if (parent.ItemContainerGenerator.ContainerFromItem(item) is TreeViewItem container)
+            {
+                return container;
+            }
+
+            // Recursively search child items
+            foreach (var childItem in parent.Items)
+            {
+                if (parent.ItemContainerGenerator.ContainerFromItem(childItem) is TreeViewItem childContainer)
+                {
+                    var found = FindTreeViewItem(childContainer, item);
+                    if (found != null)
+                        return found;
+                }
+            }
+
+            return null;
         }
 
         private async void AddFolderButton_Click(object sender, RoutedEventArgs e)
@@ -985,6 +1036,28 @@ namespace SlideShowBob
         private void DetailedViewControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             _selectedItem = DetailedViewControl.SelectedItem as PlaylistMediaItem;
+        }
+
+        private void ListViewControl_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            // Handle single-click to open file
+            var item = ((FrameworkElement)e.OriginalSource).DataContext as PlaylistMediaItem;
+            if (item != null)
+            {
+                ShowFileInMainWindow(item.FullPath);
+                e.Handled = true;
+            }
+        }
+
+        private void DetailedViewControl_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            // Handle single-click to open file
+            var item = ((FrameworkElement)e.OriginalSource).DataContext as PlaylistMediaItem;
+            if (item != null)
+            {
+                ShowFileInMainWindow(item.FullPath);
+                e.Handled = true;
+            }
         }
 
         private void ListViewControl_MouseDoubleClick(object sender, MouseButtonEventArgs e)
