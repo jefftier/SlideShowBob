@@ -16,6 +16,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
+using WinForms = System.Windows.Forms;
 using Microsoft.WindowsAPICodePack.Dialogs;
 using WpfAnimatedGif;
 
@@ -2200,15 +2201,17 @@ namespace SlideShowBob
                 ResizeMode = ResizeMode.NoResize;
                 Topmost = true;
 
-                // True fullscreen: cover entire primary screen, including over taskbar
-                double screenWidth = SystemParameters.PrimaryScreenWidth;
-                double screenHeight = SystemParameters.PrimaryScreenHeight;
+                // Get the screen that the window is currently on
+                var windowInteropHelper = new WindowInteropHelper(this);
+                var screen = WinForms.Screen.FromHandle(windowInteropHelper.Handle);
+                var screenBounds = screen.Bounds;
 
+                // True fullscreen: cover entire screen the window is on, including over taskbar
                 WindowState = WindowState.Normal;  // so manual bounds apply
-                Left = 0;
-                Top = 0;
-                Width = screenWidth;
-                Height = screenHeight;
+                Left = screenBounds.Left;
+                Top = screenBounds.Top;
+                Width = screenBounds.Width;
+                Height = screenBounds.Height;
 
                 // In fullscreen, always use minimized notch toolbar
                 MinimizeToolbar();
