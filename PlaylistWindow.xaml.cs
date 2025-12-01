@@ -409,6 +409,7 @@ namespace SlideShowBob
         /// <summary>
         /// Asynchronously loads media files from the selected folder and populates the MediaItem collection.
         /// This collection is shared across all view modes (Thumbnail/List/Detailed).
+        /// Only shows files that are actually in the current playlist.
         /// </summary>
         private async Task LoadMediaItemsForFolderAsync(string folderPath)
         {
@@ -418,8 +419,15 @@ namespace SlideShowBob
             if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
                 return;
 
+            // Get current playlist files from the owner (MainWindow)
+            // This ensures we only show files that are actually in the playlist
+            var currentPlaylistFiles = _owner.GetCurrentPlaylist();
+            var playlistFileSet = currentPlaylistFiles
+                .Select(f => Path.GetFullPath(f))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
             // Determine if videos are included by checking if any .mp4 files exist in the playlist
-            bool includeVideos = _allFiles.Any(f => 
+            bool includeVideos = currentPlaylistFiles.Any(f => 
                 Path.GetExtension(f).Equals(".mp4", StringComparison.OrdinalIgnoreCase));
 
             // Use the same extension logic as MediaPlaylistManager
@@ -435,6 +443,7 @@ namespace SlideShowBob
                     var files = Directory.GetFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly)
                         .Where(f => allExts.Contains(Path.GetExtension(f)))
                         .Where(File.Exists)
+                        .Where(f => playlistFileSet.Contains(Path.GetFullPath(f))) // Only include files in the playlist
                         .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
                         .ToList();
 
@@ -546,10 +555,23 @@ namespace SlideShowBob
             if (selected == null)
                 return;
 
-            _owner.RemoveFileFromPlaylist(selected.FullPath);
+            string filePathToRemove = selected.FullPath;
+            
+            // Remove from playlist
+            _owner.RemoveFileFromPlaylist(filePathToRemove);
+            
+            // Immediately remove from the displayed collection
+            string normalizedPath = Path.GetFullPath(filePathToRemove);
+            var itemToRemove = _mediaItems.FirstOrDefault(item => 
+                string.Equals(Path.GetFullPath(item.FullPath), normalizedPath, StringComparison.OrdinalIgnoreCase));
+            if (itemToRemove != null)
+            {
+                _mediaItems.Remove(itemToRemove);
+            }
+            
             BuildFolderTree();
             
-            // Reload media items for the currently selected folder
+            // Reload media items for the currently selected folder to ensure consistency
             if (FolderTree.SelectedItem is FolderNode selectedNode)
             {
                 _ = LoadMediaItemsForFolderAsync(selectedNode.FullPath);
@@ -1097,6 +1119,18 @@ namespace SlideShowBob
             // Delegate to MainWindow's centralized navigation method
             // MainWindow will find the file in the playlist, set the index, and display it
             _owner.NavigateToFile(filePath);
+        }
+
+        /// <summary>
+        /// Implements smooth, Windows 11-style scrolling for the thumbnail view ScrollViewer.
+        /// </summary>
+        private void ThumbnailViewContainer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (ThumbnailViewContainer == null)
+                return;
+
+            // Use smooth scrolling helper for modern Win11-style scrolling
+            SmoothScrollHelper.HandleMouseWheel(ThumbnailViewContainer, e);
         }
     }
 

@@ -942,6 +942,13 @@ namespace SlideShowBob
 
             _zoomFactor = factor;
             
+            // Enable scrolling when zooming (not in fit mode)
+            if (ScrollHost != null && FitToggle?.IsChecked != true)
+            {
+                ScrollHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+                ScrollHost.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            }
+            
             // Set explicit Width/Height on the Image based on zoom factor
             if (ImageElement != null && ImageElement.Source is BitmapSource bmp)
             {
@@ -955,13 +962,46 @@ namespace SlideShowBob
                     {
                         ImageElement.Width = double.NaN;
                         ImageElement.Height = double.NaN;
+                        // Clear MediaGrid min size when at natural size
+                        if (MediaGrid != null)
+                        {
+                            MediaGrid.MinWidth = 0;
+                            MediaGrid.MinHeight = 0;
+                        }
                     }
                     else
                     {
-                        ImageElement.Width = imgWidth * factor;
-                        ImageElement.Height = imgHeight * factor;
+                        double zoomedWidth = imgWidth * factor;
+                        double zoomedHeight = imgHeight * factor;
+                        ImageElement.Width = zoomedWidth;
+                        ImageElement.Height = zoomedHeight;
+                        // Set MediaGrid min size to match zoomed image to ensure ScrollViewer calculates extents correctly
+                        if (MediaGrid != null)
+                        {
+                            MediaGrid.MinWidth = zoomedWidth;
+                            MediaGrid.MinHeight = zoomedHeight;
+                        }
                     }
                 }
+            }
+            
+            // Reset scroll position to top-left after zoom
+            // Use Render priority to ensure it happens after all layout calculations
+            if (ScrollHost != null)
+            {
+                // First ensure layout is updated
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    ScrollHost.UpdateLayout();
+                    MediaGrid?.UpdateLayout();
+                }), DispatcherPriority.Loaded);
+                
+                // Then reset scroll position after layout is complete
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    ScrollHost.ScrollToHorizontalOffset(0);
+                    ScrollHost.ScrollToVerticalOffset(0);
+                }), DispatcherPriority.Render);
             }
             
             UpdateZoomLabel();
@@ -975,7 +1015,7 @@ namespace SlideShowBob
             if (ImageElement.Source is not BitmapSource bmp)
                 return;
 
-            // Hide scrollbars when fitting
+            // Hide scrolling when fitting
             ScrollHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden;
             ScrollHost.VerticalScrollBarVisibility = ScrollBarVisibility.Hidden;
 
@@ -1085,6 +1125,20 @@ namespace SlideShowBob
                         }
                     }
                 }), System.Windows.Threading.DispatcherPriority.Loaded);
+                
+                // Ensure scroll position is reset to top-left after fit calculation
+                // Use Render priority to ensure it happens after all layout calculations
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    ScrollHost.UpdateLayout();
+                    MediaGrid?.UpdateLayout();
+                }), DispatcherPriority.Loaded);
+                
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    ScrollHost.ScrollToHorizontalOffset(0);
+                    ScrollHost.ScrollToVerticalOffset(0);
+                }), DispatcherPriority.Render);
             }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
@@ -1095,7 +1149,7 @@ namespace SlideShowBob
             // If Fit is on, keep media auto-fitted as the window changes
             if (FitToggle.IsChecked == true)
             {
-                // Ensure scrollbars are hidden when in fit mode
+                // Ensure scrolling is hidden when in fit mode
                 if (ScrollHost != null)
                 {
                     ScrollHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden;
@@ -1552,8 +1606,17 @@ namespace SlideShowBob
                 if (currentItem.Type == MediaType.Video)
                 {
                     ImageElement.Source = null;
-                    ScrollHost.ScrollToHorizontalOffset(0);
-                    ScrollHost.ScrollToVerticalOffset(0);
+                    // Reset scroll position for video
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        ScrollHost?.UpdateLayout();
+                        MediaGrid?.UpdateLayout();
+                    }), DispatcherPriority.Loaded);
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        ScrollHost?.ScrollToHorizontalOffset(0);
+                        ScrollHost?.ScrollToVerticalOffset(0);
+                    }), DispatcherPriority.Render);
 
                     // Extract and display first frame immediately for instant visual feedback
                     BitmapSource? firstFrame = null;
@@ -1634,9 +1697,6 @@ namespace SlideShowBob
                     // Apply portrait blur effect immediately - directly tied to the GIF source
                     ApplyPortraitBlurEffectForImage(gifImage, currentItem.FilePath);
 
-                    ScrollHost.ScrollToHorizontalOffset(0);
-                    ScrollHost.ScrollToVerticalOffset(0);
-
                     // Wait for GIF to load and layout to complete before fitting
                     if (FitToggle.IsChecked == true)
                     {
@@ -1650,17 +1710,40 @@ namespace SlideShowBob
                                 Dispatcher.BeginInvoke(new Action(() =>
                                 {
                                     SetZoomFit(true);   // allow zoom-in fit for GIFs
+                                    // Reset scroll position after fit
+                                    ScrollHost.UpdateLayout();
+                                    MediaGrid?.UpdateLayout();
                                 }), DispatcherPriority.Loaded);
+                                Dispatcher.BeginInvoke(new Action(() =>
+                                {
+                                    ScrollHost.ScrollToHorizontalOffset(0);
+                                    ScrollHost.ScrollToVerticalOffset(0);
+                                }), DispatcherPriority.Render);
                             }
                         };
                         LayoutUpdated += layoutHandler;
                     }
                     else
                     {
-                        // Re-enable scrollbars when fit mode is disabled
+                        // Re-enable scrolling when fit mode is disabled
                         ScrollHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
                         ScrollHost.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
                         SetZoom(1.0);
+                        
+                        // Ensure scroll position is reset to top-left after layout completes
+                        // Use multiple dispatcher calls to ensure it happens after all layout
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            ScrollHost.UpdateLayout();
+                            ImageElement.UpdateLayout();
+                            UpdateLayout();
+                        }), DispatcherPriority.Loaded);
+                        
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            ScrollHost.ScrollToHorizontalOffset(0);
+                            ScrollHost.ScrollToVerticalOffset(0);
+                        }), DispatcherPriority.Render);
                     }
 
                     Title = $"Slide Show Bob - {currentItem.FileName} (GIF)";
@@ -1730,9 +1813,6 @@ namespace SlideShowBob
                         }
                     }), DispatcherPriority.Loaded);
                     
-                    ScrollHost.ScrollToHorizontalOffset(0);
-                    ScrollHost.ScrollToVerticalOffset(0);
-
                     // Wait for image to load and layout to complete before fitting
                     if (FitToggle.IsChecked == true)
                     {
@@ -1746,14 +1826,22 @@ namespace SlideShowBob
                                 Dispatcher.BeginInvoke(new Action(() =>
                                 {
                                     SetZoomFit(true); // Always allow zoom-in in fit mode
+                                    // Reset scroll position after fit
+                                    ScrollHost.UpdateLayout();
+                                    MediaGrid?.UpdateLayout();
                                 }), DispatcherPriority.Loaded);
+                                Dispatcher.BeginInvoke(new Action(() =>
+                                {
+                                    ScrollHost.ScrollToHorizontalOffset(0);
+                                    ScrollHost.ScrollToVerticalOffset(0);
+                                }), DispatcherPriority.Render);
                             }
                         };
                         LayoutUpdated += layoutHandler;
                     }
                     else
                     {
-                        // Re-enable scrollbars when fit mode is disabled
+                        // Re-enable scrolling when fit mode is disabled
                         ScrollHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
                         ScrollHost.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
                         // Clear explicit size to show at natural size
@@ -1761,6 +1849,21 @@ namespace SlideShowBob
                         ImageElement.Height = double.NaN;
                         _zoomFactor = 1.0;
                         UpdateZoomLabel();
+                        
+                        // Ensure scroll position is reset to top-left after layout completes
+                        // Use multiple dispatcher calls to ensure it happens after all layout
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            ScrollHost.UpdateLayout();
+                            ImageElement.UpdateLayout();
+                            UpdateLayout();
+                        }), DispatcherPriority.Loaded);
+                        
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            ScrollHost.ScrollToHorizontalOffset(0);
+                            ScrollHost.ScrollToVerticalOffset(0);
+                        }), DispatcherPriority.Render);
                     }
 
                     Title = $"Slide Show Bob - {currentItem.FileName}";
@@ -2117,7 +2220,7 @@ namespace SlideShowBob
             if (!IsLoaded || ScrollHost == null || ImageElement == null || VideoElement == null)
                 return;
 
-            // Re-enable scrollbars when fit mode is disabled
+            // Re-enable scrolling when fit mode is disabled
             ScrollHost.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
             ScrollHost.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
 
@@ -2364,7 +2467,7 @@ namespace SlideShowBob
                 return;
             }
             
-            // Check if we're clicking on toolbar or other UI elements
+            // Check if clicking on UI elements - don't advance image
             var source = e.OriginalSource as DependencyObject;
             if (source != null)
             {
@@ -2427,12 +2530,9 @@ namespace SlideShowBob
                         return; // Click is on the folder button, don't handle
                     }
                     
-                    // Exclude ScrollViewer and its children (but not the background)
-                    if (current == ScrollHost || current is ScrollBar)
+                    // Exclude ScrollViewer (but allow clicks on its background)
+                    if (current == ScrollHost)
                     {
-                        // Allow clicks on ScrollViewer background, but not on scrollbars
-                        if (current is ScrollBar)
-                            return;
                         // Continue checking - we want to handle clicks on empty ScrollViewer area
                     }
                     
@@ -2479,12 +2579,9 @@ namespace SlideShowBob
                         return; // Click is on the folder button, don't handle
                     }
                     
-                    // Exclude ScrollViewer and its children (but not the background)
-                    if (current == ScrollHost || current is ScrollBar)
+                    // Exclude ScrollViewer (but allow clicks on its background)
+                    if (current == ScrollHost)
                     {
-                        // Allow clicks on ScrollViewer background, but not on scrollbars
-                        if (current is ScrollBar)
-                            return;
                         // Continue checking - we want to handle clicks on empty ScrollViewer area
                     }
                     
@@ -2500,11 +2597,88 @@ namespace SlideShowBob
         private void ScrollHost_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (CurrentMediaType == MediaType.Video) return;
+            
+            // Check if mouse is over UI elements (toolbars, status bars, etc.) - don't scroll if so
+            if (IsMouseOverUIElement(e.GetPosition(this)))
+            {
+                return; // Let the UI element handle it or ignore
+            }
+            
+            // Check if image is larger than viewport - if so, use smooth scrolling
+            if (ScrollHost != null && ImageElement != null && ImageElement.Source is BitmapSource bmp)
+            {
+                double viewportWidth = ScrollHost.ViewportWidth > 0 ? ScrollHost.ViewportWidth : ScrollHost.ActualWidth;
+                double viewportHeight = ScrollHost.ViewportHeight > 0 ? ScrollHost.ViewportHeight : ScrollHost.ActualHeight;
+                
+                // Calculate actual displayed image size
+                double imageWidth = ImageElement.ActualWidth;
+                double imageHeight = ImageElement.ActualHeight;
+                
+                // Check if image is larger than viewport (needs scrolling)
+                bool needsScrolling = (imageWidth > viewportWidth && ScrollHost.ScrollableWidth > 0) ||
+                                      (imageHeight > viewportHeight && ScrollHost.ScrollableHeight > 0);
+                
+                if (needsScrolling)
+                {
+                    // Use smooth scrolling helper for modern Win11-style scrolling
+                    bool handled = SmoothScrollHelper.HandleMouseWheel(ScrollHost, e, () => true);
+                    if (handled)
+                    {
+                        return; // Smooth scrolling handled the event
+                    }
+                }
+            }
+            
+            // If not zoomed or image fits in viewport, use zoom on wheel
             if (FitToggle.IsChecked == true) return;
 
             double factor = e.Delta > 0 ? 1.1 : 0.9;
             SetZoom(_zoomFactor * factor);
             e.Handled = true;
+        }
+
+        /// <summary>
+        /// Checks if the mouse is currently over any UI element that should not be affected by scrolling.
+        /// Uses the visual tree to check if the mouse is over UI elements.
+        /// </summary>
+        private bool IsMouseOverUIElement(Point mousePosition)
+        {
+            // Convert window-relative position to screen coordinates for InputHitTest
+            var screenPoint = PointToScreen(mousePosition);
+            
+            // Get the element at the mouse position
+            var element = InputHitTest(screenPoint) as DependencyObject;
+            if (element == null)
+                return false;
+
+            // Walk up the visual tree to check if we're over any UI elements
+            var current = element;
+            while (current != null)
+            {
+                // Check if we're over toolbar panels
+                if (current == ToolbarExpandedPanel || current == ToolbarNotchPanel)
+                    return true;
+
+                // Check if we're over status bar or title count
+                if (current == StatusBar || current == TitleCountText)
+                    return true;
+
+                // Check if we're over the big select folder button
+                if (current == BigSelectFolderButton)
+                    return true;
+
+                // Check if we're over any menu or context menu
+                if (current is ContextMenu || current is Menu || current is MenuItem)
+                    return true;
+
+                // Stop if we've reached the window or main grid
+                if (current == this || current == ContentGrid)
+                    break;
+
+                current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+            }
+
+            return false;
         }
 
         private void ScrollHost_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
@@ -2515,7 +2689,7 @@ namespace SlideShowBob
                 return;
             }
             
-            // Check if we're clicking on toolbar or other UI elements
+            // Check if clicking on UI elements - don't advance image
             var source = e.OriginalSource as DependencyObject;
             if (source != null)
             {
@@ -2643,24 +2817,18 @@ namespace SlideShowBob
             if (string.IsNullOrWhiteSpace(filePath))
                 return;
 
-            string normalized = Path.GetFullPath(filePath);
-            var items = _playlist.GetAllItems().ToList();
-            var itemToRemove = items.FirstOrDefault(i => string.Equals(Path.GetFullPath(i.FilePath), normalized, StringComparison.OrdinalIgnoreCase));
-            
-            if (itemToRemove == null)
-                return;
-
             // Preserve current item if it's not being removed
             var currentItem = _playlist.CurrentItem;
             string? currentFilePath = currentItem?.FilePath;
+            string normalized = Path.GetFullPath(filePath);
+            bool isRemovingCurrent = currentFilePath != null && 
+                string.Equals(Path.GetFullPath(currentFilePath), normalized, StringComparison.OrdinalIgnoreCase);
 
-            // Remove from playlist by reloading without this file
-            var remainingItems = items.Except(new[] { itemToRemove }).Select(i => i.FilePath).ToList();
-            bool includeVideos = IncludeVideoToggle.IsChecked == true;
-            
-            // Rebuild playlist
-            _playlist.LoadFiles(_folders, includeVideos);
-            ApplySort();
+            // Remove the file directly from the playlist
+            bool removed = _playlist.RemoveFile(filePath);
+
+            if (!removed)
+                return;
 
             if (!_playlist.HasItems)
             {
@@ -2670,20 +2838,24 @@ namespace SlideShowBob
                 return;
             }
 
-            // Try to restore position
-            if (currentFilePath != null && currentFilePath != normalized)
+            // If we removed the current item, move to the next available item
+            if (isRemovingCurrent)
+            {
+                // If current index is now out of bounds, adjust it
+                if (_playlist.CurrentIndex >= _playlist.Count)
+                    _playlist.SetIndex(_playlist.Count - 1);
+                else if (_playlist.CurrentIndex < 0 && _playlist.Count > 0)
+                    _playlist.SetIndex(0);
+            }
+            // Otherwise, try to restore position to the same file
+            else if (currentFilePath != null)
             {
                 var itemsAfter = _playlist.GetAllItems();
                 var itemsAfterList = itemsAfter.ToList();
-                int foundIndex = itemsAfterList.FindIndex(i => i.FilePath == currentFilePath);
+                int foundIndex = itemsAfterList.FindIndex(i => 
+                    string.Equals(Path.GetFullPath(i.FilePath), Path.GetFullPath(currentFilePath), StringComparison.OrdinalIgnoreCase));
                 if (foundIndex >= 0)
                     _playlist.SetIndex(foundIndex);
-                else
-                    _playlist.SetIndex(0);
-            }
-            else
-            {
-                _playlist.SetIndex(0);
             }
 
             ShowCurrentMedia();

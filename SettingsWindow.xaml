@@ -11,7 +11,7 @@
         Foreground="{DynamicResource TextPrimaryBrush}">
     
     <Window.Resources>
-        <!-- Theme resources and ScrollBar style are defined globally in App.xaml -->
+        <!-- Theme resources are defined globally in App.xaml -->
 
         <Style TargetType="ScrollViewer">
             <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>

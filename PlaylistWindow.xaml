@@ -107,7 +107,6 @@
             </Setter>
         </Style>
 
-        <!-- ScrollBar style is defined globally in App.xaml -->
 
         <!-- Modern Button Style -->
         <Style x:Key="ModernButtonStyle" TargetType="Button">
@@ -261,7 +260,9 @@
                                      Visibility="Collapsed"
                                      VerticalScrollBarVisibility="Auto"
                                      HorizontalScrollBarVisibility="Disabled"
-                                     Background="Transparent">
+                                     Background="Transparent"
+                                     CanContentScroll="False"
+                                     PreviewMouseWheel="ThumbnailViewContainer_PreviewMouseWheel">
                             <ItemsControl x:Name="ThumbnailViewControl">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>

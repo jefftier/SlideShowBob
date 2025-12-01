@@ -182,7 +182,6 @@
             <Setter Property="SnapsToDevicePixels" Value="True"/>
         </Style>
 
-        <!-- ScrollBar style is defined globally in App.xaml -->
 
         <!-- ===== Modern TextBox - No border, sized to content with 3 padding ===== -->
         <Style TargetType="TextBox">
@@ -262,8 +261,14 @@
 
         <!-- CONTENT AREA -->
         <Grid x:Name="ContentGrid">
+            <Grid.RowDefinitions>
+                <!-- Row 0: Main viewport - fills all available space -->
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            
             <!-- Media -->
-            <Border Background="{StaticResource WindowBackdropBrush}">
+            <Border Background="{StaticResource WindowBackdropBrush}"
+                    Grid.Row="0">
                 <Grid x:Name="MediaContainer" Opacity="0.0">
                     <!-- Blurred background for portrait images - behind everything -->
                     <Image x:Name="BlurredBackgroundImage"
@@ -282,11 +287,14 @@
                                   HorizontalScrollBarVisibility="Auto"
                                   VerticalScrollBarVisibility="Auto"
                                   CanContentScroll="False"
-                                  Background="Transparent"
+                                  Background="{StaticResource SurfaceBrush}"
+                                  PanningMode="Both"
                                   PreviewMouseWheel="ScrollHost_PreviewMouseWheel"
                                   PreviewMouseRightButtonUp="ScrollHost_PreviewMouseRightButtonUp"
                                   PreviewMouseLeftButtonUp="ScrollHost_PreviewMouseLeftButtonUp">
-                        <Grid x:Name="MediaGrid">
+                        <Grid x:Name="MediaGrid"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center">
                             <!-- Static frame image for video (first/last frame) - behind video -->
                             <Image x:Name="VideoFrameImage"
                                    Stretch="Uniform"

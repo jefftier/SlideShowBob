@@ -150,6 +150,57 @@ namespace SlideShowBob
         /// </summary>
         public IReadOnlyList<MediaItem> GetAllItems() => _items;
 
+        /// <summary>
+        /// Removes a file from the playlist by file path.
+        /// </summary>
+        public bool RemoveFile(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+                return false;
+
+            string normalized = Path.GetFullPath(filePath);
+            
+            // Find the index of the item to remove (if any)
+            int indexToRemove = -1;
+            for (int i = 0; i < _items.Count; i++)
+            {
+                string itemPath = Path.GetFullPath(_items[i].FilePath);
+                if (string.Equals(itemPath, normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    indexToRemove = i;
+                    break;
+                }
+            }
+
+            if (indexToRemove == -1)
+                return false;
+
+            // Remove the item
+            _items.RemoveAt(indexToRemove);
+
+            // Adjust current index if needed
+            if (_items.Count == 0)
+            {
+                _currentIndex = -1;
+            }
+            else if (indexToRemove <= _currentIndex)
+            {
+                // If we removed an item at or before current index, adjust
+                if (indexToRemove < _currentIndex)
+                    _currentIndex--; // Shift index back if item before current was removed
+                else if (indexToRemove == _currentIndex)
+                {
+                    // If we removed the current item, stay at the same index (which now points to the next item)
+                    // But if we were at the end, move back one
+                    if (_currentIndex >= _items.Count)
+                        _currentIndex = _items.Count - 1;
+                }
+            }
+
+            PlaylistChanged?.Invoke(this, EventArgs.Empty);
+            return true;
+        }
+
         private bool IsValidIndex(int index) => index >= 0 && index < _items.Count;
     }
 
