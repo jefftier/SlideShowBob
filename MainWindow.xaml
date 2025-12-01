@@ -292,9 +292,20 @@
                                   PreviewMouseWheel="ScrollHost_PreviewMouseWheel"
                                   PreviewMouseRightButtonUp="ScrollHost_PreviewMouseRightButtonUp"
                                   PreviewMouseLeftButtonUp="ScrollHost_PreviewMouseLeftButtonUp">
-                        <Grid x:Name="MediaGrid"
-                              HorizontalAlignment="Center"
-                              VerticalAlignment="Center">
+                        <Border x:Name="ContentBorder">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Margin" Value="0,0,0,0"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasScrollBars, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                            <Setter Property="Margin" Value="0,0,12,12"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <Grid x:Name="MediaGrid"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center">
                             <!-- Static frame image for video (first/last frame) - behind video -->
                             <Image x:Name="VideoFrameImage"
                                    Stretch="Uniform"
@@ -321,7 +332,8 @@
                                    VerticalAlignment="Center"
                                    MouseLeftButtonUp="Media_MouseLeftButtonUp"
                                    MouseRightButtonUp="Media_MouseRightButtonUp" />
-                        </Grid>
+                            </Grid>
+                        </Border>
                     </ScrollViewer>
                 </Grid>
             </Border>
@@ -345,13 +357,22 @@
             <Border x:Name="ToolbarExpandedPanel"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Bottom"
-                            Margin="0,0,0,0"
                             CornerRadius="4,4,0,0"
                             Background="{StaticResource SurfaceAltBrush}"
                             BorderThickness="0"
                             Padding="8,6"
                             Opacity="0.98"
                             Panel.ZIndex="100">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Margin" Value="0,0,0,0"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasScrollBars, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                <Setter Property="Margin" Value="0,0,0,12"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
 
                 <Border.RenderTransform>
                     <TranslateTransform x:Name="ExpandedTransform" Y="0"/>
@@ -539,7 +560,6 @@
             <Border x:Name="ToolbarNotchPanel"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Bottom"
-                    Margin="0,0,0,0"
                     CornerRadius="4,4,0,0"
                     Background="{StaticResource SurfaceAltBrush}"
                     BorderThickness="0"
@@ -547,6 +567,16 @@
                     Opacity="0"
                     Visibility="Collapsed"
                     Panel.ZIndex="100">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Margin" Value="0,0,0,0"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasScrollBars, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                <Setter Property="Margin" Value="0,0,0,12"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <Border.RenderTransform>
                     <TranslateTransform x:Name="NotchTransform" Y="0"/>
                 </Border.RenderTransform>
@@ -593,6 +623,15 @@
                     Padding="8,6"
                     Background="Transparent"
                     BorderThickness="0">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasScrollBars, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                <Setter Property="Margin" Value="16,0,0,36"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <TextBlock x:Name="StatusText"
                            FontSize="11"
                            Foreground="{StaticResource TextMutedBrush}"
@@ -606,7 +645,17 @@
                        HorizontalAlignment="Right"
                        Margin="0,0,16,24"
                        FontSize="12"
-                       Foreground="{StaticResource TextMutedBrush}"/>
+                       Foreground="{StaticResource TextMutedBrush}">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasScrollBars, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                <Setter Property="Margin" Value="0,0,16,36"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
 
             <!-- Very bottom thin progress bar (video) -->
             <ProgressBar x:Name="VideoProgressBar"

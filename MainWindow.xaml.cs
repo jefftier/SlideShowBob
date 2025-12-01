@@ -25,6 +25,17 @@ namespace SlideShowBob
 {
     public partial class MainWindow : Window
     {
+        // Dependency property to track scrollbar visibility
+        public static readonly DependencyProperty HasScrollBarsProperty =
+            DependencyProperty.Register(nameof(HasScrollBars), typeof(bool), typeof(MainWindow),
+                new PropertyMetadata(false));
+
+        public bool HasScrollBars
+        {
+            get => (bool)GetValue(HasScrollBarsProperty);
+            set => SetValue(HasScrollBarsProperty, value);
+        }
+
         // New service-based architecture
         private readonly MediaPlaylistManager _playlist = new();
         private readonly MediaLoaderService _mediaLoader = new();
@@ -147,6 +158,16 @@ namespace SlideShowBob
             _slideshowController.SlideshowStopped += (s, e) => SetSlideshowState(false);
 
             _chromeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+
+            // Hook up scrollbar visibility tracking after Loaded event
+            Loaded += (s, e) =>
+            {
+                if (ScrollHost != null)
+                {
+                    ScrollHost.LayoutUpdated += ScrollHost_LayoutUpdated;
+                    UpdateScrollBarVisibility();
+                }
+            };
             _chromeTimer.Tick += ChromeTimer_Tick;
 
             
@@ -2481,6 +2502,13 @@ namespace SlideShowBob
                     {
                         return; // Click is on UI element, don't handle
                     }
+                    // Exclude ScrollBar and its parts (Thumb, Track, etc.)
+                    if (current is System.Windows.Controls.Primitives.ScrollBar ||
+                        current is System.Windows.Controls.Primitives.Thumb ||
+                        current is System.Windows.Controls.Primitives.Track)
+                    {
+                        return; // Click is on scrollbar, don't handle
+                    }
                     current = VisualTreeHelper.GetParent(current);
                 }
             }
@@ -2530,6 +2558,14 @@ namespace SlideShowBob
                         return; // Click is on the folder button, don't handle
                     }
                     
+                    // Exclude ScrollBar and its parts (Thumb, Track, etc.)
+                    if (current is System.Windows.Controls.Primitives.ScrollBar ||
+                        current is System.Windows.Controls.Primitives.Thumb ||
+                        current is System.Windows.Controls.Primitives.Track)
+                    {
+                        return; // Click is on scrollbar, don't handle
+                    }
+                    
                     // Exclude ScrollViewer (but allow clicks on its background)
                     if (current == ScrollHost)
                     {
@@ -2577,6 +2613,14 @@ namespace SlideShowBob
                     if (current == BigSelectFolderButton)
                     {
                         return; // Click is on the folder button, don't handle
+                    }
+                    
+                    // Exclude ScrollBar and its parts (Thumb, Track, etc.)
+                    if (current is System.Windows.Controls.Primitives.ScrollBar ||
+                        current is System.Windows.Controls.Primitives.Thumb ||
+                        current is System.Windows.Controls.Primitives.Track)
+                    {
+                        return; // Click is on scrollbar, don't handle
                     }
                     
                     // Exclude ScrollViewer (but allow clicks on its background)
@@ -2671,6 +2715,12 @@ namespace SlideShowBob
                 if (current is ContextMenu || current is Menu || current is MenuItem)
                     return true;
 
+                // Check if we're over ScrollBar or its parts
+                if (current is System.Windows.Controls.Primitives.ScrollBar ||
+                    current is System.Windows.Controls.Primitives.Thumb ||
+                    current is System.Windows.Controls.Primitives.Track)
+                    return true;
+
                 // Stop if we've reached the window or main grid
                 if (current == this || current == ContentGrid)
                     break;
@@ -2702,6 +2752,13 @@ namespace SlideShowBob
                         current == ImageElement || current == VideoElement)
                     {
                         return; // Click is on UI element, don't handle
+                    }
+                    // Exclude ScrollBar and its parts (Thumb, Track, etc.)
+                    if (current is System.Windows.Controls.Primitives.ScrollBar ||
+                        current is System.Windows.Controls.Primitives.Thumb ||
+                        current is System.Windows.Controls.Primitives.Track)
+                    {
+                        return; // Click is on scrollbar, don't handle
                     }
                     current = VisualTreeHelper.GetParent(current);
                 }
@@ -2960,6 +3017,25 @@ namespace SlideShowBob
                 SaveFoldersToSettings();
                 await LoadFoldersAsync();
             }
+        }
+
+        #endregion
+
+        #region Scrollbar Visibility Tracking
+
+        private void ScrollHost_LayoutUpdated(object? sender, EventArgs e)
+        {
+            UpdateScrollBarVisibility();
+        }
+
+        private void UpdateScrollBarVisibility()
+        {
+            if (ScrollHost == null) return;
+
+            bool hasVerticalScrollBar = ScrollHost.ComputedVerticalScrollBarVisibility == Visibility.Visible;
+            bool hasHorizontalScrollBar = ScrollHost.ComputedHorizontalScrollBarVisibility == Visibility.Visible;
+            
+            HasScrollBars = hasVerticalScrollBar || hasHorizontalScrollBar;
         }
 
         #endregion
