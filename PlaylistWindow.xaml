@@ -182,22 +182,17 @@
                         </TreeView.ItemTemplate>
 
                         <TreeView.ContextMenu>
-                            <ContextMenu x:Name="FolderContextMenu"
-                                       Background="{StaticResource SurfaceAltBrush}"
+                            <ContextMenu Background="{StaticResource SurfaceAltBrush}"
                                        BorderBrush="{StaticResource SubtleBorderBrush}"
                                        BorderThickness="1">
-                                <MenuItem Click="RemoveFolderMenuItem_Click">
-                                    <MenuItem.Header>
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="🗑️"
-                                                       FontSize="14"
-                                                       Margin="0,0,8,0"
-                                                       VerticalAlignment="Center"/>
-                                            <TextBlock Text="Remove Folder"
-                                                       Foreground="{StaticResource TextPrimaryBrush}"
-                                                       VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                    </MenuItem.Header>
+                                <MenuItem Header="Remove Folder"
+                                          Click="RemoveFolderMenuItem_Click">
+                                    <MenuItem.Icon>
+                                        <TextBlock Text="🗑" 
+                                                   FontSize="14" 
+                                                   VerticalAlignment="Center" 
+                                                   HorizontalAlignment="Center"/>
+                                    </MenuItem.Icon>
                                 </MenuItem>
                             </ContextMenu>
                         </TreeView.ContextMenu>
@@ -423,18 +418,14 @@
                                 <ContextMenu Background="{StaticResource SurfaceAltBrush}"
                                            BorderBrush="{StaticResource SubtleBorderBrush}"
                                            BorderThickness="1">
-                                    <MenuItem Click="RemoveFileMenuItem_Click">
-                                        <MenuItem.Header>
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="🗑️"
-                                                           FontSize="14"
-                                                           Margin="0,0,8,0"
-                                                           VerticalAlignment="Center"/>
-                                                <TextBlock Text="Remove File"
-                                                           Foreground="{StaticResource TextPrimaryBrush}"
-                                                           VerticalAlignment="Center"/>
-                                            </StackPanel>
-                                        </MenuItem.Header>
+                                    <MenuItem Header="Remove File"
+                                              Click="RemoveFileMenuItem_Click">
+                                        <MenuItem.Icon>
+                                            <TextBlock Text="🗑" 
+                                                       FontSize="14" 
+                                                       VerticalAlignment="Center" 
+                                                       HorizontalAlignment="Center"/>
+                                        </MenuItem.Icon>
                                     </MenuItem>
                                 </ContextMenu>
                             </ListBox.ContextMenu>
@@ -508,18 +499,14 @@
                                 <ContextMenu Background="{StaticResource SurfaceAltBrush}"
                                            BorderBrush="{StaticResource SubtleBorderBrush}"
                                            BorderThickness="1">
-                                    <MenuItem Click="RemoveFileMenuItem_Click">
-                                        <MenuItem.Header>
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="🗑️"
-                                                           FontSize="14"
-                                                           Margin="0,0,8,0"
-                                                           VerticalAlignment="Center"/>
-                                                <TextBlock Text="Remove File"
-                                                           Foreground="{StaticResource TextPrimaryBrush}"
-                                                           VerticalAlignment="Center"/>
-                                            </StackPanel>
-                                        </MenuItem.Header>
+                                    <MenuItem Header="Remove File"
+                                              Click="RemoveFileMenuItem_Click">
+                                        <MenuItem.Icon>
+                                            <TextBlock Text="🗑" 
+                                                       FontSize="14" 
+                                                       VerticalAlignment="Center" 
+                                                       HorizontalAlignment="Center"/>
+                                        </MenuItem.Icon>
                                     </MenuItem>
                                 </ContextMenu>
                             </ListView.ContextMenu>
@@ -538,7 +525,7 @@
             <Button x:Name="AddFolderButton"
                     Content="Add folder..."
                     MinWidth="90"
-                    Padding="10,5"
+                    Padding="10,10"
                     Margin="0,0,6,0"
                     Click="AddFolderButton_Click"
                     Style="{StaticResource ModernButtonStyle}"/>

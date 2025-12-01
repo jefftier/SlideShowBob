@@ -39,52 +39,89 @@
             <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="2"
+                                Padding="2">
+                            <ItemsPresenter Margin="0"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="ItemsPanel">
+                <Setter.Value>
+                    <ItemsPanelTemplate>
+                        <StackPanel Background="Transparent" Margin="0"/>
+                    </ItemsPanelTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Resources>
+                <!-- Override any default item container styles that might create white boxes -->
+                <Style TargetType="Separator">
+                    <Setter Property="Background" Value="{StaticResource SubtleBorderBrush}"/>
+                    <Setter Property="Height" Value="1"/>
+                    <Setter Property="Margin" Value="0"/>
+                </Style>
+            </Style.Resources>
         </Style>
-
+        
         <!-- ===== Global MenuItem Style - Dark Theme with Consistent Hover ===== -->
         <Style TargetType="MenuItem">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="12,6"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="MenuItem">
-                        <Border x:Name="Border"
-                                Background="{TemplateBinding Background}"
-                                BorderThickness="0"
-                                Padding="{TemplateBinding Padding}">
-                            <Grid Background="Transparent">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" MinWidth="20"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <!-- Icon column - use theme background -->
-                                <Border Grid.Column="0" 
-                                        Background="{StaticResource SurfaceAltBrush}"
-                                        Width="20"
-                                        HorizontalAlignment="Left">
-                                    <ContentPresenter x:Name="Icon"
-                                                    Content="{TemplateBinding Icon}"
-                                                    Margin="0"
-                                                    VerticalAlignment="Center"
-                                                    HorizontalAlignment="Center"/>
-                                </Border>
-                                <!-- Header content -->
+                        <!-- Match default MenuItem structure but with transparent icon column to prevent white box -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition MinWidth="22" Width="Auto" SharedSizeGroup="MenuItemIconColumnGroup"/> <!-- Icon column - visible for icons -->
+                                <ColumnDefinition Width="13"/> <!-- Separator column -->
+                                <ColumnDefinition Width="*"/> <!-- Content column -->
+                                <ColumnDefinition Width="30"/> <!-- Arrow column -->
+                                <ColumnDefinition SharedSizeGroup="MenuItemIGTColumnGroup" Width="Auto"/> <!-- Input gesture text -->
+                                <ColumnDefinition Width="20"/> <!-- Right margin -->
+                            </Grid.ColumnDefinitions>
+                            
+                            <!-- Icon/Checkmark column - explicitly transparent background to prevent white box -->
+                            <Border x:Name="GlyphPanel"
+                                    Grid.Column="0"
+                                    Background="Transparent"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="0"
+                                    ClipToBounds="False"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Width="22"
+                                    Height="22"
+                                    Margin="0">
+                                <ContentPresenter x:Name="Icon"
+                                                ContentSource="Icon"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                SnapsToDevicePixels="True"/>
+                            </Border>
+                            
+                            <!-- Content column -->
+                            <Border x:Name="Border"
+                                    Grid.Column="2"
+                                    Background="{TemplateBinding Background}"
+                                    BorderThickness="0"
+                                    Padding="0,6,0,6"
+                                    SnapsToDevicePixels="True">
                                 <ContentPresenter x:Name="Header"
-                                                Grid.Column="1"
-                                                Content="{TemplateBinding Header}"
-                                                VerticalAlignment="Center"/>
-                                <!-- Gesture text (keyboard shortcuts) -->
-                                <TextBlock x:Name="InputGestureText"
-                                         Grid.Column="2"
-                                         Text="{TemplateBinding InputGestureText}"
-                                         Margin="20,0,0,0"
-                                         VerticalAlignment="Center"
-                                         Foreground="{StaticResource TextSecondaryBrush}"/>
-                            </Grid>
-                        </Border>
+                                                ContentSource="Header"
+                                                VerticalAlignment="Center"
+                                                HorizontalAlignment="Left"
+                                                RecognizesAccessKey="True"
+                                                Margin="12,0,12,0"/>
+                            </Border>
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Border" Property="Background" Value="{StaticResource HoverOverlayBrush}"/>
@@ -109,6 +146,10 @@
                 <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F9FAFB"/>
                 <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#111827"/>
                 <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#F9FAFB"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}" Color="Transparent"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.MenuBarBrushKey}" Color="Transparent"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}" Color="#F9FAFB"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.MenuHighlightBrushKey}" Color="Transparent"/>
             </Style.Resources>
         </Style>
 
