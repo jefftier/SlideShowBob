@@ -535,6 +535,32 @@
                         </Grid>
                     </StackPanel>
                     
+                    <!-- Display Section -->
+                    <StackPanel Margin="0,0,0,24">
+                        <TextBlock Text="Display"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   Margin="0,0,0,12"/>
+                        
+                        <!-- Preferred Fullscreen Monitor -->
+                        <StackPanel Margin="0,0,0,8">
+                            <TextBlock Text="Preferred fullscreen monitor"
+                                       FontWeight="Medium"
+                                       Margin="0,0,0,8"/>
+                            <ComboBox x:Name="PreferredMonitorComboBox"
+                                      HorizontalAlignment="Left"
+                                      MinWidth="200"
+                                      DisplayMemberPath="DisplayName"
+                                      SelectedValuePath="DeviceName"/>
+                            <TextBlock Text="If none is selected, the last used monitor will be used."
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       FontSize="12"
+                                       Margin="0,8,0,0"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </StackPanel>
+                    
                 </StackPanel>
             </ScrollViewer>
             

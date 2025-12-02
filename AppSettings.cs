@@ -19,4 +19,8 @@ public class AppSettings
     public bool SaveIsMuted { get; set; } = true;
     public bool SaveFolderPaths { get; set; } = true;
     public bool SavePortraitBlurEffect { get; set; } = true;
+
+    // Multi-monitor support
+    public string? PreferredFullscreenMonitorDeviceName { get; set; } = null;
+    public string? LastFullscreenMonitorDeviceName { get; set; } = null;
 }

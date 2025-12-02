@@ -186,6 +186,8 @@ namespace SlideShowBob.ViewModels
             // Update FFMPEG setting
             _originalSettings.UseFfmpegForPlayback = UseFfmpegForPlayback;
 
+            // PreferredFullscreenMonitorDeviceName is set via SetPreferredFullscreenMonitor() from code-behind
+
             // Save settings
             _settingsManager.Save(_originalSettings);
 
@@ -243,6 +245,22 @@ namespace SlideShowBob.ViewModels
                 // Use muted/gray color for inactive status
                 FfmpegStatusForeground = new SolidColorBrush(Color.FromRgb(158, 158, 158)); // Gray
             }
+        }
+
+        /// <summary>
+        /// Sets the preferred fullscreen monitor device name. Called from SettingsWindow code-behind.
+        /// </summary>
+        public void SetPreferredFullscreenMonitor(string? deviceName)
+        {
+            _originalSettings.PreferredFullscreenMonitorDeviceName = deviceName;
+        }
+
+        /// <summary>
+        /// Gets the current preferred fullscreen monitor device name. Used by SettingsWindow code-behind.
+        /// </summary>
+        public string? GetPreferredFullscreenMonitor()
+        {
+            return _originalSettings.PreferredFullscreenMonitorDeviceName;
         }
 
         #endregion

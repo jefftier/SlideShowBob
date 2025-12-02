@@ -1,15 +1,24 @@
 using System;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using SlideShowBob.ViewModels;
+using WinForms = System.Windows.Forms;
 
 namespace SlideShowBob
 {
     public partial class SettingsWindow : Window
     {
         private readonly SettingsViewModel _viewModel;
+
+        // Simple class to hold monitor information for ComboBox
+        private class MonitorInfo
+        {
+            public string DeviceName { get; set; } = string.Empty;
+            public string DisplayName { get; set; } = string.Empty;
+        }
 
         // Dark title bar constants (same pattern as MainWindow)
         private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
@@ -42,6 +51,7 @@ namespace SlideShowBob
 
             // Subscribe to ComboBox selection changes
             ToolbarInactivityBehaviorComboBox.SelectionChanged += ToolbarInactivityBehaviorComboBox_SelectionChanged;
+            PreferredMonitorComboBox.SelectionChanged += PreferredMonitorComboBox_SelectionChanged;
 
             Loaded += SettingsWindow_Loaded;
         }
@@ -51,6 +61,8 @@ namespace SlideShowBob
             EnableDarkTitleBar();
             // Sync ComboBox to ViewModel on load
             SyncComboBoxToViewModel();
+            // Populate and sync monitor ComboBox
+            PopulateMonitorComboBox();
         }
 
         private void ToolbarInactivityBehaviorComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -83,6 +95,44 @@ namespace SlideShowBob
             if (ToolbarInactivityBehaviorComboBox.Items.Count > 0 && ToolbarInactivityBehaviorComboBox.SelectedItem == null)
             {
                 ToolbarInactivityBehaviorComboBox.SelectedIndex = 0;
+            }
+        }
+
+        private void PopulateMonitorComboBox()
+        {
+            var monitors = WinForms.Screen.AllScreens
+                .Select((screen, index) => new MonitorInfo
+                {
+                    DeviceName = screen.DeviceName,
+                    DisplayName = $"{index + 1} - {(screen.Primary ? "Primary" : "Secondary")}"
+                })
+                .ToList();
+
+            PreferredMonitorComboBox.ItemsSource = monitors;
+
+            // Select the current preferred monitor if set
+            string? preferredDeviceName = _viewModel.GetPreferredFullscreenMonitor();
+            if (!string.IsNullOrEmpty(preferredDeviceName))
+            {
+                var preferredMonitor = monitors.FirstOrDefault(m => m.DeviceName == preferredDeviceName);
+                if (preferredMonitor != null)
+                {
+                    PreferredMonitorComboBox.SelectedItem = preferredMonitor;
+                }
+            }
+            // If no preference is set, ComboBox will remain unselected (null)
+        }
+
+        private void PreferredMonitorComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (PreferredMonitorComboBox.SelectedItem is MonitorInfo selectedMonitor)
+            {
+                _viewModel.SetPreferredFullscreenMonitor(selectedMonitor.DeviceName);
+            }
+            else
+            {
+                // No selection means "use last used monitor"
+                _viewModel.SetPreferredFullscreenMonitor(null);
             }
         }
 
@@ -123,6 +173,7 @@ namespace SlideShowBob
 
             // Unsubscribe from ComboBox events
             ToolbarInactivityBehaviorComboBox.SelectionChanged -= ToolbarInactivityBehaviorComboBox_SelectionChanged;
+            PreferredMonitorComboBox.SelectionChanged -= PreferredMonitorComboBox_SelectionChanged;
 
             base.OnClosed(e);
         }

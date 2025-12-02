@@ -551,6 +551,12 @@
                                 Content="⛶"
                                 Click="FullscreenButton_Click"/>
 
+                        <Button x:Name="MonitorButton"
+                                Style="{StaticResource IconButton}"
+                                Content="🖥"
+                                ToolTip="Change fullscreen monitor"
+                                Click="MonitorButton_Click"/>
+
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                         <Button x:Name="SelectFolderButton"
