@@ -27,3 +27,4 @@ namespace SlideShowBob.ViewModels
     }
 }
 
+

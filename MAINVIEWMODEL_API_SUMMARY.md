@@ -229,3 +229,4 @@ public class MainViewModel : BaseViewModel
 - `VideoService_ProgressUpdated` → `OnVideoProgressUpdated`
   - Updates `VideoProgress` property
 
+

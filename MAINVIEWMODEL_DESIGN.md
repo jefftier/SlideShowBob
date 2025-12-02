@@ -485,3 +485,4 @@ Implement `PlaylistViewModel.cs` and show me the full file.
 - **Methods**: `Load()`, `Save(AppSettings)`
 - **Used for**: Persisting user preferences
 
+
