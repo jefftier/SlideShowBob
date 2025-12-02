@@ -132,8 +132,7 @@ namespace SlideShowBob
             InitializeUI();
             SubscribeToViewModelEvents();
             
-            // Update UI state based on initial ViewModel state
-            UpdateBigSelectFolderButtonVisibility();
+            // Empty state panel visibility is now handled via data binding
             
             // Check if folders are being loaded or already loaded
             // Wait a bit for async loading to complete, then check again
@@ -222,7 +221,7 @@ namespace SlideShowBob
             MuteButton.Content = "🔇";
             ReplayButton.IsEnabled = false;
 
-            BigSelectFolderButton.Visibility = Visibility.Visible;
+            // Empty state panel visibility is now handled via data binding
             VideoProgressBar.Visibility = Visibility.Collapsed;
             VideoProgressBar.Value = 0;
 
@@ -1555,18 +1554,18 @@ namespace SlideShowBob
                     _viewModel.PlaylistManager?.SetIndex(0);
                     await ShowCurrentMediaAsync();
                     SetStatus("");
-                    BigSelectFolderButton.Visibility = Visibility.Collapsed;
+                    // Empty state panel visibility is now handled via data binding
                 }
                 else
                 {
                     SetStatus("No media found");
-                    BigSelectFolderButton.Visibility = Visibility.Visible;
+                    // Empty state panel visibility is now handled via data binding
                 }
             }
             catch (Exception ex)
             {
                 SetStatus("Error: " + ex.Message);
-                BigSelectFolderButton.Visibility = Visibility.Visible;
+                // Empty state panel visibility is now handled via data binding
             }
             finally
             {
@@ -1588,7 +1587,7 @@ namespace SlideShowBob
             if (_folders.Count == 0)
             {
                 SetStatus("No folders selected.");
-                BigSelectFolderButton.Visibility = Visibility.Visible;
+                // Empty state panel visibility is now handled via data binding
                 Cursor = Cursors.Arrow;
                 HideLoadingOverlay();
                 return;
@@ -1608,19 +1607,19 @@ namespace SlideShowBob
                     _viewModel.PlaylistManager?.SetIndex(0);
                     await ShowCurrentMediaAsync();
                     SetStatus("");
-                    BigSelectFolderButton.Visibility = Visibility.Collapsed;
+                    // Empty state panel visibility is now handled via data binding
                 }
                 else
                 {
                     SetStatus("No media found");
-                    BigSelectFolderButton.Visibility = Visibility.Visible;
+                    // Empty state panel visibility is now handled via data binding
                     HideLoadingOverlay();
                 }
             }
             catch (Exception ex)
             {
                 SetStatus("Error: " + ex.Message);
-                BigSelectFolderButton.Visibility = Visibility.Visible;
+                // Empty state panel visibility is now handled via data binding
                 HideLoadingOverlay();
             }
             finally
@@ -1660,14 +1659,43 @@ namespace SlideShowBob
             // Use ViewModel's CurrentMediaItem as the source of truth
             var currentItem = _viewModel?.CurrentMedia;
             
+            // If no current item or no items in playlist, clear the display
             if (currentItem == null || !(_viewModel?.PlaylistManager?.HasItems == true))
             {
+                ClearImageDisplay();
                 HideLoadingOverlay();
+                // Clear video element visibility
+                if (VideoElement != null)
+                {
+                    VideoElement.Visibility = Visibility.Collapsed;
+                    VideoElement.Source = null;
+                }
+                // Clear image element
+                if (ImageElement != null)
+                {
+                    ImageElement.Visibility = Visibility.Collapsed;
+                }
+                Title = "Slide Show Bob";
+                UpdateItemCount(); // Reset counter to 0 / 0
                 return;
             }
             if (currentItem == null || !File.Exists(currentItem.FilePath))
             {
+                ClearImageDisplay();
                 HideLoadingOverlay();
+                // Clear video element visibility
+                if (VideoElement != null)
+                {
+                    VideoElement.Visibility = Visibility.Collapsed;
+                    VideoElement.Source = null;
+                }
+                // Clear image element
+                if (ImageElement != null)
+                {
+                    ImageElement.Visibility = Visibility.Collapsed;
+                }
+                Title = "Slide Show Bob";
+                UpdateItemCount(); // Reset counter to 0 / 0
                 return;
             }
 
@@ -2143,11 +2171,6 @@ namespace SlideShowBob
             await ChooseFoldersFromDialogAsync();
         }
 
-        private async void BigSelectFolderButton_Click(object sender, RoutedEventArgs e)
-        {
-            // Handle folder selection UI (folder dialog is UI-specific)
-            await ChooseFoldersFromDialogAsync();
-        }
 
         private async void IncludeVideoToggle_Checked(object sender, RoutedEventArgs e)
         {
@@ -2515,7 +2538,7 @@ namespace SlideShowBob
                 {
                     if (current == ToolbarExpandedPanel || current == ToolbarNotchPanel ||
                         current == StatusBar || current == TitleCountText ||
-                        current == BigSelectFolderButton ||
+                        current == EmptyStatePanel ||
                         current == ImageElement || current == VideoElement)
                     {
                         return; // Click is on UI element, don't handle
@@ -2527,7 +2550,22 @@ namespace SlideShowBob
                     {
                         return; // Click is on scrollbar, don't handle
                     }
-                    current = VisualTreeHelper.GetParent(current);
+                    
+                    // Get parent - handle both Visual and TextElement (like Run)
+                    DependencyObject? parent = null;
+                    if (current is System.Windows.Media.Visual || current is System.Windows.Media.Media3D.Visual3D)
+                    {
+                        parent = VisualTreeHelper.GetParent(current);
+                    }
+                    else if (current is System.Windows.Documents.TextElement textElement)
+                    {
+                        parent = LogicalTreeHelper.GetParent(current);
+                    }
+                    else
+                    {
+                        parent = LogicalTreeHelper.GetParent(current);
+                    }
+                    current = parent;
                 }
             }
             
@@ -2570,10 +2608,10 @@ namespace SlideShowBob
                         return; // Click is on status elements, don't handle
                     }
                     
-                    // Exclude the big select folder button
-                    if (current == BigSelectFolderButton)
+                    // Exclude the empty state panel
+                    if (current == EmptyStatePanel)
                     {
-                        return; // Click is on the folder button, don't handle
+                        return; // Click is on the empty state panel, don't handle
                     }
                     
                     // Exclude ScrollBar and its parts (Thumb, Track, etc.)
@@ -2590,7 +2628,21 @@ namespace SlideShowBob
                         // Continue checking - we want to handle clicks on empty ScrollViewer area
                     }
                     
-                    current = VisualTreeHelper.GetParent(current);
+                    // Get parent - handle both Visual and TextElement (like Run)
+                    DependencyObject? parent = null;
+                    if (current is System.Windows.Media.Visual || current is System.Windows.Media.Media3D.Visual3D)
+                    {
+                        parent = VisualTreeHelper.GetParent(current);
+                    }
+                    else if (current is System.Windows.Documents.TextElement)
+                    {
+                        parent = LogicalTreeHelper.GetParent(current);
+                    }
+                    else
+                    {
+                        parent = LogicalTreeHelper.GetParent(current);
+                    }
+                    current = parent;
                 }
             }
             
@@ -2627,10 +2679,10 @@ namespace SlideShowBob
                         return; // Click is on status elements, don't handle
                     }
                     
-                    // Exclude the big select folder button
-                    if (current == BigSelectFolderButton)
+                    // Exclude the empty state panel
+                    if (current == EmptyStatePanel)
                     {
-                        return; // Click is on the folder button, don't handle
+                        return; // Click is on the empty state panel, don't handle
                     }
                     
                     // Exclude ScrollBar and its parts (Thumb, Track, etc.)
@@ -2647,7 +2699,21 @@ namespace SlideShowBob
                         // Continue checking - we want to handle clicks on empty ScrollViewer area
                     }
                     
-                    current = VisualTreeHelper.GetParent(current);
+                    // Get parent - handle both Visual and TextElement (like Run)
+                    DependencyObject? parent = null;
+                    if (current is System.Windows.Media.Visual || current is System.Windows.Media.Media3D.Visual3D)
+                    {
+                        parent = VisualTreeHelper.GetParent(current);
+                    }
+                    else if (current is System.Windows.Documents.TextElement)
+                    {
+                        parent = LogicalTreeHelper.GetParent(current);
+                    }
+                    else
+                    {
+                        parent = LogicalTreeHelper.GetParent(current);
+                    }
+                    current = parent;
                 }
             }
             
@@ -2725,8 +2791,8 @@ namespace SlideShowBob
                 if (current == StatusBar || current == TitleCountText)
                     return true;
 
-                // Check if we're over the big select folder button
-                if (current == BigSelectFolderButton)
+                // Check if we're over the empty state panel
+                if (current == EmptyStatePanel)
                     return true;
 
                 // Check if we're over any menu or context menu
@@ -2743,7 +2809,21 @@ namespace SlideShowBob
                 if (current == this || current == ContentGrid)
                     break;
 
-                current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+                // Get parent - handle both Visual and TextElement (like Run)
+                DependencyObject? parent = null;
+                if (current is System.Windows.Media.Visual || current is System.Windows.Media.Media3D.Visual3D)
+                {
+                    parent = VisualTreeHelper.GetParent(current);
+                }
+                else if (current is System.Windows.Documents.TextElement textElement)
+                {
+                    parent = LogicalTreeHelper.GetParent(current);
+                }
+                else
+                {
+                    parent = LogicalTreeHelper.GetParent(current);
+                }
+                current = parent;
             }
 
             return false;
@@ -2766,7 +2846,7 @@ namespace SlideShowBob
                 {
                     if (current == ToolbarExpandedPanel || current == ToolbarNotchPanel ||
                         current == StatusBar || current == TitleCountText ||
-                        current == BigSelectFolderButton ||
+                        current == EmptyStatePanel ||
                         current == ImageElement || current == VideoElement)
                     {
                         return; // Click is on UI element, don't handle
@@ -2778,7 +2858,22 @@ namespace SlideShowBob
                     {
                         return; // Click is on scrollbar, don't handle
                     }
-                    current = VisualTreeHelper.GetParent(current);
+                    
+                    // Get parent - handle both Visual and TextElement (like Run)
+                    DependencyObject? parent = null;
+                    if (current is System.Windows.Media.Visual || current is System.Windows.Media.Media3D.Visual3D)
+                    {
+                        parent = VisualTreeHelper.GetParent(current);
+                    }
+                    else if (current is System.Windows.Documents.TextElement textElement)
+                    {
+                        parent = LogicalTreeHelper.GetParent(current);
+                    }
+                    else
+                    {
+                        parent = LogicalTreeHelper.GetParent(current);
+                    }
+                    current = parent;
                 }
             }
             
@@ -3078,8 +3173,7 @@ namespace SlideShowBob
             }
             else if (e.PropertyName == nameof(MainViewModel.TotalCount))
             {
-                // Update BigSelectFolderButton visibility based on whether there are items
-                UpdateBigSelectFolderButtonVisibility();
+                // Empty state panel visibility is now handled via data binding
                 
                 // If items are loaded and CurrentMedia is set, show it (handles auto-load case)
                 if (_viewModel?.TotalCount > 0 && _viewModel?.CurrentMedia != null && IsLoaded)
@@ -3092,8 +3186,7 @@ namespace SlideShowBob
             }
             else if (e.PropertyName == nameof(MainViewModel.Folders))
             {
-                // Update button visibility when folders change
-                UpdateBigSelectFolderButtonVisibility();
+                // Empty state panel visibility is now handled via data binding
             }
             else if (e.PropertyName == nameof(MainViewModel.StatusText))
             {
@@ -3105,24 +3198,9 @@ namespace SlideShowBob
             }
         }
 
-        private void UpdateBigSelectFolderButtonVisibility()
-        {
-            // Hide button if we have items OR if we have folders (even if still loading)
-            if (_viewModel?.TotalCount > 0 || (_viewModel?.Folders.Count > 0 && _viewModel?.StatusText != "No folders selected."))
-            {
-                BigSelectFolderButton.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                BigSelectFolderButton.Visibility = Visibility.Visible;
-            }
-        }
 
         private async void ViewModel_RequestShowMedia(object? sender, EventArgs e)
         {
-            // Update button visibility when media is loaded
-            UpdateBigSelectFolderButtonVisibility();
-            
             // Request to show current media - call the existing ShowCurrentMediaAsync method
             // Fire-and-forget: intentionally not awaited to avoid blocking
 #pragma warning disable CS4014 // Fire-and-forget async call

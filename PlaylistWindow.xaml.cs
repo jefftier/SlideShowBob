@@ -83,7 +83,10 @@ namespace SlideShowBob
             // Unsubscribe from events
             _viewModel.RequestAddFolder -= ViewModel_RequestAddFolder;
             _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
-
+            
+            // Cleanup ViewModel (unsubscribes from MainViewModel events)
+            _viewModel.Cleanup();
+            
             base.OnClosed(e);
         }
 
@@ -190,6 +193,9 @@ namespace SlideShowBob
 
         #region UI Event Handlers
 
+        // Store the folder node that was right-clicked for context menu
+        private FolderNode? _contextMenuFolderNode = null;
+
         /// <summary>
         /// Handles folder selection in the tree view.
         /// </summary>
@@ -212,16 +218,76 @@ namespace SlideShowBob
         }
 
         /// <summary>
+        /// Handles context menu opening to capture the clicked folder node.
+        /// </summary>
+        private void FolderContextMenu_Opened(object sender, RoutedEventArgs e)
+        {
+            _contextMenuFolderNode = null;
+            
+            if (sender is ContextMenu contextMenu)
+            {
+                // Get the TreeViewItem that was right-clicked
+                var placementTarget = contextMenu.PlacementTarget;
+                
+                // Try direct cast first
+                if (placementTarget is TreeViewItem treeViewItem)
+                {
+                    _contextMenuFolderNode = treeViewItem.DataContext as FolderNode;
+                    return;
+                }
+                
+                // Walk up the visual tree to find the TreeViewItem
+                var current = placementTarget as DependencyObject;
+                while (current != null)
+                {
+                    if (current is TreeViewItem tvi)
+                    {
+                        _contextMenuFolderNode = tvi.DataContext as FolderNode;
+                        break;
+                    }
+                    current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+                }
+                
+                // If still not found, try using the mouse position to find the item
+                if (_contextMenuFolderNode == null)
+                {
+                    var mousePos = Mouse.GetPosition(FolderTree);
+                    var hitTestResult = System.Windows.Media.VisualTreeHelper.HitTest(FolderTree, mousePos);
+                    if (hitTestResult != null)
+                    {
+                        var hitElement = hitTestResult.VisualHit;
+                        var currentHit = hitElement as DependencyObject;
+                        while (currentHit != null)
+                        {
+                            if (currentHit is TreeViewItem tvi)
+                            {
+                                _contextMenuFolderNode = tvi.DataContext as FolderNode;
+                                break;
+                            }
+                            currentHit = System.Windows.Media.VisualTreeHelper.GetParent(currentHit);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
         /// Handles context menu for removing folder.
         /// </summary>
         private void RemoveFolderMenuItem_Click(object sender, RoutedEventArgs e)
         {
-            if (FolderTree.SelectedItem is FolderNode selectedNode)
+            // Use the folder node captured when context menu opened
+            FolderNode? folderNode = _contextMenuFolderNode;
+            
+            // Fallback to selected item if we couldn't get it from context menu
+            if (folderNode == null && FolderTree.SelectedItem is FolderNode selectedNode)
             {
-                if (_viewModel.RemoveFolderCommand.CanExecute(selectedNode.FullPath))
-                {
-                    _viewModel.RemoveFolderCommand.Execute(selectedNode.FullPath);
-                }
+                folderNode = selectedNode;
+            }
+            
+            if (folderNode != null && _viewModel.RemoveFolderCommand.CanExecute(folderNode.FullPath))
+            {
+                _viewModel.RemoveFolderCommand.Execute(folderNode.FullPath);
             }
         }
 

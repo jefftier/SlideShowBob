@@ -185,9 +185,11 @@
                         <TreeView.ContextMenu>
                             <ContextMenu Background="{StaticResource SurfaceAltBrush}"
                                        BorderBrush="{StaticResource SubtleBorderBrush}"
-                                       BorderThickness="1">
+                                       BorderThickness="1"
+                                       Opened="FolderContextMenu_Opened">
                                 <MenuItem Header="Remove Folder"
-                                          Click="RemoveFolderMenuItem_Click">
+                                          Click="RemoveFolderMenuItem_Click"
+                                          x:Name="RemoveFolderMenuItem">
                                     <MenuItem.Icon>
                                         <TextBlock Text="🗑" 
                                                    FontSize="14" 

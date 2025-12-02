@@ -271,6 +271,16 @@
             <Border Background="{StaticResource WindowBackdropBrush}"
                     Grid.Row="0">
                 <Grid x:Name="MediaContainer" Opacity="0.0">
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasMediaItems}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
                     <!-- Blurred background for portrait images - behind everything -->
                     <Image x:Name="BlurredBackgroundImage"
                            Stretch="UniformToFill"
@@ -339,20 +349,69 @@
                 </Grid>
             </Border>
 
-            <!-- Big start button (first run / no media) -->
-            <Button x:Name="BigSelectFolderButton"
-                    Style="{StaticResource BigIconButton}"
-                    Content="📁"
-                    ToolTip="Select folder to start slideshow"
+            <!-- Empty state panel (shown when no media is loaded) -->
+            <Border x:Name="EmptyStatePanel"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
-                    FontSize="36"
-                    FontWeight="Normal"
-                    Command="{Binding AddFolderCommand}" Height="60" Width="60">
-                <Button.Effect>
-                    <DropShadowEffect BlurRadius="18" ShadowDepth="0" Opacity="0.5"/>
-                </Button.Effect>
-            </Button>
+                    Panel.ZIndex="100"
+                    IsHitTestVisible="True">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Visible"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding HasMediaItems}" Value="True">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel Orientation="Vertical"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            TextBlock.TextAlignment="Center">
+                    <TextBlock Text="No media loaded"
+                               FontSize="16"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,0,0,16"/>
+                    <Button Content="Add Folder"
+                            Command="{Binding AddFolderCommand}"
+                            Padding="16,8"
+                            FontSize="13"
+                            HorizontalAlignment="Center"
+                            Cursor="Hand">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border x:Name="Root"
+                                                    Background="{TemplateBinding Background}"
+                                                    CornerRadius="4"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter HorizontalAlignment="Center"
+                                                                  VerticalAlignment="Center"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Root" Property="Background"
+                                                            Value="{StaticResource AccentBrushHover}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsPressed" Value="True">
+                                                    <Setter TargetName="Root" Property="Background"
+                                                            Value="{StaticResource AccentBrushSecondary}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
+            </Border>
 
             <!-- Expanded modern toolbar: centered, auto width, minimal design -->
             <Border x:Name="ToolbarExpandedPanel"

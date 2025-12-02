@@ -38,6 +38,7 @@ namespace SlideShowBob.ViewModels
         private bool _includeVideos = false;
         private int _slideDelayMs = 2000;
         private string? _statusText;
+        private bool _hasMediaItems = false;
 
         // Events for View to subscribe to
         public event EventHandler? RequestShowMedia;
@@ -190,6 +191,15 @@ namespace SlideShowBob.ViewModels
         }
 
         /// <summary>
+        /// Whether the playlist has any media items loaded.
+        /// </summary>
+        public bool HasMediaItems
+        {
+            get => _hasMediaItems;
+            private set => SetProperty(ref _hasMediaItems, value);
+        }
+
+        /// <summary>
         /// Whether the slideshow is currently playing (auto-advancing).
         /// </summary>
         public bool IsPlaying
@@ -283,6 +293,11 @@ namespace SlideShowBob.ViewModels
         internal MediaPlaylistManager PlaylistManager => _playlistManager;
         internal AppSettings Settings => _settings;
         internal IAppSettingsService SettingsService => _settingsManager;
+
+        /// <summary>
+        /// Event that fires when the playlist is reloaded (after LoadFoldersAsync completes).
+        /// </summary>
+        public event EventHandler? PlaylistReloaded;
 
         #endregion
 
@@ -454,10 +469,24 @@ namespace SlideShowBob.ViewModels
 
             if (toRemove.Count > 0)
             {
+                // Stop slideshow immediately to prevent navigation during reload
+                _slideshowController?.Stop();
+                _videoPlaybackService?.Stop();
+                
+                // Clear current media immediately
+                CurrentMedia = null;
+                
+                // Clear the playlist synchronously to prevent showing old items
+                _playlistManager.LoadFiles(Enumerable.Empty<string>(), IncludeVideos);
+                UpdateState();
+                
+                // Request to clear display immediately
+                RequestShowMedia?.Invoke(this, EventArgs.Empty);
+                
                 // Save folders to settings after removal
                 SaveFoldersToSettings();
 
-                // Reload playlist
+                // Reload playlist asynchronously
                 _ = LoadFoldersAsync();
             }
         }
@@ -561,11 +590,17 @@ namespace SlideShowBob.ViewModels
             {
                 StatusText = "No folders selected.";
                 UpdateState();
+                // Clear display when no folders
+                CurrentMedia = null;
+                RequestShowMedia?.Invoke(this, EventArgs.Empty);
                 return;
             }
 
             try
             {
+                // Clear current media immediately to prevent showing removed items
+                CurrentMedia = null;
+                
                 // Load files on background thread to avoid blocking UI
                 await Task.Run(() =>
                 {
@@ -600,7 +635,12 @@ namespace SlideShowBob.ViewModels
                         {
                             StatusText = "No media found";
                             CurrentMedia = null;
+                            // Clear display when no items found
+                            RequestShowMedia?.Invoke(this, EventArgs.Empty);
                         }
+
+                        // Notify that playlist has been reloaded
+                        PlaylistReloaded?.Invoke(this, EventArgs.Empty);
                     }, DispatcherPriority.Normal);
                 }
                 else
@@ -619,7 +659,12 @@ namespace SlideShowBob.ViewModels
                     {
                         StatusText = "No media found";
                         CurrentMedia = null;
+                        // Clear display when no items found
+                        RequestShowMedia?.Invoke(this, EventArgs.Empty);
                     }
+
+                    // Notify that playlist has been reloaded
+                    PlaylistReloaded?.Invoke(this, EventArgs.Empty);
                 }
             }
             catch (Exception ex)
@@ -643,6 +688,7 @@ namespace SlideShowBob.ViewModels
         {
             CurrentIndex = _playlistManager.CurrentIndex >= 0 ? _playlistManager.CurrentIndex : -1;
             TotalCount = _playlistManager.Count;
+            HasMediaItems = _playlistManager.HasItems;
             UpdateCommandStates();
         }
 

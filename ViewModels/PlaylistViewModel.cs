@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Input;
 using SlideShowBob.Commands;
 using SlideShowBob.Models;
@@ -59,6 +60,7 @@ namespace SlideShowBob.ViewModels
             // Note: MainViewModel is long-lived (created in App.xaml.cs), so this subscription is safe.
             // PlaylistViewModel lifetime matches PlaylistWindow, which properly unsubscribes on close.
             _mainViewModel.PropertyChanged += MainViewModel_PropertyChanged;
+            _mainViewModel.PlaylistReloaded += MainViewModel_PlaylistReloaded;
 
             // Initial load
             RefreshPlaylist();
@@ -169,14 +171,18 @@ namespace SlideShowBob.ViewModels
             RefreshPlaylist();
         }
 
-        private void RemoveFolder(string? folderPath)
+        private async void RemoveFolder(string? folderPath)
         {
             if (string.IsNullOrWhiteSpace(folderPath))
                 return;
 
             // Call MainViewModel command to remove folder
+            // This will trigger LoadFoldersAsync() which is async
             _mainViewModel.RemoveFolderCommand.Execute(folderPath);
             
+            // Wait a bit for the async operation to start, then refresh
+            // The PlaylistReloaded event will also trigger a refresh
+            await Task.Delay(50);
             RefreshPlaylist();
         }
 
@@ -278,13 +284,88 @@ namespace SlideShowBob.ViewModels
         /// </summary>
         public void RefreshPlaylist()
         {
+            // Store the currently selected folder path before rebuilding
+            string? previousSelectedPath = SelectedFolder?.FullPath;
+            
             BuildFolderTree();
             
-            // Reload media items if a folder is selected
-            if (SelectedFolder != null)
+            // Check if the previously selected folder still exists in the tree
+            FolderNode? validSelectedFolder = null;
+            if (!string.IsNullOrEmpty(previousSelectedPath))
             {
-                _ = LoadMediaItemsForFolderAsync(SelectedFolder.FullPath);
+                validSelectedFolder = FindFolderNodeByPath(previousSelectedPath);
             }
+            
+            // If the selected folder no longer exists, clear selection or select first available
+            if (validSelectedFolder == null)
+            {
+                SelectedFolder = null;
+                
+                // Auto-select the first folder if available
+                if (FolderTreeRoots.Count > 0)
+                {
+                    var firstFolder = FolderTreeRoots[0];
+                    firstFolder.IsSelected = true;
+                    SelectedFolder = firstFolder;
+                }
+            }
+            else
+            {
+                // Ensure the folder is still selected
+                if (SelectedFolder != validSelectedFolder)
+                {
+                    ClearSelection();
+                    validSelectedFolder.IsSelected = true;
+                    SelectedFolder = validSelectedFolder;
+                }
+                else
+                {
+                    // Folder still selected, reload its media items
+                    _ = LoadMediaItemsForFolderAsync(SelectedFolder.FullPath);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Finds a folder node in the tree by its full path.
+        /// </summary>
+        private FolderNode? FindFolderNodeByPath(string folderPath)
+        {
+            if (string.IsNullOrWhiteSpace(folderPath))
+                return null;
+
+            string normalizedPath = Path.GetFullPath(folderPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            foreach (var root in FolderTreeRoots)
+            {
+                var found = FindFolderNodeRecursive(root, normalizedPath);
+                if (found != null)
+                    return found;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Recursively searches for a folder node by path.
+        /// </summary>
+        private FolderNode? FindFolderNodeRecursive(FolderNode node, string targetPath)
+        {
+            string nodePath = Path.GetFullPath(node.FullPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            if (string.Equals(nodePath, targetPath, StringComparison.OrdinalIgnoreCase))
+                return node;
+
+            foreach (var child in node.Children)
+            {
+                var found = FindFolderNodeRecursive(child, targetPath);
+                if (found != null)
+                    return found;
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -385,13 +466,7 @@ namespace SlideShowBob.ViewModels
                 FolderTreeRoots.Add(root);
             }
 
-            // Auto-select the first folder if available
-            if (FolderTreeRoots.Count > 0 && SelectedFolder == null)
-            {
-                var firstFolder = FolderTreeRoots[0];
-                firstFolder.IsSelected = true;
-                SelectedFolder = firstFolder;
-            }
+            // Auto-select the first folder if available (handled in RefreshPlaylist now)
         }
 
         private void BuildFolderTreeRecursive(FolderNode parentNode, List<string> allFolders, string parentPath)
@@ -695,11 +770,26 @@ namespace SlideShowBob.ViewModels
 
         private void MainViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(MainViewModel.Folders) || 
-                e.PropertyName == nameof(MainViewModel.GetCurrentPlaylist))
+            if (e.PropertyName == nameof(MainViewModel.Folders))
             {
+                // Folders collection changed - refresh playlist
                 RefreshPlaylist();
             }
+        }
+
+        private void MainViewModel_PlaylistReloaded(object? sender, EventArgs e)
+        {
+            // Playlist has been reloaded - refresh the view
+            RefreshPlaylist();
+        }
+
+        /// <summary>
+        /// Cleanup method to unsubscribe from events. Called when PlaylistWindow closes.
+        /// </summary>
+        public void Cleanup()
+        {
+            _mainViewModel.PropertyChanged -= MainViewModel_PropertyChanged;
+            _mainViewModel.PlaylistReloaded -= MainViewModel_PlaylistReloaded;
         }
 
         #endregion
