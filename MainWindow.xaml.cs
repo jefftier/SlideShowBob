@@ -259,10 +259,12 @@ namespace SlideShowBob
         private void SlideshowController_NavigateToIndex(object? sender, int index)
         {
             // Fire-and-forget: intentionally not awaited
+#pragma warning disable CS4014 // Fire-and-forget async call
             _ = Dispatcher.InvokeAsync(async () =>
             {
                 await ShowCurrentMediaAsync();
             }, DispatcherPriority.Normal);
+#pragma warning restore CS4014
         }
 
         private void VideoService_MediaOpened(object? sender, EventArgs e)

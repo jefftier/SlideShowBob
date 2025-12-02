@@ -113,7 +113,9 @@ namespace SlideShowBob.ViewModels
                 {
                     if (value != null)
                     {
+#pragma warning disable CS4014 // Fire-and-forget async call
                         _ = LoadMediaItemsForFolderAsync(value.FullPath);
+#pragma warning restore CS4014
                     }
                     else
                     {
@@ -321,7 +323,9 @@ namespace SlideShowBob.ViewModels
                 else
                 {
                     // Folder still selected, reload its media items
+#pragma warning disable CS4014 // Fire-and-forget async call
                     _ = LoadMediaItemsForFolderAsync(SelectedFolder.FullPath);
+#pragma warning restore CS4014
                 }
             }
         }
@@ -616,7 +620,9 @@ namespace SlideShowBob.ViewModels
             if (_currentViewMode == PlaylistViewMode.Thumbnail && MediaItems.Count > 0)
             {
                 // Fire-and-forget: intentionally not awaited
+#pragma warning disable CS4014 // Fire-and-forget async call
                 _ = Task.Delay(100).ContinueWith(async _ => await LoadThumbnailsAsync(), TaskScheduler.Default);
+#pragma warning restore CS4014
             }
         }
 

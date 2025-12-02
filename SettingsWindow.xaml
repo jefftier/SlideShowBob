@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="App Settings"
-        Height="450"
-        Width="520"
+        Height="550"
+        Width="600"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResize"
         WindowStyle="SingleBorderWindow"
@@ -125,11 +125,90 @@
         </Style>
         
         <!-- ComboBox and ComboBoxItem styles are defined globally in App.xaml -->
+        <!-- Specific ComboBoxItem style for Settings window to override hover color -->
+        <!-- Must be defined BEFORE the ComboBox style that references it -->
+        <Style x:Key="SettingsComboBoxItemStyle" TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="Border"
+                                Background="{StaticResource SurfaceAltBrush}"
+                                BorderThickness="0"
+                                Padding="{TemplateBinding Padding}">
+                            <Border.Resources>
+                                <!-- Force override system colors in Border to prevent #BCDDEE -->
+                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0E1524"/>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.HotTrackBrushKey}" Color="#0E1524"/>
+                            </Border.Resources>
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                            VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                            SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}">
+                                <ContentPresenter.Resources>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                    </Style>
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <!-- Explicitly set hover color to override any system defaults -->
+                                <Setter TargetName="Border" Property="Background" Value="#0E1524"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource RaisedBrush}"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="True"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource RaisedHoverBrush}"/>
+                            </MultiTrigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Resources>
+                <!-- Force override system colors to prevent #BCDDEE hover color -->
+                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0E1524"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.HotTrackBrushKey}" Color="#0E1524"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#0E1524"/>
+            </Style.Resources>
+        </Style>
+        
         <!-- Override width for Settings window ComboBox -->
         <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
             <Setter Property="Width" Value="140"/>
             <Setter Property="MinWidth" Value="140"/>
             <Setter Property="MaxWidth" Value="140"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource SettingsComboBoxItemStyle}"/>
+        </Style>
+        
+        <!-- Info Icon Style - Circle with I -->
+        <Style x:Key="InfoIconStyle" TargetType="TextBlock">
+            <Setter Property="Text" Value="ⓘ"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="Normal"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="Cursor" Value="Help"/>
+            <Setter Property="ToolTipService.InitialShowDelay" Value="200"/>
+            <Setter Property="ToolTipService.BetweenShowDelay" Value="0"/>
+            <Setter Property="ToolTipService.ShowDuration" Value="30000"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
     </Window.Resources>
     
@@ -155,141 +234,308 @@
                            LineHeight="20"/>
             </StackPanel>
             
-            <!-- Content with 2-column layout -->
+            <!-- Content with grouped sections -->
             <ScrollViewer Grid.Row="1" 
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
                           Margin="0,0,0,24">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
+                <StackPanel>
                     
-                    <!-- Row 0: Save Slide Delay -->
-                    <TextBlock Grid.Row="0" Grid.Column="0"
-                               Text="Save Slide Delay"
-                               VerticalAlignment="Center"
-                               Margin="0,0,0,12"/>
-                    <CheckBox x:Name="SaveSlideDelayCheckBox"
-                              Grid.Row="0" Grid.Column="1"
-                              VerticalAlignment="Center"
-                              Margin="0,0,0,12"
-                              HorizontalAlignment="Left"
-                              IsChecked="{Binding SaveSlideDelay, Mode=TwoWay}"/>
+                    <!-- General Section -->
+                    <StackPanel Margin="0,0,0,24">
+                        <TextBlock Text="General"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   Margin="0,0,0,12"/>
+                        
+                        <!-- Save Folder Paths -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Save Folder Paths"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,6,0"/>
+                                <TextBlock Style="{StaticResource InfoIconStyle}">
+                                    <ToolTipService.ToolTip>
+                                        <ToolTip>
+                                            <TextBlock Text="When enabled, the app remembers which folders you've added to the slideshow. When disabled, folders will be cleared on app restart."
+                                                       TextWrapping="Wrap"
+                                                       MaxWidth="300"/>
+                                        </ToolTip>
+                                    </ToolTipService.ToolTip>
+                                </TextBlock>
+                            </StackPanel>
+                            <CheckBox x:Name="SaveFolderPathsCheckBox"
+                                      Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      HorizontalAlignment="Left"
+                                      IsChecked="{Binding SaveFolderPaths, Mode=TwoWay}"/>
+                        </Grid>
+                        
+                        <!-- Save Mute State -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Save Mute State"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,6,0"/>
+                                <TextBlock Style="{StaticResource InfoIconStyle}">
+                                    <ToolTipService.ToolTip>
+                                        <ToolTip>
+                                            <TextBlock Text="When enabled, the app remembers whether audio is muted. When disabled, audio will default to muted on app restart."
+                                                       TextWrapping="Wrap"
+                                                       MaxWidth="300"/>
+                                        </ToolTip>
+                                    </ToolTipService.ToolTip>
+                                </TextBlock>
+                            </StackPanel>
+                            <CheckBox x:Name="SaveIsMutedCheckBox"
+                                      Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      HorizontalAlignment="Left"
+                                      IsChecked="{Binding SaveIsMuted, Mode=TwoWay}"/>
+                        </Grid>
+                    </StackPanel>
                     
-                    <!-- Row 1: Save Include Videos -->
-                    <TextBlock Grid.Row="1" Grid.Column="0"
-                               Text="Save Include Videos (GIF/MP4)"
-                               VerticalAlignment="Center"
-                               Margin="0,0,0,12"/>
-                    <CheckBox x:Name="SaveIncludeVideosCheckBox"
-                              Grid.Row="1" Grid.Column="1"
-                              VerticalAlignment="Center"
-                              Margin="0,0,0,12"
-                              HorizontalAlignment="Left"
-                              IsChecked="{Binding SaveIncludeVideos, Mode=TwoWay}"/>
+                    <!-- Slideshow Section -->
+                    <StackPanel Margin="0,0,0,24">
+                        <TextBlock Text="Slideshow"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   Margin="0,0,0,12"/>
+                        
+                        <!-- Save Slide Delay -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Save Slide Delay"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,6,0"/>
+                                <TextBlock Style="{StaticResource InfoIconStyle}">
+                                    <ToolTipService.ToolTip>
+                                        <ToolTip>
+                                            <TextBlock Text="When enabled, the app remembers the time delay between slides. When disabled, the delay will reset to 2 seconds on app restart."
+                                                       TextWrapping="Wrap"
+                                                       MaxWidth="300"/>
+                                        </ToolTip>
+                                    </ToolTipService.ToolTip>
+                                </TextBlock>
+                            </StackPanel>
+                            <CheckBox x:Name="SaveSlideDelayCheckBox"
+                                      Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      HorizontalAlignment="Left"
+                                      IsChecked="{Binding SaveSlideDelay, Mode=TwoWay}"/>
+                        </Grid>
+                        
+                        <!-- Save Sort Mode -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Save Sort Mode"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,6,0"/>
+                                <TextBlock Style="{StaticResource InfoIconStyle}">
+                                    <ToolTipService.ToolTip>
+                                        <ToolTip>
+                                            <TextBlock Text="When enabled, the app remembers how media items are sorted (by name, date, etc.). When disabled, sorting will reset to alphabetical on app restart."
+                                                       TextWrapping="Wrap"
+                                                       MaxWidth="300"/>
+                                        </ToolTip>
+                                    </ToolTipService.ToolTip>
+                                </TextBlock>
+                            </StackPanel>
+                            <CheckBox x:Name="SaveSortModeCheckBox"
+                                      Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      HorizontalAlignment="Left"
+                                      IsChecked="{Binding SaveSortMode, Mode=TwoWay}"/>
+                        </Grid>
+                        
+                        <!-- Toolbar Inactivity Behavior -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Toolbar Inactivity Behavior"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,6,0"/>
+                                <TextBlock Style="{StaticResource InfoIconStyle}">
+                                    <ToolTipService.ToolTip>
+                                        <ToolTip>
+                                            <TextBlock Text="Controls what happens to the toolbar when you're not interacting with it. Options: Dim (fade to semi-transparent), Disappear (hide completely), or Do Nothing (stay visible)."
+                                                       TextWrapping="Wrap"
+                                                       MaxWidth="300"/>
+                                        </ToolTip>
+                                    </ToolTipService.ToolTip>
+                                </TextBlock>
+                            </StackPanel>
+                            <ComboBox x:Name="ToolbarInactivityBehaviorComboBox"
+                                      Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      HorizontalAlignment="Left">
+                                <ComboBoxItem Content="Dim" Tag="Dim"/>
+                                <ComboBoxItem Content="Disappear" Tag="Disappear"/>
+                                <ComboBoxItem Content="Do Nothing" Tag="Nothing"/>
+                            </ComboBox>
+                        </Grid>
+                    </StackPanel>
                     
-                    <!-- Row 2: Save Sort Mode -->
-                    <TextBlock Grid.Row="2" Grid.Column="0"
-                               Text="Save Sort Mode"
-                               VerticalAlignment="Center"
-                               Margin="0,0,0,12"/>
-                    <CheckBox x:Name="SaveSortModeCheckBox"
-                              Grid.Row="2" Grid.Column="1"
-                              VerticalAlignment="Center"
-                              Margin="0,0,0,12"
-                              HorizontalAlignment="Left"
-                              IsChecked="{Binding SaveSortMode, Mode=TwoWay}"/>
+                    <!-- Videos Section -->
+                    <StackPanel Margin="0,0,0,24">
+                        <TextBlock Text="Videos"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   Margin="0,0,0,12"/>
+                        
+                        <!-- Save Include Videos -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Save Include Videos (GIF/MP4)"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,6,0"/>
+                                <TextBlock Style="{StaticResource InfoIconStyle}">
+                                    <ToolTipService.ToolTip>
+                                        <ToolTip>
+                                            <TextBlock Text="When enabled, the app remembers whether video files (GIF and MP4) are included in the slideshow. When disabled, videos will be excluded by default on app restart."
+                                                       TextWrapping="Wrap"
+                                                       MaxWidth="300"/>
+                                        </ToolTip>
+                                    </ToolTipService.ToolTip>
+                                </TextBlock>
+                            </StackPanel>
+                            <CheckBox x:Name="SaveIncludeVideosCheckBox"
+                                      Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      HorizontalAlignment="Left"
+                                      IsChecked="{Binding SaveIncludeVideos, Mode=TwoWay}"/>
+                        </Grid>
+                        
+                        <!-- Use FFMPEG for Video Processing -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Use FFMPEG for Video Processing"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,6,0"/>
+                                <TextBlock Style="{StaticResource InfoIconStyle}">
+                                    <ToolTipService.ToolTip>
+                                        <ToolTip>
+                                            <TextBlock Text="When enabled, uses FFMPEG for better video playback and thumbnail generation. Requires FFMPEG to be installed and configured. Check the status indicator below to verify."
+                                                       TextWrapping="Wrap"
+                                                       MaxWidth="300"/>
+                                        </ToolTip>
+                                    </ToolTipService.ToolTip>
+                                </TextBlock>
+                            </StackPanel>
+                            <CheckBox x:Name="UseFfmpegForPlaybackCheckBox"
+                                      Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      HorizontalAlignment="Left"
+                                      IsChecked="{Binding UseFfmpegForPlayback, Mode=TwoWay}"/>
+                        </Grid>
+                        
+                        <!-- FFMPEG Status Indicator -->
+                        <Grid Margin="0,0,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="FFMPEG Status"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,6,0"/>
+                                <TextBlock Style="{StaticResource InfoIconStyle}">
+                                    <ToolTipService.ToolTip>
+                                        <ToolTip>
+                                            <TextBlock Text="Shows whether FFMPEG is currently active and available for video processing."
+                                                       TextWrapping="Wrap"
+                                                       MaxWidth="300"/>
+                                        </ToolTip>
+                                    </ToolTipService.ToolTip>
+                                </TextBlock>
+                            </StackPanel>
+                            <TextBlock x:Name="FfmpegStatusTextBlock"
+                                      Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      HorizontalAlignment="Left"
+                                      FontSize="13"
+                                      FontWeight="Medium"
+                                      Text="{Binding FfmpegStatusText}"
+                                      Foreground="{Binding FfmpegStatusForeground}"/>
+                        </Grid>
+                    </StackPanel>
                     
-                    <!-- Row 3: Save Mute State -->
-                    <TextBlock Grid.Row="3" Grid.Column="0"
-                               Text="Save Mute State"
-                               VerticalAlignment="Center"
-                               Margin="0,0,0,12"/>
-                    <CheckBox x:Name="SaveIsMutedCheckBox"
-                              Grid.Row="3" Grid.Column="1"
-                              VerticalAlignment="Center"
-                              Margin="0,0,0,12"
-                              HorizontalAlignment="Left"
-                              IsChecked="{Binding SaveIsMuted, Mode=TwoWay}"/>
+                    <!-- Appearance Section -->
+                    <StackPanel Margin="0,0,0,24">
+                        <TextBlock Text="Appearance"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   Margin="0,0,0,12"/>
+                        
+                        <!-- Portrait Blur Effect -->
+                        <Grid Margin="0,0,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Portrait Blur Effect"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,6,0"/>
+                                <TextBlock Style="{StaticResource InfoIconStyle}">
+                                    <ToolTipService.ToolTip>
+                                        <ToolTip>
+                                            <TextBlock Text="When enabled, applies a blur effect to portrait-oriented images to create a more visually appealing display. This helps fill the screen better when showing vertical images on a horizontal display."
+                                                       TextWrapping="Wrap"
+                                                       MaxWidth="300"/>
+                                        </ToolTip>
+                                    </ToolTipService.ToolTip>
+                                </TextBlock>
+                            </StackPanel>
+                            <CheckBox x:Name="PortraitBlurEffectCheckBox"
+                                      Grid.Column="1"
+                                      VerticalAlignment="Center"
+                                      HorizontalAlignment="Left"
+                                      IsChecked="{Binding PortraitBlurEffect, Mode=TwoWay}"/>
+                        </Grid>
+                    </StackPanel>
                     
-                    <!-- Row 4: Save Folder Paths -->
-                    <TextBlock Grid.Row="4" Grid.Column="0"
-                               Text="Save Folder Paths"
-                               VerticalAlignment="Center"
-                               Margin="0,0,0,12"/>
-                    <CheckBox x:Name="SaveFolderPathsCheckBox"
-                              Grid.Row="4" Grid.Column="1"
-                              VerticalAlignment="Center"
-                              Margin="0,0,0,12"
-                              HorizontalAlignment="Left"
-                              IsChecked="{Binding SaveFolderPaths, Mode=TwoWay}"/>
-                    
-                    <!-- Row 5: Toolbar Inactivity Behavior -->
-                    <TextBlock Grid.Row="5" Grid.Column="0"
-                               Text="Toolbar Inactivity Behavior"
-                               VerticalAlignment="Center"
-                               Margin="0,0,0,12"/>
-                    <ComboBox x:Name="ToolbarInactivityBehaviorComboBox"
-                              Grid.Row="5" Grid.Column="1"
-                              VerticalAlignment="Center"
-                              HorizontalAlignment="Left"
-                              Margin="0,0,0,12">
-                        <ComboBoxItem Content="Dim" Tag="Dim"/>
-                        <ComboBoxItem Content="Disappear" Tag="Disappear"/>
-                        <ComboBoxItem Content="Do Nothing" Tag="Nothing"/>
-                    </ComboBox>
-                    
-                    <!-- Row 6: Portrait Blur Effect -->
-                    <TextBlock Grid.Row="6" Grid.Column="0"
-                               Text="Portrait Blur Effect"
-                               VerticalAlignment="Center"
-                               Margin="0,0,0,12"/>
-                    <CheckBox x:Name="PortraitBlurEffectCheckBox"
-                              Grid.Row="6" Grid.Column="1"
-                              VerticalAlignment="Center"
-                              HorizontalAlignment="Left"
-                              Margin="0,0,0,12"
-                              IsChecked="{Binding PortraitBlurEffect, Mode=TwoWay}"/>
-                    
-                    <!-- Row 7: Use FFMPEG for Playback -->
-                    <TextBlock Grid.Row="7" Grid.Column="0"
-                               Text="Use FFMPEG for Video Processing"
-                               VerticalAlignment="Center"
-                               Margin="0,0,0,12"/>
-                    <CheckBox x:Name="UseFfmpegForPlaybackCheckBox"
-                              Grid.Row="7" Grid.Column="1"
-                              VerticalAlignment="Center"
-                              HorizontalAlignment="Left"
-                              Margin="0,0,0,12"
-                              IsChecked="{Binding UseFfmpegForPlayback, Mode=TwoWay}"/>
-                    
-                    <!-- Row 8: FFMPEG Status Indicator -->
-                    <TextBlock Grid.Row="8" Grid.Column="0"
-                               Text="FFMPEG Status"
-                               VerticalAlignment="Center"
-                               Margin="0,0,0,0"/>
-                    <TextBlock x:Name="FfmpegStatusTextBlock"
-                              Grid.Row="8" Grid.Column="1"
-                              VerticalAlignment="Center"
-                              HorizontalAlignment="Left"
-                              FontSize="13"
-                              Margin="0,0,0,0"
-                              Text="{Binding FfmpegStatusText}"
-                              Foreground="{Binding FfmpegStatusForeground}"/>
-                </Grid>
+                </StackPanel>
             </ScrollViewer>
             
             <!-- Buttons -->

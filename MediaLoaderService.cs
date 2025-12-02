@@ -162,7 +162,9 @@ namespace SlideShowBob
                 if (item.Type == MediaType.Image)
                 {
                     // Fire and forget - preload in background
+#pragma warning disable CS4014 // Fire-and-forget async call
                     _ = LoadImageAsync(item.FilePath, maxDecodeWidth).ConfigureAwait(false);
+#pragma warning restore CS4014
                 }
             }
         }

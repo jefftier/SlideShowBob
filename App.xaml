@@ -32,6 +32,26 @@
         <SolidColorBrush x:Key="ControlBackgroundHoverBrush" Color="#14FFFFFF"/>
         <SolidColorBrush x:Key="ControlBackgroundPressedBrush" Color="#20FFFFFF"/>
 
+        <!-- ===== System Color Overrides - Prevent White Backgrounds ===== -->
+        <SolidColorBrush x:Key="{x:Static SystemColors.WindowBrushKey}" Color="#05070A"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.WindowTextBrushKey}" Color="#F9FAFB"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#111827"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#F9FAFB"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.ControlLightBrushKey}" Color="#111827"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.ControlDarkBrushKey}" Color="#0B1020"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.ControlLightLightBrushKey}" Color="#182033"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.ControlDarkDarkBrushKey}" Color="#05070A"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.InfoBrushKey}" Color="#111827"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.InfoTextBrushKey}" Color="#F9FAFB"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0E1524"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F9FAFB"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.HotTrackBrushKey}" Color="#0E1524"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#0E1524"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.ActiveBorderBrushKey}" Color="#111827"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.ActiveCaptionBrushKey}" Color="#111827"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.GradientActiveCaptionBrushKey}" Color="#111827"/>
+        <SolidColorBrush x:Key="{x:Static SystemColors.GradientInactiveCaptionBrushKey}" Color="#111827"/>
+
         <!-- ===== Global ContextMenu Style - Dark Theme ===== -->
         <Style TargetType="ContextMenu">
             <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
@@ -375,6 +395,14 @@
             <Setter Property="Padding" Value="6,4"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource {x:Type ComboBoxItem}}"/>
+            <Setter Property="ItemsPanel">
+                <Setter.Value>
+                    <ItemsPanelTemplate>
+                        <StackPanel Background="{StaticResource SurfaceAltBrush}"/>
+                    </ItemsPanelTemplate>
+                </Setter.Value>
+            </Setter>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ComboBox">
@@ -440,7 +468,15 @@
                                       BorderThickness="1"
                                       CornerRadius="2"
                                       MaxHeight="{TemplateBinding MaxDropDownHeight}">
-                                    <ScrollViewer>
+                                    <Border.Resources>
+                                        <!-- Override system colors in Popup to prevent default theme colors -->
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0E1524"/>
+                                        <SolidColorBrush x:Key="{x:Static SystemColors.HotTrackBrushKey}" Color="#0E1524"/>
+                                    </Border.Resources>
+                                    <ScrollViewer Background="{StaticResource SurfaceAltBrush}"
+                                                BorderThickness="0"
+                                                VerticalScrollBarVisibility="Auto"
+                                                HorizontalScrollBarVisibility="Disabled">
                                         <ItemsPresenter/>
                                     </ScrollViewer>
                                 </Border>
@@ -463,36 +499,55 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Resources>
+                <!-- Override system colors for ComboBox to prevent default theme colors -->
+                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0E1524"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F9FAFB"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.HotTrackBrushKey}" Color="#0E1524"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#111827"/>
+            </Style.Resources>
         </Style>
 
         <!-- ===== Global ComboBoxItem Style ===== -->
         <Style TargetType="ComboBoxItem">
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="8,6"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ComboBoxItem">
-                        <Border x:Name="Border"
-                                Background="{TemplateBinding Background}"
-                                BorderThickness="0"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter>
-                                <ContentPresenter.Resources>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
-                                    </Style>
-                                </ContentPresenter.Resources>
-                            </ContentPresenter>
-                        </Border>
+                        <Grid x:Name="Root" Background="{StaticResource SurfaceAltBrush}">
+                            <Border x:Name="Border"
+                                    Background="{StaticResource SurfaceAltBrush}"
+                                    BorderThickness="0"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter x:Name="ContentPresenter"
+                                                Content="{TemplateBinding Content}"
+                                                ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                                SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}">
+                                    <ContentPresenter.Resources>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                            <Setter Property="Background" Value="Transparent"/>
+                                        </Style>
+                                    </ContentPresenter.Resources>
+                                </ContentPresenter>
+                            </Border>
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Border" Property="Background"
-                                        Value="{StaticResource HoverOverlayBrush}"/>
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
+                                <Setter Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Border" Property="Background"
-                                        Value="{StaticResource RaisedBrush}"/>
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource RaisedBrush}"/>
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource RaisedBrush}"/>
+                                <Setter Property="Background" Value="{StaticResource RaisedBrush}"/>
                                 <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
                             </Trigger>
                             <MultiTrigger>
@@ -500,15 +555,27 @@
                                     <Condition Property="IsSelected" Value="True"/>
                                     <Condition Property="IsMouseOver" Value="True"/>
                                 </MultiTrigger.Conditions>
+                                <Setter TargetName="Root" Property="Background" Value="{StaticResource RaisedHoverBrush}"/>
                                 <Setter TargetName="Border" Property="Background" Value="{StaticResource RaisedHoverBrush}"/>
+                                <Setter Property="Background" Value="{StaticResource RaisedHoverBrush}"/>
                             </MultiTrigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
+                                <Setter TargetName="ContentPresenter" Property="Opacity" Value="0.5"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Resources>
+                <!-- Override system colors for ComboBoxItem to prevent white/light backgrounds -->
+                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0E1524"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F9FAFB"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#111827"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.ControlTextBrushKey}" Color="#F9FAFB"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.HotTrackBrushKey}" Color="#0E1524"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#0E1524"/>
+            </Style.Resources>
         </Style>
 
         <!-- ===== Global ScrollBar Style - Dark Theme ===== -->
@@ -637,6 +704,46 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <!-- ===== Global ToolTip Style - Dark Theme ===== -->
+        <Style TargetType="ToolTip">
+            <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource SubtleBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="2"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter ContentSource="Content"
+                                            Margin="{TemplateBinding Padding}">
+                                <ContentPresenter.Resources>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                    </Style>
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Resources>
+                <!-- Override system colors for ToolTip to prevent white backgrounds -->
+                <SolidColorBrush x:Key="{x:Static SystemColors.InfoBrushKey}" Color="#111827"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.InfoTextBrushKey}" Color="#F9FAFB"/>
+            </Style.Resources>
+        </Style>
+
+        <!-- ===== Global Popup Style - Dark Theme ===== -->
+        <Style TargetType="Popup">
+            <Setter Property="AllowsTransparency" Value="True"/>
         </Style>
     </Application.Resources>
 </Application>

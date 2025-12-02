@@ -170,6 +170,7 @@ namespace SlideShowBob
         {
             if (File.Exists(filePath) && !_imageCache.ContainsKey(filePath))
             {
+#pragma warning disable CS4014 // Fire-and-forget async call
                 _ = Task.Run(async () =>
                 {
                     try
@@ -181,6 +182,7 @@ namespace SlideShowBob
                         // Ignore preload errors
                     }
                 });
+#pragma warning restore CS4014
             }
         }
 

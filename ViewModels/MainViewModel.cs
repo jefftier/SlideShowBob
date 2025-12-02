@@ -103,7 +103,9 @@ namespace SlideShowBob.ViewModels
                 {
                     StatusText = "Folders: " + string.Join("; ", Folders);
                     // Load folders asynchronously (fire-and-forget)
+#pragma warning disable CS4014 // Fire-and-forget async call
                     _ = LoadFoldersAsync();
+#pragma warning restore CS4014
                 }
             }
 
@@ -243,7 +245,9 @@ namespace SlideShowBob.ViewModels
                     // Reload playlist if we already have folders
                     if (Folders.Count > 0)
                     {
+#pragma warning disable CS4014 // Fire-and-forget async call
                         _ = LoadFoldersAsync();
+#pragma warning restore CS4014
                     }
                 }
             }
@@ -487,7 +491,9 @@ namespace SlideShowBob.ViewModels
                 SaveFoldersToSettings();
 
                 // Reload playlist asynchronously
+#pragma warning disable CS4014 // Fire-and-forget async call
                 _ = LoadFoldersAsync();
+#pragma warning restore CS4014
             }
         }
 
