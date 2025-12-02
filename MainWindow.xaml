@@ -347,7 +347,7 @@
                     VerticalAlignment="Center"
                     FontSize="36"
                     FontWeight="Normal"
-                    Click="BigSelectFolderButton_Click" Height="60" Width="60">
+                    Command="{Binding AddFolderCommand}" Height="60" Width="60">
                 <Button.Effect>
                     <DropShadowEffect BlurRadius="18" ShadowDepth="0" Opacity="0.5"/>
                 </Button.Effect>
@@ -389,29 +389,48 @@
                         <Button x:Name="PrevButton"
                                 Style="{StaticResource IconButton}"
                                 Content="⏮"
-                                Click="PrevButton_Click"/>
+                                Command="{Binding PreviousCommand}"/>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                         <Button x:Name="StartButton"
-                                Style="{StaticResource IconButton}"
                                 Content="⏵"
                                 ToolTip="Start slideshow"
-                                Click="StartButton_Click"/>
+                                Command="{Binding StartSlideshowCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
                         <Button x:Name="StopButton"
-                                Style="{StaticResource IconButton}"
                                 Content="⏸"
                                 ToolTip="Pause slideshow"
-                                Click="StopButton_Click"
-                                Visibility="Collapsed"/>
+                                Command="{Binding StopSlideshowCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                         <Button x:Name="NextButton"
                                 Style="{StaticResource IconButton}"
                                 Content="⏭"
-                                Click="NextButton_Click"/>
+                                Command="{Binding NextCommand}"/>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
@@ -456,9 +475,7 @@
                         <ToggleButton x:Name="IncludeVideoToggle"
                                       Style="{StaticResource PillToggle}"
                                       Content="GIF / MP4"
-                                      IsChecked="False"
-                                      Checked="IncludeVideoToggle_Checked"
-                                      Unchecked="IncludeVideoToggle_Unchecked" />
+                                      IsChecked="{Binding IncludeVideos, Mode=TwoWay}"/>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
@@ -480,7 +497,7 @@
                                 Style="{StaticResource IconButton}"
                                 Content="📁"
                                 ToolTip="Change folder"
-                                Click="SelectFolderButton_Click"/>
+                                Command="{Binding AddFolderCommand}"/>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
@@ -488,7 +505,7 @@
                                 Style="{StaticResource IconButton}"
                                 Content="☰"
                                 ToolTip="Playlist editor"
-                                Click="PlaylistButton_Click"/>
+                                Command="{Binding OpenPlaylistCommand}"/>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
@@ -529,7 +546,7 @@
                                 Style="{StaticResource IconButton}"
                                 Content="⚙"
                                 ToolTip="App Settings"
-                                Click="SettingsButton_Click"/>
+                                Command="{Binding OpenSettingsCommand}"/>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
@@ -539,7 +556,7 @@
                                    Foreground="{StaticResource TextSecondaryBrush}"
                                    FontSize="12"/>
                         <TextBox x:Name="DelayBox"
-                                 Text="2000"
+                                 Text="{Binding SlideDelayMs, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                  VerticalContentAlignment="Center"
                                  MinWidth="50"
                                  TextAlignment="Right"/>
@@ -590,21 +607,31 @@
                     <Button x:Name="NotchPrevButton"
                             Style="{StaticResource IconButton}"
                             Content="⏮"
-                            Click="NotchPrevButton_Click"/>
+                            Command="{Binding PreviousCommand}"/>
 
                     <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                     <Button x:Name="NotchPlayPauseButton"
-                            Style="{StaticResource IconButton}"
                             Content="⏵"
-                            Click="NotchPlayPauseButton_Click"/>
+                            Command="{Binding PlayPauseCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                <Setter Property="Content" Value="⏵"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsPlaying}" Value="True">
+                                        <Setter Property="Content" Value="⏸"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
 
                     <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                     <Button x:Name="NotchNextButton"
                             Style="{StaticResource IconButton}"
                             Content="⏭"
-                            Click="NotchNextButton_Click"/>
+                            Command="{Binding NextCommand}"/>
 
                     <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
@@ -635,7 +662,7 @@
                 <TextBlock x:Name="StatusText"
                            FontSize="11"
                            Foreground="{StaticResource TextMutedBrush}"
-                           Text=""
+                           Text="{Binding StatusText}"
                            TextTrimming="CharacterEllipsis"
                            TextWrapping="NoWrap"/>
             </Border>
@@ -646,6 +673,11 @@
                        Margin="0,0,16,24"
                        FontSize="12"
                        Foreground="{StaticResource TextMutedBrush}">
+                <TextBlock.Inlines>
+                    <Run Text="{Binding DisplayIndex, Mode=OneWay}"/>
+                    <Run Text=" / "/>
+                    <Run Text="{Binding TotalCount, Mode=OneWay}"/>
+                </TextBlock.Inlines>
                 <TextBlock.Style>
                     <Style TargetType="TextBlock">
                         <Style.Triggers>

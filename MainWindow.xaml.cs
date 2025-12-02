@@ -54,7 +54,6 @@ namespace SlideShowBob
 
         private DispatcherTimer? _chromeTimer;
 
-        private int _slideDelayMs = 2000;
         private bool _isMuted = true;
 
         private readonly List<string> _folders = new();
@@ -85,38 +84,96 @@ namespace SlideShowBob
         private SortMode _sortMode = SortMode.NameAZ;
 
         // Helper property to get current media type - now uses ViewModel
-        private MediaType? CurrentMediaType => _viewModel?.CurrentMediaItem?.Type;
+        private MediaType? CurrentMediaType => _viewModel?.CurrentMedia?.Type;
 
+        // Temporary bridge fields to access services during MVVM transition
+        // TODO: Complete refactoring to remove direct service access
+        private VideoPlaybackService? _videoService;
+        private SlideshowController? _slideshowController;
+        private MediaLoaderService? _mediaLoader;
+
+        /// <summary>
+        /// Parameterless constructor for App.xaml.cs compatibility (needs window first to get UI elements).
+        /// </summary>
         public MainWindow()
         {
             InitializeComponent();
             // Services and ViewModel will be injected via InitializeWithViewModel
         }
 
-        // Temporary bridge fields to access services during MVVM transition
-        // TODO: Complete refactoring to remove direct service access
-        private AppSettings? _settings;
-        private MediaPlaylistManager? _playlist;
-        private VideoPlaybackService? _videoService;
-        private SlideshowController? _slideshowController;
-        private MediaLoaderService? _mediaLoader;
+        /// <summary>
+        /// Constructor that takes MainViewModel. Sets DataContext and initializes UI.
+        /// </summary>
+        public MainWindow(MainViewModel viewModel) : this()
+        {
+            if (viewModel == null) throw new ArgumentNullException(nameof(viewModel));
+            
+            _viewModel = viewModel;
+            DataContext = _viewModel;
+            
+            InitializeUI();
+            SubscribeToViewModelEvents();
+        }
 
         /// <summary>
         /// Initializes MainWindow with MainViewModel. Called from App.xaml.cs after services are created.
+        /// Kept for backward compatibility with App.xaml.cs.
         /// </summary>
         public void InitializeWithViewModel(MainViewModel viewModel)
         {
-            _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+            if (viewModel == null) throw new ArgumentNullException(nameof(viewModel));
+            
+            _viewModel = viewModel;
             DataContext = _viewModel;
+            
+            InitializeUI();
+            SubscribeToViewModelEvents();
+            
+            // Update UI state based on initial ViewModel state
+            UpdateBigSelectFolderButtonVisibility();
+            
+            // Check if folders are being loaded or already loaded
+            // Wait a bit for async loading to complete, then check again
+            Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                // Give LoadFoldersAsync time to complete
+                await Task.Delay(100);
+                
+                // If media is loaded, show it
+                if (_viewModel?.CurrentMedia != null && _viewModel.PlaylistManager?.HasItems == true)
+                {
+                    // Fire-and-forget: intentionally not awaited
+#pragma warning disable CS4014 // Fire-and-forget async call
+                    _ = ShowCurrentMediaAsync();
+#pragma warning restore CS4014
+                }
+                else if (_viewModel?.Folders.Count > 0 && _viewModel?.TotalCount == 0)
+                {
+                    // Folders are set but no items loaded yet - might still be loading
+                    // Check again after a longer delay
+                    await Task.Delay(500);
+                    if (_viewModel?.CurrentMedia != null && _viewModel.PlaylistManager?.HasItems == true)
+                    {
+#pragma warning disable CS4014 // Fire-and-forget async call
+                        _ = ShowCurrentMediaAsync();
+#pragma warning restore CS4014
+                    }
+                }
+            }), DispatcherPriority.Loaded);
+        }
 
+        private void InitializeUI()
+        {
             // Initialize service references from ViewModel (temporary bridge during MVVM transition)
-            _settings = _viewModel.Settings;
-            _playlist = _viewModel.PlaylistManager;
-            _videoService = _viewModel.VideoPlaybackService;
-            _slideshowController = _viewModel.SlideshowController;
-            _mediaLoader = _viewModel.MediaLoaderService;
+            // Access via internal properties exposed by ViewModel
+            if (_viewModel != null)
+            {
+                _videoService = _viewModel.VideoPlaybackService;
+                _slideshowController = _viewModel.SlideshowController;
+                _mediaLoader = _viewModel.MediaLoaderService;
+            }
 
-            // Subscribe to service events (temporary - should eventually use ViewModel events)
+            // Subscribe to service events for UI-specific handling (video display, etc.)
             if (_slideshowController != null)
             {
                 _slideshowController.NavigateToIndex += SlideshowController_NavigateToIndex;
@@ -128,19 +185,10 @@ namespace SlideShowBob
                 _videoService.FrameCaptured += VideoService_FrameCaptured;
             }
 
-            // Note: MainWindow should use MainViewModel properties/commands instead of direct service access.
-            // Services are now managed by MainViewModel and created in App.xaml.cs.
-            // This initialization method sets up UI-specific things that don't belong in ViewModel.
-
             // ImageElement uses rotation transform for EXIF orientation, sizing via Width/Height
             ImageElement.LayoutTransform = _imageRotation;
             VideoElement.LayoutTransform = _videoScale;
             VideoFrameImage.LayoutTransform = _videoScale; // Use same scale as video
-
-            // Subscribe to ViewModel events for UI updates
-            _viewModel.PropertyChanged += ViewModel_PropertyChanged;
-            _viewModel.RequestShowMedia += ViewModel_RequestShowMedia;
-            _viewModel.MediaChanged += ViewModel_MediaChanged;
 
             _chromeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
 
@@ -152,19 +200,24 @@ namespace SlideShowBob
                     ScrollHost.LayoutUpdated += ScrollHost_LayoutUpdated;
                     UpdateScrollBarVisibility();
                 }
+                
+                // If media is already loaded (from auto-load), show it now that window is ready
+                if (_viewModel?.CurrentMedia != null && _viewModel.PlaylistManager?.HasItems == true)
+                {
+                    // Fire-and-forget: intentionally not awaited
+#pragma warning disable CS4014 // Fire-and-forget async call
+                    _ = ShowCurrentMediaAsync();
+#pragma warning restore CS4014
+                }
             };
             _chromeTimer.Tick += ChromeTimer_Tick;
 
-            
             UpdateZoomLabel();
             SetSlideshowState(false);
 
-            VideoElement.IsMuted = _isMuted;
+            VideoElement.IsMuted = true; // Default muted
             MuteButton.Content = "🔇";
             ReplayButton.IsEnabled = false;
-
-            StatusText.Text = "";
-            TitleCountText.Text = "0 / 0";
 
             BigSelectFolderButton.Visibility = Visibility.Visible;
             VideoProgressBar.Visibility = Visibility.Collapsed;
@@ -179,44 +232,17 @@ namespace SlideShowBob
             UpdateSortMenuVisuals();
             ShowChrome();
             ResetChromeTimer();
+        }
 
-            // Load previously used folders from settings only if saving is enabled
-            if (_settings?.SaveFolderPaths == true)
-            {
-                // Initialize FolderPaths if null (for backward compatibility with old settings files)
-                if (_settings.FolderPaths == null)
-                {
-                    _settings.FolderPaths = new List<string>();
-                }
+        private void SubscribeToViewModelEvents()
+        {
+            if (_viewModel == null) return;
 
-                if (_settings.FolderPaths.Count > 0)
-                {
-                    _folders.Clear();
-                    foreach (var folderPath in _settings.FolderPaths)
-                    {
-                        if (Directory.Exists(folderPath) && !_folders.Contains(folderPath, StringComparer.OrdinalIgnoreCase))
-                        {
-                            _folders.Add(folderPath);
-                        }
-                    }
-                    
-                    if (_folders.Count > 0)
-                    {
-                        StatusText.Text = "Folders: " + string.Join("; ", _folders);
-                        // Load folders asynchronously after window is loaded
-                        Loaded += MainWindow_Loaded;
-                    }
-                }
-            }
-            else
-            {
-                // Saving disabled - clear folders
-                _folders.Clear();
-                if (_settings?.FolderPaths != null)
-                {
-                    _settings.FolderPaths.Clear();
-                }
-            }
+            // Subscribe to ViewModel events for UI updates
+            _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+            _viewModel.RequestShowMedia += ViewModel_RequestShowMedia;
+            _viewModel.RequestShowMessage += ViewModel_RequestShowMessage;
+            _viewModel.RequestAddFolder += ViewModel_RequestAddFolder;
         }
 
         #region Service Event Handlers
@@ -269,7 +295,7 @@ namespace SlideShowBob
                 }), DispatcherPriority.Loaded);
             }
 
-            var currentItem = _playlist?.CurrentItem;
+            var currentItem = _viewModel?.PlaylistManager?.CurrentItem;
             if (currentItem != null)
             {
                 _slideshowController?.OnMediaDisplayed(MediaType.Video);
@@ -303,9 +329,14 @@ namespace SlideShowBob
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             Loaded -= MainWindow_Loaded; // Only run once
-            if (_folders.Count > 0)
+            
+            // If media is already loaded (from ViewModel auto-load), show it now that window is ready
+            if (_viewModel?.CurrentMedia != null && _viewModel.PlaylistManager?.HasItems == true)
             {
-                await LoadFoldersAsync();
+                // Fire-and-forget: intentionally not awaited
+#pragma warning disable CS4014 // Fire-and-forget async call
+                _ = ShowCurrentMediaAsync();
+#pragma warning restore CS4014
             }
         }
 
@@ -419,7 +450,7 @@ namespace SlideShowBob
             ImageElement.Effect = null;
 
             // Check if setting is enabled
-            if (_settings != null && !_settings.PortraitBlurEffect)
+            if (_viewModel?.Settings != null && !_viewModel.Settings.PortraitBlurEffect)
                 return;
 
             // Check if image is portrait
@@ -453,7 +484,7 @@ namespace SlideShowBob
             VideoElement.Effect = null;
 
             // Check if setting is enabled
-            if (_settings != null && !_settings.PortraitBlurEffect)
+            if (_viewModel?.Settings != null && !_viewModel.Settings.PortraitBlurEffect)
                 return;
 
             // Check if video is portrait
@@ -751,7 +782,7 @@ namespace SlideShowBob
 
         private void DimChrome()
         {
-            string behavior = _settings?.ToolbarInactivityBehavior ?? "Dim"; // default
+            string behavior = _viewModel?.Settings?.ToolbarInactivityBehavior ?? "Dim"; // default
 
             if (behavior == "Nothing")
             {
@@ -922,8 +953,8 @@ namespace SlideShowBob
 
         private void UpdateItemCount()
         {
-            int total = _playlist?.Count ?? 0;
-            int index = _playlist?.CurrentIndex >= 0 ? (_playlist.CurrentIndex + 1) : 0;
+            int total = _viewModel?.PlaylistManager?.Count ?? 0;
+            int index = _viewModel?.PlaylistManager?.CurrentIndex >= 0 ? (_viewModel.PlaylistManager.CurrentIndex + 1) : 0;
             TitleCountText.Text = $"{index} / {total}";
         }
 
@@ -1179,7 +1210,7 @@ namespace SlideShowBob
                     {
                         if (ImageElement.Source is BitmapSource bmp)
                         {
-                            string? currentFile = _playlist.CurrentItem?.FilePath;
+                            string? currentFile = _viewModel?.PlaylistManager?.CurrentItem?.FilePath;
                             ApplyPortraitBlurEffect(bmp, currentFile);
                         }
                     }), System.Windows.Threading.DispatcherPriority.Loaded);
@@ -1355,18 +1386,18 @@ namespace SlideShowBob
                     _sortMode = SortMode.Random;
                     break;
             }
-            if (_settings != null && _settings.SaveSortMode)
+            if (_viewModel?.Settings != null && _viewModel.Settings.SaveSortMode)
             {
-                _settings!.SortMode = _sortMode.ToString();
-                SettingsManager.Save(_settings);
+                _viewModel.Settings.SortMode = _sortMode.ToString();
+                SettingsManager.Save(_viewModel.Settings);
             }
 
             UpdateSortMenuVisuals();
 
-            if (_playlist == null || !_playlist.HasItems) return;
+            if (_viewModel?.PlaylistManager == null || !_viewModel.PlaylistManager.HasItems) return;
 
             // Preserve current item if possible
-            var currentItem = _playlist?.CurrentItem;
+            var currentItem = _viewModel.PlaylistManager?.CurrentItem;
             string? currentFilePath = currentItem?.FilePath;
 
             ApplySort();
@@ -1374,16 +1405,16 @@ namespace SlideShowBob
             // Try to restore position
             if (currentFilePath != null)
             {
-                var items = _playlist?.GetAllItems().ToList() ?? new List<MediaItem>();
+                var items = _viewModel.PlaylistManager?.GetAllItems().ToList() ?? new List<MediaItem>();
                 int foundIndex = items.FindIndex(i => i.FilePath == currentFilePath);
                 if (foundIndex >= 0)
-                    _playlist?.SetIndex(foundIndex);
+                    _viewModel.PlaylistManager?.SetIndex(foundIndex);
                 else
-                    _playlist?.SetIndex(0);
+                    _viewModel.PlaylistManager?.SetIndex(0);
             }
             else
             {
-                _playlist.SetIndex(0);
+                _viewModel.PlaylistManager?.SetIndex(0);
             }
 
             ShowCurrentMedia();
@@ -1424,7 +1455,7 @@ namespace SlideShowBob
 
         private void ApplySort()
         {
-            _playlist?.Sort(_sortMode);
+            _viewModel?.PlaylistManager?.Sort(_sortMode);
             UpdateItemCount();
         }
 
@@ -1448,13 +1479,13 @@ namespace SlideShowBob
                 bool includeVideos = IncludeVideoToggle.IsChecked == true;
 
                 // Load files using MediaPlaylistManager
-                _playlist?.LoadFiles(new[] { path }, includeVideos);
+                _viewModel?.PlaylistManager?.LoadFiles(new[] { path }, includeVideos);
                 ApplySort();
                 UpdateItemCount();
 
-                if (_playlist != null && _playlist.HasItems)
+                if (_viewModel?.PlaylistManager != null && _viewModel.PlaylistManager.HasItems)
                 {
-                    _playlist?.SetIndex(0);
+                    _viewModel.PlaylistManager?.SetIndex(0);
                     await ShowCurrentMediaAsync();
                     SetStatus("");
                     BigSelectFolderButton.Visibility = Visibility.Collapsed;
@@ -1501,13 +1532,13 @@ namespace SlideShowBob
                 bool includeVideos = IncludeVideoToggle.IsChecked == true;
 
                 // Load files using MediaPlaylistManager
-                _playlist?.LoadFiles(_folders, includeVideos);
+                _viewModel?.PlaylistManager?.LoadFiles(_folders, includeVideos);
                 ApplySort();
                 UpdateItemCount();
 
-                if (_playlist != null && _playlist.HasItems)
+                if (_viewModel?.PlaylistManager != null && _viewModel.PlaylistManager.HasItems)
                 {
-                    _playlist?.SetIndex(0);
+                    _viewModel.PlaylistManager?.SetIndex(0);
                     await ShowCurrentMediaAsync();
                     SetStatus("");
                     BigSelectFolderButton.Visibility = Visibility.Collapsed;
@@ -1560,9 +1591,9 @@ namespace SlideShowBob
             }
 
             // Use ViewModel's CurrentMediaItem as the source of truth
-            var currentItem = _viewModel?.CurrentMediaItem;
+            var currentItem = _viewModel?.CurrentMedia;
             
-            if (currentItem == null || !(_playlist?.HasItems == true))
+            if (currentItem == null || !(_viewModel?.PlaylistManager?.HasItems == true))
             {
                 HideLoadingOverlay();
                 return;
@@ -1906,11 +1937,11 @@ namespace SlideShowBob
                     ? ScrollHost.ViewportWidth
                     : ScrollHost.ActualWidth;
                 
-                if (_mediaLoader != null && _playlist != null)
+                if (_mediaLoader != null && _viewModel?.PlaylistManager != null)
                 {
                     _mediaLoader.PreloadNeighbors(
-                        _playlist.GetAllItems(),
-                        _playlist.CurrentIndex,
+                        _viewModel.PlaylistManager.GetAllItems(),
+                        _viewModel.PlaylistManager.CurrentIndex,
                         viewportWidth > 0 ? viewportWidth : null);
                 }
             }
@@ -2027,10 +2058,10 @@ namespace SlideShowBob
 
         private void SaveFoldersToSettings()
         {
-            if (_settings != null && _settings.SaveFolderPaths)
+            if (_viewModel?.Settings != null && _viewModel.Settings.SaveFolderPaths)
             {
-                _settings!.FolderPaths = new List<string>(_folders);
-                SettingsManager.Save(_settings);
+                _viewModel.Settings.FolderPaths = new List<string>(_folders);
+                SettingsManager.Save(_viewModel.Settings);
             }
         }
 
@@ -2041,12 +2072,14 @@ namespace SlideShowBob
 
         private async void SelectFolderButton_Click(object sender, RoutedEventArgs e)
         {
-            await ChooseFolderAsync();
+            // Handle folder selection UI (folder dialog is UI-specific)
+            await ChooseFoldersFromDialogAsync();
         }
 
         private async void BigSelectFolderButton_Click(object sender, RoutedEventArgs e)
         {
-            await ChooseFolderAsync();
+            // Handle folder selection UI (folder dialog is UI-specific)
+            await ChooseFoldersFromDialogAsync();
         }
 
         private async void IncludeVideoToggle_Checked(object sender, RoutedEventArgs e)
@@ -2062,10 +2095,10 @@ namespace SlideShowBob
         private async Task OnIncludeVideoToggleChanged()
         {
             // Save setting
-            if (_settings != null && _settings.SaveIncludeVideos)
+            if (_viewModel?.Settings != null && _viewModel.Settings.SaveIncludeVideos)
             {
-                _settings!.IncludeVideos = IncludeVideoToggle.IsChecked == true;
-                SettingsManager.Save(_settings);
+                _viewModel.Settings.IncludeVideos = IncludeVideoToggle.IsChecked == true;
+                SettingsManager.Save(_viewModel.Settings);
             }
 
             // Reload playlist if we already have folders
@@ -2083,7 +2116,7 @@ namespace SlideShowBob
         /// </summary>
         public IReadOnlyList<string> GetCurrentPlaylist()
         {
-            return _playlist.GetAllItems().Select(i => i.FilePath).ToList();
+            return _viewModel?.PlaylistManager?.GetAllItems().Select(i => i.FilePath).ToList() ?? new List<string>();
         }
 
         /// <summary>
@@ -2102,14 +2135,14 @@ namespace SlideShowBob
                 return;
 
             string normalized = Path.GetFullPath(filePath);
-            var items = _playlist.GetAllItems().ToList();
+            var items = _viewModel?.PlaylistManager?.GetAllItems().ToList() ?? new List<MediaItem>();
             int index = items.FindIndex(i => 
                 string.Equals(Path.GetFullPath(i.FilePath), normalized, StringComparison.OrdinalIgnoreCase));
 
             if (index >= 0)
             {
-                // Single source of truth: only _playlist.SetIndex() updates the current media position
-                _playlist.SetIndex(index);
+                // Single source of truth: only PlaylistManager.SetIndex() updates the current media position
+                _viewModel?.PlaylistManager?.SetIndex(index);
                 ShowCurrentMedia();
             }
         }
@@ -2155,7 +2188,7 @@ namespace SlideShowBob
                     // Re-apply portrait blur effect after resize
                     if (ImageElement.Source is BitmapSource bmp)
                     {
-                        string? currentFile = _playlist.CurrentItem?.FilePath;
+                        string? currentFile = _viewModel?.PlaylistManager?.CurrentItem?.FilePath;
                         ApplyPortraitBlurEffect(bmp, currentFile);
                     }
                 }
@@ -2192,42 +2225,16 @@ namespace SlideShowBob
             SetZoom(1.0);
         }
 
+        // These handlers are no longer needed - commands are bound in XAML
+        // Keeping for backward compatibility but they won't be called
         private void StartButton_Click(object sender, RoutedEventArgs e)
         {
-            if (!_playlist.HasItems)
-            {
-                MessageBox.Show("Please select a folder with images or videos first.",
-                                "No Media", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            if (!int.TryParse(DelayBox.Text, out int delay) || delay <= 0)
-            {
-                MessageBox.Show("Please enter a valid delay in milliseconds (greater than 0).",
-                                "Invalid Delay", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            _slideDelayMs = delay;
-            if (_slideshowController != null)
-            {
-                _slideshowController.SlideDelayMs = delay;
-                _slideshowController.Start();
-            }
-
-            // Auto-minimize toolbar when slideshow starts
-            MinimizeToolbar();
-
-            if (_settings != null && _settings.SaveSlideDelay)
-            {
-                _settings!.SlideDelayMs = _slideDelayMs;
-                SettingsManager.Save(_settings);
-            }
+            // Command binding handles this
         }
 
         private void StopButton_Click(object sender, RoutedEventArgs e)
         {
-            _slideshowController?.Stop();
+            // Command binding handles this
         }
 
         private void FullscreenButton_Click(object sender, RoutedEventArgs e)
@@ -2313,10 +2320,10 @@ namespace SlideShowBob
             VideoElement.IsMuted = _isMuted;
             MuteButton.Content = _isMuted ? "🔇" : "🔊";
 
-            if (_settings != null && _settings.SaveIsMuted)
+            if (_viewModel?.Settings != null && _viewModel.Settings.SaveIsMuted)
             {
-                _settings!.IsMuted = _isMuted;
-                SettingsManager.Save(_settings);
+                _viewModel.Settings.IsMuted = _isMuted;
+                SettingsManager.Save(_viewModel.Settings);
             }
         }
 
@@ -2699,6 +2706,10 @@ namespace SlideShowBob
         }
         public async Task ChooseFoldersFromDialogAsync()
         {
+            if (_viewModel == null) return;
+
+            List<string> selectedFolders = new List<string>();
+
             // Try CommonOpenFileDialog first (multi-folder, Ctrl/Shift support)
             try
             {
@@ -2711,25 +2722,7 @@ namespace SlideShowBob
 
                 if (dlg.ShowDialog() == CommonFileDialogResult.Ok)
                 {
-                    bool addedAny = false;
-
-                    foreach (var folderPath in dlg.FileNames)
-                    {
-                        if (!_folders.Contains(folderPath, StringComparer.OrdinalIgnoreCase))
-                        {
-                            _folders.Add(folderPath);
-                            addedAny = true;
-                        }
-                    }
-
-                    if (addedAny)
-                    {
-                        StatusText.Text = "Folders: " + string.Join("; ", _folders);
-                        SaveFoldersToSettings();
-                        await LoadFoldersAsync();
-                    }
-
-                    return;
+                    selectedFolders.AddRange(dlg.FileNames);
                 }
             }
             catch
@@ -2737,24 +2730,25 @@ namespace SlideShowBob
                 // fallthrough to FolderBrowserDialog
             }
 
-            // Fallback: classic single-folder dialog
-            var fb = new System.Windows.Forms.FolderBrowserDialog
+            // Fallback: classic single-folder dialog if no folders selected
+            if (selectedFolders.Count == 0)
             {
-                Description = "Select folder containing images/videos"
-            };
-
-            var result = fb.ShowDialog();
-            if (result == System.Windows.Forms.DialogResult.OK)
-            {
-                string path = fb.SelectedPath;
-
-                if (!_folders.Contains(path, StringComparer.OrdinalIgnoreCase))
+                var fb = new System.Windows.Forms.FolderBrowserDialog
                 {
-                    _folders.Add(path);
-                    StatusText.Text = "Folders: " + string.Join("; ", _folders);
-                    SaveFoldersToSettings();
-                    await LoadFoldersAsync();
+                    Description = "Select folder containing images/videos"
+                };
+
+                var result = fb.ShowDialog();
+                if (result == System.Windows.Forms.DialogResult.OK)
+                {
+                    selectedFolders.Add(fb.SelectedPath);
                 }
+            }
+
+            // Add folders via ViewModel
+            if (selectedFolders.Count > 0)
+            {
+                await _viewModel.AddFoldersAsync(selectedFolders);
             }
         }
         public void RemoveFolderFromPlaylist(string folderPath)
@@ -2772,7 +2766,7 @@ namespace SlideShowBob
             SaveFoldersToSettings();
 
             // Remove all files under that folder from playlist
-            var items = _playlist.GetAllItems().ToList();
+            var items = _viewModel?.PlaylistManager?.GetAllItems().ToList() ?? new List<MediaItem>();
             var itemsToRemove = items.Where(i => PlaylistWindow_IsUnderFolderStatic(i.FilePath, folderPath)).ToList();
             
             // Reload playlist without removed items
@@ -2780,10 +2774,10 @@ namespace SlideShowBob
             bool includeVideos = IncludeVideoToggle.IsChecked == true;
             
             // Rebuild playlist
-            _playlist.LoadFiles(_folders, includeVideos);
+            _viewModel?.PlaylistManager?.LoadFiles(_folders, includeVideos);
             ApplySort();
 
-            if (!_playlist.HasItems)
+            if (!(_viewModel?.PlaylistManager?.HasItems == true))
             {
                 ClearImageDisplay();
                 _videoService?.Stop();
@@ -2792,8 +2786,8 @@ namespace SlideShowBob
             }
 
             // Ensure index is valid
-            if (_playlist.CurrentIndex >= _playlist.Count)
-                _playlist.SetIndex(_playlist.Count - 1);
+            if (_viewModel?.PlaylistManager?.CurrentIndex >= _viewModel.PlaylistManager.Count)
+                _viewModel.PlaylistManager?.SetIndex(_viewModel.PlaylistManager.Count - 1);
 
             ShowCurrentMedia();
         }
@@ -2804,19 +2798,19 @@ namespace SlideShowBob
                 return;
 
             // Preserve current item if it's not being removed
-            var currentItem = _playlist?.CurrentItem;
+            var currentItem = _viewModel?.PlaylistManager?.CurrentItem;
             string? currentFilePath = currentItem?.FilePath;
             string normalized = Path.GetFullPath(filePath);
             bool isRemovingCurrent = currentFilePath != null && 
                 string.Equals(Path.GetFullPath(currentFilePath), normalized, StringComparison.OrdinalIgnoreCase);
 
             // Remove the file directly from the playlist
-            bool removed = _playlist.RemoveFile(filePath);
+            bool removed = _viewModel?.PlaylistManager?.RemoveFile(filePath) ?? false;
 
             if (!removed)
                 return;
 
-            if (!_playlist.HasItems)
+            if (!(_viewModel?.PlaylistManager?.HasItems == true))
             {
                 ClearImageDisplay();
                 _videoService?.Stop();
@@ -2828,20 +2822,20 @@ namespace SlideShowBob
             if (isRemovingCurrent)
             {
                 // If current index is now out of bounds, adjust it
-                if (_playlist.CurrentIndex >= _playlist.Count)
-                    _playlist.SetIndex(_playlist.Count - 1);
-                else if (_playlist.CurrentIndex < 0 && _playlist.Count > 0)
-                    _playlist?.SetIndex(0);
+                if (_viewModel?.PlaylistManager?.CurrentIndex >= _viewModel.PlaylistManager.Count)
+                    _viewModel.PlaylistManager?.SetIndex(_viewModel.PlaylistManager.Count - 1);
+                else if (_viewModel?.PlaylistManager?.CurrentIndex < 0 && _viewModel.PlaylistManager.Count > 0)
+                    _viewModel.PlaylistManager?.SetIndex(0);
             }
             // Otherwise, try to restore position to the same file
             else if (currentFilePath != null)
             {
-                var itemsAfter = _playlist.GetAllItems();
+                var itemsAfter = _viewModel?.PlaylistManager?.GetAllItems() ?? Enumerable.Empty<MediaItem>();
                 var itemsAfterList = itemsAfter.ToList();
                 int foundIndex = itemsAfterList.FindIndex(i => 
                     string.Equals(Path.GetFullPath(i.FilePath), Path.GetFullPath(currentFilePath), StringComparison.OrdinalIgnoreCase));
                 if (foundIndex >= 0)
-                    _playlist?.SetIndex(foundIndex);
+                    _viewModel?.PlaylistManager?.SetIndex(foundIndex);
             }
 
             ShowCurrentMedia();
@@ -2974,32 +2968,95 @@ namespace SlideShowBob
         private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             // Handle ViewModel property changes for UI updates
-            // This is a placeholder - MainWindow still needs full refactoring to use ViewModel properties
+            if (e.PropertyName == nameof(MainViewModel.IsPlaying))
+            {
+                SetSlideshowState(_viewModel?.IsPlaying ?? false);
+            }
+            else if (e.PropertyName == nameof(MainViewModel.CurrentMedia))
+            {
+                // Update replay button state
+                if (_viewModel?.CurrentMedia != null)
+                {
+                    ReplayButton.IsEnabled = _viewModel.CurrentMedia.Type == MediaType.Video && 
+                                            !(_viewModel.IsPlaying);
+                    
+                    // If media is set and window is loaded, show it (handles auto-load case)
+                    if (IsLoaded && _viewModel.PlaylistManager?.HasItems == true)
+                    {
+                        // Fire-and-forget: intentionally not awaited
+#pragma warning disable CS4014 // Fire-and-forget async call
+                        _ = ShowCurrentMediaAsync();
+#pragma warning restore CS4014
+                    }
+                }
+                else
+                {
+                    ReplayButton.IsEnabled = false;
+                }
+            }
+            else if (e.PropertyName == nameof(MainViewModel.TotalCount))
+            {
+                // Update BigSelectFolderButton visibility based on whether there are items
+                UpdateBigSelectFolderButtonVisibility();
+                
+                // If items are loaded and CurrentMedia is set, show it (handles auto-load case)
+                if (_viewModel?.TotalCount > 0 && _viewModel?.CurrentMedia != null && IsLoaded)
+                {
+                    // Fire-and-forget: intentionally not awaited
+#pragma warning disable CS4014 // Fire-and-forget async call
+                    _ = ShowCurrentMediaAsync();
+#pragma warning restore CS4014
+                }
+            }
+            else if (e.PropertyName == nameof(MainViewModel.Folders))
+            {
+                // Update button visibility when folders change
+                UpdateBigSelectFolderButtonVisibility();
+            }
+            else if (e.PropertyName == nameof(MainViewModel.StatusText))
+            {
+                // Update status text when it changes
+                if (_viewModel?.StatusText != null)
+                {
+                    SetStatus(_viewModel.StatusText);
+                }
+            }
+        }
+
+        private void UpdateBigSelectFolderButtonVisibility()
+        {
+            // Hide button if we have items OR if we have folders (even if still loading)
+            if (_viewModel?.TotalCount > 0 || (_viewModel?.Folders.Count > 0 && _viewModel?.StatusText != "No folders selected."))
+            {
+                BigSelectFolderButton.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                BigSelectFolderButton.Visibility = Visibility.Visible;
+            }
         }
 
         private async void ViewModel_RequestShowMedia(object? sender, EventArgs e)
         {
+            // Update button visibility when media is loaded
+            UpdateBigSelectFolderButtonVisibility();
+            
             // Request to show current media - call the existing ShowCurrentMediaAsync method
             // Fire-and-forget: intentionally not awaited to avoid blocking
+#pragma warning disable CS4014 // Fire-and-forget async call
             _ = ShowCurrentMediaAsync();
+#pragma warning restore CS4014
         }
 
-        private void ViewModel_MediaChanged(object? sender, EventArgs e)
+        private void ViewModel_RequestShowMessage(object? sender, string message)
         {
-            // Media changed event - update UI accordingly
-            // Update item count and position text
-            UpdateItemCount();
-            
-            // Update replay button state
-            if (_viewModel?.CurrentMediaItem != null)
-            {
-                ReplayButton.IsEnabled = _viewModel.CurrentMediaItem.Type == MediaType.Video && 
-                                        !(_viewModel.IsSlideshowRunning);
-            }
-            else
-            {
-                ReplayButton.IsEnabled = false;
-            }
+            MessageBox.Show(message, "Slide Show Bob", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private async void ViewModel_RequestAddFolder(object? sender, EventArgs e)
+        {
+            // Open folder dialog and add folders
+            await ChooseFoldersFromDialogAsync();
         }
 
         #endregion

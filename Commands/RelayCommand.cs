@@ -12,10 +12,8 @@ namespace SlideShowBob.Commands
         private readonly Predicate<object?>? _canExecute;
 
         /// <summary>
-        /// Initializes a new instance of the RelayCommand class.
+        /// Creates a command that can execute with or without a parameter.
         /// </summary>
-        /// <param name="execute">The execution logic.</param>
-        /// <param name="canExecute">The execution status logic. If null, the command can always execute.</param>
         public RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null)
         {
             _execute = execute ?? throw new ArgumentNullException(nameof(execute));
@@ -23,10 +21,8 @@ namespace SlideShowBob.Commands
         }
 
         /// <summary>
-        /// Initializes a new instance of the RelayCommand class with a parameterless execute action.
+        /// Creates a parameterless command.
         /// </summary>
-        /// <param name="execute">The execution logic.</param>
-        /// <param name="canExecute">The execution status logic. If null, the command can always execute.</param>
         public RelayCommand(Action execute, Func<bool>? canExecute = null)
             : this(
                 execute != null ? _ => execute() : throw new ArgumentNullException(nameof(execute)),
@@ -34,11 +30,7 @@ namespace SlideShowBob.Commands
         {
         }
 
-        public event EventHandler? CanExecuteChanged
-        {
-            add { CommandManager.RequerySuggested += value; }
-            remove { CommandManager.RequerySuggested -= value; }
-        }
+        public event EventHandler? CanExecuteChanged;
 
         public bool CanExecute(object? parameter)
         {
@@ -48,6 +40,11 @@ namespace SlideShowBob.Commands
         public void Execute(object? parameter)
         {
             _execute(parameter);
+        }
+
+        public void RaiseCanExecuteChanged()
+        {
+            CanExecuteChanged?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -59,22 +56,13 @@ namespace SlideShowBob.Commands
         private readonly Action<T?> _execute;
         private readonly Predicate<T?>? _canExecute;
 
-        /// <summary>
-        /// Initializes a new instance of the RelayCommand class.
-        /// </summary>
-        /// <param name="execute">The execution logic.</param>
-        /// <param name="canExecute">The execution status logic. If null, the command can always execute.</param>
         public RelayCommand(Action<T?> execute, Predicate<T?>? canExecute = null)
         {
             _execute = execute ?? throw new ArgumentNullException(nameof(execute));
             _canExecute = canExecute;
         }
 
-        public event EventHandler? CanExecuteChanged
-        {
-            add { CommandManager.RequerySuggested += value; }
-            remove { CommandManager.RequerySuggested -= value; }
-        }
+        public event EventHandler? CanExecuteChanged;
 
         public bool CanExecute(object? parameter)
         {
@@ -94,6 +82,10 @@ namespace SlideShowBob.Commands
             else
                 _execute(default);
         }
+
+        public void RaiseCanExecuteChanged()
+        {
+            CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 }
-

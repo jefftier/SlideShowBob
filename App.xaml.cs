@@ -23,8 +23,6 @@ namespace SlideShowBob
 
         // Composition root: ViewModels
         private MainViewModel? _mainViewModel;
-        private PlaylistViewModel? _playlistViewModel;
-        private SettingsViewModel? _settingsViewModel;
 
         // Main window reference
         private MainWindow? _mainWindow;
@@ -174,22 +172,28 @@ namespace SlideShowBob
 
             try
             {
-                // Step 1: Create service instances (composition root - singleton instances)
+                // ============================================
+                // COMPOSITION ROOT: Create all services
+                // ============================================
+                
+                // Step 1: Create stateless services (no dependencies on UI)
                 _settingsManager = new SettingsManagerWrapper();
                 _mediaLoaderService = new MediaLoaderService();
                 _playlistManager = new MediaPlaylistManager();
                 _thumbnailService = new ThumbnailService();
 
-                // Step 2: Create MainWindow to access UI elements needed for VideoPlaybackService
+                // Step 2: Create MainWindow (parameterless) to access UI elements
+                // Note: We need UI elements before we can create VideoPlaybackService
                 _mainWindow = new MainWindow();
                 
-                // Get UI elements from MainWindow
+                // Get UI elements from MainWindow (required for VideoPlaybackService)
                 var videoElement = _mainWindow.FindName("VideoElement") as MediaElement;
                 var videoProgressBar = _mainWindow.FindName("VideoProgressBar") as ProgressBar;
 
                 if (videoElement == null || videoProgressBar == null)
                 {
-                    throw new InvalidOperationException("Required UI elements (VideoElement, VideoProgressBar) not found in MainWindow.");
+                    throw new InvalidOperationException(
+                        "Required UI elements (VideoElement, VideoProgressBar) not found in MainWindow.");
                 }
 
                 // Step 3: Create VideoPlaybackService with UI elements
@@ -198,6 +202,10 @@ namespace SlideShowBob
                 // Step 4: Create SlideshowController (depends on MediaPlaylistManager)
                 _slideshowController = new SlideshowController(_playlistManager);
 
+                // ============================================
+                // COMPOSITION ROOT: Create ViewModels
+                // ============================================
+                
                 // Step 5: Create MainViewModel with all services
                 _mainViewModel = new MainViewModel(
                     settingsManager: _settingsManager,
@@ -211,7 +219,11 @@ namespace SlideShowBob
                 _mainViewModel.RequestOpenPlaylistWindow += MainViewModel_RequestOpenPlaylistWindow;
                 _mainViewModel.RequestOpenSettingsWindow += MainViewModel_RequestOpenSettingsWindow;
 
-                // Step 7: Pass MainViewModel to MainWindow and show it
+                // ============================================
+                // COMPOSITION ROOT: Initialize and show MainWindow
+                // ============================================
+                
+                // Step 7: Initialize MainWindow with ViewModel and show it
                 _mainWindow.InitializeWithViewModel(_mainViewModel);
                 _mainWindow.Show();
             }
@@ -231,43 +243,42 @@ namespace SlideShowBob
             }
         }
 
+        /// <summary>
+        /// Handles request to open PlaylistWindow. Creates PlaylistViewModel and window.
+        /// </summary>
         private void MainViewModel_RequestOpenPlaylistWindow(object? sender, EventArgs e)
         {
-            // Create PlaylistViewModel if not already created (lazy initialization)
-            if (_playlistViewModel == null)
+            if (_thumbnailService == null || _mainViewModel == null)
             {
-                if (_thumbnailService == null || _mainViewModel == null)
-                {
-                    throw new InvalidOperationException("Required services not initialized.");
-                }
-                _playlistViewModel = new PlaylistViewModel(_thumbnailService, _mainViewModel);
+                throw new InvalidOperationException("Required services not initialized.");
             }
 
+            // Create PlaylistViewModel with required services
+            // Note: PlaylistViewModel is created fresh each time (not cached) to ensure it reflects current playlist state
+            var playlistViewModel = new PlaylistViewModel(_thumbnailService, _mainViewModel);
+
             // Create and show PlaylistWindow
-            var playlistWindow = new PlaylistWindow(_playlistViewModel);
+            var playlistWindow = new PlaylistWindow(playlistViewModel);
             playlistWindow.Owner = _mainWindow;
             playlistWindow.Show();
         }
 
+        /// <summary>
+        /// Handles request to open SettingsWindow. Creates SettingsViewModel and window.
+        /// </summary>
         private void MainViewModel_RequestOpenSettingsWindow(object? sender, EventArgs e)
         {
-            // Create SettingsViewModel if not already created (lazy initialization)
-            if (_settingsViewModel == null)
+            if (_settingsManager == null)
             {
-                if (_settingsManager == null)
-                {
-                    throw new InvalidOperationException("Required services not initialized.");
-                }
-                _settingsViewModel = new SettingsViewModel(_settingsManager);
-            }
-            else
-            {
-                // Reload settings in case they were changed externally
-                _settingsViewModel = new SettingsViewModel(_settingsManager);
+                throw new InvalidOperationException("Required services not initialized.");
             }
 
+            // Create SettingsViewModel with SettingsManager
+            // Note: SettingsViewModel is created fresh each time to load current settings
+            var settingsViewModel = new SettingsViewModel(_settingsManager);
+
             // Create and show SettingsWindow
-            var settingsWindow = new SettingsWindow(_settingsViewModel);
+            var settingsWindow = new SettingsWindow(settingsViewModel);
             settingsWindow.Owner = _mainWindow;
             
             if (settingsWindow.ShowDialog() == true)

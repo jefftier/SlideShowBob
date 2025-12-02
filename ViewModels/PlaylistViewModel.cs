@@ -174,11 +174,8 @@ namespace SlideShowBob.ViewModels
             if (string.IsNullOrWhiteSpace(folderPath))
                 return;
 
-            // Call MainViewModel directly to remove folder
-            if (_mainViewModel.RemoveFolderCommand.CanExecute(folderPath))
-            {
-                _mainViewModel.RemoveFolderCommand.Execute(folderPath);
-            }
+            // Call MainViewModel command to remove folder
+            _mainViewModel.RemoveFolderCommand.Execute(folderPath);
             
             RefreshPlaylist();
         }
@@ -199,11 +196,8 @@ namespace SlideShowBob.ViewModels
                 MediaItems.Remove(itemToRemove);
             }
 
-            // Call MainViewModel directly to remove file from playlist
-            if (_mainViewModel.RemoveFileCommand.CanExecute(filePathToRemove))
-            {
-                _mainViewModel.RemoveFileCommand.Execute(filePathToRemove);
-            }
+            // Call MainViewModel command to remove file from playlist
+            _mainViewModel.RemoveFileCommand.Execute(filePathToRemove);
             
             // Note: We don't call RefreshPlaylist() here because it's expensive (rebuilds entire folder tree).
             // The item is already removed from MediaItems (UI) and from the playlist (via MainViewModel).
@@ -271,11 +265,8 @@ namespace SlideShowBob.ViewModels
             if (string.IsNullOrWhiteSpace(filePath))
                 return;
 
-            // Call MainViewModel directly to navigate to file
-            if (_mainViewModel.NavigateToFileCommand.CanExecute(filePath))
-            {
-                _mainViewModel.NavigateToFileCommand.Execute(filePath);
-            }
+            // Call MainViewModel command to navigate to file
+            _mainViewModel.NavigateToFileCommand.Execute(filePath);
         }
 
         #endregion
@@ -483,55 +474,65 @@ namespace SlideShowBob.ViewModels
             // Clear existing items
             MediaItems.Clear();
 
-            if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+            if (string.IsNullOrWhiteSpace(folderPath))
                 return;
 
-            // Get current playlist files from MainViewModel
+            // Normalize folder path for comparison
+            string normalizedFolderPath = Path.GetFullPath(folderPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            // Get current playlist files from MainViewModel (already loaded, no need to scan directories)
             var currentPlaylistFiles = _mainViewModel.GetCurrentPlaylist();
-            var playlistFileSet = currentPlaylistFiles
-                .Select(f => Path.GetFullPath(f))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            
+            // Filter playlist files to only those in the selected folder (much faster than scanning directory)
+            var filesInFolder = await Task.Run(() =>
+            {
+                var matchingFiles = new List<string>();
+                
+                foreach (var filePath in currentPlaylistFiles)
+                {
+                    if (string.IsNullOrWhiteSpace(filePath))
+                        continue;
 
-            // Determine if videos are included by checking if any .mp4 files exist in the playlist
-            bool includeVideos = currentPlaylistFiles.Any(f =>
-                Path.GetExtension(f).Equals(".mp4", StringComparison.OrdinalIgnoreCase));
+                    try
+                    {
+                        string normalizedFile = Path.GetFullPath(filePath);
+                        string? fileDir = Path.GetDirectoryName(normalizedFile);
+                        
+                        if (string.IsNullOrEmpty(fileDir))
+                            continue;
 
-            // Use the same extension logic as MediaPlaylistManager
-            string[] imageExts = { ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff" };
-            string[] motionExts = includeVideos ? new[] { ".gif", ".mp4" } : new[] { ".gif" };
-            var allExts = imageExts.Concat(motionExts).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        string normalizedFileDir = Path.GetFullPath(fileDir)
+                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-            // Enumerate files asynchronously to avoid blocking UI
-            await Task.Run(() =>
+                        // Check if file is in the selected folder (exact match or subfolder)
+                        if (string.Equals(normalizedFileDir, normalizedFolderPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            matchingFiles.Add(filePath);
+                        }
+                    }
+                    catch
+                    {
+                        // Skip invalid paths
+                    }
+                }
+
+                return matchingFiles.OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
+            });
+
+            // Create PlaylistMediaItem objects on UI thread (fast operation)
+            foreach (var filePath in filesInFolder)
             {
                 try
                 {
-                    var files = Directory.GetFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly)
-                        .Where(f => allExts.Contains(Path.GetExtension(f)))
-                        .Where(File.Exists)
-                        .Where(f => playlistFileSet.Contains(Path.GetFullPath(f))) // Only include files in the playlist
-                        .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-                        .ToList();
-
-                    // Create PlaylistMediaItem objects
-                    foreach (var filePath in files)
-                    {
-                        try
-                        {
-                            var mediaItem = PlaylistMediaItem.FromFilePath(filePath);
-                            MediaItems.Add(mediaItem);
-                        }
-                        catch
-                        {
-                            // Skip files that can't be processed
-                        }
-                    }
+                    var mediaItem = PlaylistMediaItem.FromFilePath(filePath);
+                    MediaItems.Add(mediaItem);
                 }
                 catch
                 {
-                    // Skip folders we can't access
+                    // Skip files that can't be processed
                 }
-            });
+            }
 
             // Apply current sort
             ApplySort();
