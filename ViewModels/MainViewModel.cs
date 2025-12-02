@@ -18,7 +18,7 @@ namespace SlideShowBob.ViewModels
     public class MainViewModel : BaseViewModel
     {
         // Services (injected via constructor)
-        private readonly SettingsManagerWrapper _settingsManager;
+        private readonly IAppSettingsService _settingsManager;
         private readonly MediaPlaylistManager _playlistManager;
         private readonly MediaLoaderService _mediaLoaderService;
         private readonly ThumbnailService _thumbnailService;
@@ -47,7 +47,7 @@ namespace SlideShowBob.ViewModels
         public event EventHandler? RequestAddFolder;
 
         public MainViewModel(
-            SettingsManagerWrapper settingsManager,
+            IAppSettingsService settingsManager,
             MediaPlaylistManager playlistManager,
             MediaLoaderService mediaLoaderService,
             ThumbnailService thumbnailService,
@@ -282,6 +282,7 @@ namespace SlideShowBob.ViewModels
         internal MediaLoaderService MediaLoaderService => _mediaLoaderService;
         internal MediaPlaylistManager PlaylistManager => _playlistManager;
         internal AppSettings Settings => _settings;
+        internal IAppSettingsService SettingsService => _settingsManager;
 
         #endregion
 

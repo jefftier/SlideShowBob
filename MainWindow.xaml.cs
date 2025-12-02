@@ -1389,7 +1389,7 @@ namespace SlideShowBob
             if (_viewModel?.Settings != null && _viewModel.Settings.SaveSortMode)
             {
                 _viewModel.Settings.SortMode = _sortMode.ToString();
-                SettingsManager.Save(_viewModel.Settings);
+                _viewModel.SettingsService?.Save(_viewModel.Settings);
             }
 
             UpdateSortMenuVisuals();
@@ -2061,7 +2061,7 @@ namespace SlideShowBob
             if (_viewModel?.Settings != null && _viewModel.Settings.SaveFolderPaths)
             {
                 _viewModel.Settings.FolderPaths = new List<string>(_folders);
-                SettingsManager.Save(_viewModel.Settings);
+                _viewModel.SettingsService?.Save(_viewModel.Settings);
             }
         }
 
@@ -2098,7 +2098,7 @@ namespace SlideShowBob
             if (_viewModel?.Settings != null && _viewModel.Settings.SaveIncludeVideos)
             {
                 _viewModel.Settings.IncludeVideos = IncludeVideoToggle.IsChecked == true;
-                SettingsManager.Save(_viewModel.Settings);
+                _viewModel.SettingsService?.Save(_viewModel.Settings);
             }
 
             // Reload playlist if we already have folders
@@ -2323,7 +2323,7 @@ namespace SlideShowBob
             if (_viewModel?.Settings != null && _viewModel.Settings.SaveIsMuted)
             {
                 _viewModel.Settings.IsMuted = _isMuted;
-                SettingsManager.Save(_viewModel.Settings);
+                _viewModel.SettingsService?.Save(_viewModel.Settings);
             }
         }
 

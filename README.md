@@ -254,8 +254,6 @@ SlideShowBob uses a clean, service-based architecture with clear separation of c
   - First frame extraction
   - Frame extraction at specific times
 
-- **PlaylistService**: Legacy service for playlist operations (being phased out)
-
 - **SettingsManager**: Handles settings persistence
   - JSON-based storage
   - Per-setting save control
@@ -347,7 +345,6 @@ SlideShowBob/
 ├── SlideshowController.cs      # Slideshow state machine
 ├── ThumbnailService.cs         # Video thumbnail generation
 ├── VideoFrameService.cs        # Video frame extraction
-├── PlaylistService.cs          # Legacy playlist operations
 ├── SettingsManager.cs          # Settings saving
 ├── AppSettings.cs              # Settings data model
 ├── SmoothScrollHelper.cs       # Smooth scrolling utilities

@@ -14,7 +14,7 @@ namespace SlideShowBob
     public partial class App : Application
     {
         // Composition root: Services (singleton instances)
-        private SettingsManagerWrapper? _settingsManager;
+        private IAppSettingsService? _settingsManager;
         private MediaLoaderService? _mediaLoaderService;
         private MediaPlaylistManager? _playlistManager;
         private ThumbnailService? _thumbnailService;

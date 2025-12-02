@@ -151,6 +151,81 @@ namespace SlideShowBob
         public IReadOnlyList<MediaItem> GetAllItems() => _items;
 
         /// <summary>
+        /// Gets the next item without changing the current index.
+        /// </summary>
+        public MediaItem? GetNextItem()
+        {
+            if (_items.Count == 0) return null;
+            int next = (_currentIndex + 1) % _items.Count;
+            return _items[next];
+        }
+
+        /// <summary>
+        /// Gets the previous item without changing the current index.
+        /// </summary>
+        public MediaItem? GetPreviousItem()
+        {
+            if (_items.Count == 0) return null;
+            int prev = (_currentIndex - 1 + _items.Count) % _items.Count;
+            return _items[prev];
+        }
+
+        /// <summary>
+        /// Gets neighbor items (next and previous) for preloading.
+        /// </summary>
+        public (MediaItem? next, MediaItem? previous) GetNeighborItems()
+        {
+            if (_items.Count == 0)
+                return (null, null);
+
+            int next = (_currentIndex + 1) % _items.Count;
+            int prev = (_currentIndex - 1 + _items.Count) % _items.Count;
+            return (_items[next], _items[prev]);
+        }
+
+        /// <summary>
+        /// Sets the current file by path. If the file is not in the playlist, sets index to 0 or -1.
+        /// </summary>
+        public void SetCurrentFile(string? filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                if (_items.Count > 0)
+                    _currentIndex = 0;
+                else
+                    _currentIndex = -1;
+                return;
+            }
+
+            string normalized = Path.GetFullPath(filePath);
+            for (int i = 0; i < _items.Count; i++)
+            {
+                string itemPath = Path.GetFullPath(_items[i].FilePath);
+                if (string.Equals(itemPath, normalized, StringComparison.OrdinalIgnoreCase))
+                {
+                    _currentIndex = i;
+                    return;
+                }
+            }
+
+            // File not found - set to first item if available
+            if (_items.Count > 0)
+                _currentIndex = 0;
+            else
+                _currentIndex = -1;
+        }
+
+        /// <summary>
+        /// Clears all items and resets the index.
+        /// </summary>
+        public void Clear()
+        {
+            _items.Clear();
+            _currentIndex = -1;
+            PlaylistChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
         /// Removes a file from the playlist by file path.
         /// </summary>
         public bool RemoveFile(string filePath)

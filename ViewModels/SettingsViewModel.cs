@@ -7,7 +7,7 @@ namespace SlideShowBob.ViewModels
 {
     public class SettingsViewModel : BaseViewModel
     {
-        private readonly SettingsManagerWrapper _settingsManager;
+        private readonly IAppSettingsService _settingsManager;
         private AppSettings _originalSettings;
 
         // Save flags
@@ -28,7 +28,7 @@ namespace SlideShowBob.ViewModels
 
         public event EventHandler<bool>? RequestClose; // bool = DialogResult
 
-        public SettingsViewModel(SettingsManagerWrapper settingsManager)
+        public SettingsViewModel(IAppSettingsService settingsManager)
         {
             _settingsManager = settingsManager ?? throw new ArgumentNullException(nameof(settingsManager));
             
