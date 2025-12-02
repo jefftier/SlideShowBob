@@ -77,6 +77,9 @@ namespace SlideShowBob
             _loadingOverlayDelayCts?.Cancel();
             _loadingOverlayDelayCts?.Dispose();
             
+            // Clean up timers
+            _chromeTimer?.Stop();
+            
             base.OnClosed(e);
         }
 
@@ -191,6 +194,7 @@ namespace SlideShowBob
             VideoFrameImage.LayoutTransform = _videoScale; // Use same scale as video
 
             _chromeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _chromeTimer.Tick += ChromeTimer_Tick;
 
             // Hook up scrollbar visibility tracking after Loaded event
             Loaded += (s, e) =>
@@ -210,7 +214,6 @@ namespace SlideShowBob
 #pragma warning restore CS4014
                 }
             };
-            _chromeTimer.Tick += ChromeTimer_Tick;
 
             UpdateZoomLabel();
             SetSlideshowState(false);
@@ -228,6 +231,13 @@ namespace SlideShowBob
             ToolbarNotchPanel.Visibility = Visibility.Collapsed;
             ToolbarExpandedPanel.Opacity = 1.0;
             ToolbarNotchPanel.Opacity = 0.0;
+
+            // Initial fullscreen overlay state (hidden)
+            if (FullscreenTopOverlay != null)
+            {
+                FullscreenTopOverlay.Visibility = Visibility.Collapsed;
+                FullscreenTopOverlay.Opacity = 0;
+            }
 
             UpdateSortMenuVisuals();
             ShowChrome();
@@ -778,6 +788,26 @@ namespace SlideShowBob
                 ToolbarExpandedPanel.BeginAnimation(OpacityProperty, fadeInAnim);
                 ToolbarExpandedPanel.IsHitTestVisible = true;
             }
+
+            // Show fullscreen top overlay if in fullscreen mode
+            if (_isFullscreen && FullscreenTopOverlay != null)
+            {
+                if (FullscreenTopOverlay.Visibility != Visibility.Visible)
+                {
+                    FullscreenTopOverlay.Visibility = Visibility.Visible;
+                    FullscreenTopOverlay.Opacity = 0.0;
+                }
+
+                var fadeInTop = new DoubleAnimation(
+                    FullscreenTopOverlay.Opacity,
+                    1.0,
+                    TimeSpan.FromMilliseconds(250))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                };
+
+                FullscreenTopOverlay.BeginAnimation(OpacityProperty, fadeInTop);
+            }
         }
 
         private void DimChrome()
@@ -826,6 +856,28 @@ namespace SlideShowBob
 
                     ToolbarExpandedPanel.BeginAnimation(OpacityProperty, fadeOutAnim);
                 }
+
+                // Hide fullscreen top overlay
+                if (_isFullscreen && FullscreenTopOverlay != null)
+                {
+                    var fadeOutTop = new DoubleAnimation(
+                        FullscreenTopOverlay.Opacity,
+                        0.0,
+                        TimeSpan.FromMilliseconds(250))
+                    {
+                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+                    };
+
+                    fadeOutTop.Completed += (s, e) =>
+                    {
+                        if (_isFullscreen)
+                        {
+                            FullscreenTopOverlay.Visibility = Visibility.Collapsed;
+                        }
+                    };
+
+                    FullscreenTopOverlay.BeginAnimation(OpacityProperty, fadeOutTop);
+                }
             }
             else // "Dim" (default)
             {
@@ -858,6 +910,20 @@ namespace SlideShowBob
                     ToolbarExpandedPanel.BeginAnimation(OpacityProperty, fadeDimAnim);
                     ToolbarExpandedPanel.IsHitTestVisible = false;
                 }
+
+                // Dim fullscreen top overlay
+                if (_isFullscreen && FullscreenTopOverlay != null)
+                {
+                    var fadeDimTop = new DoubleAnimation(
+                        FullscreenTopOverlay.Opacity,
+                        dimOpacity,
+                        TimeSpan.FromMilliseconds(300))
+                    {
+                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+                    };
+
+                    FullscreenTopOverlay.BeginAnimation(OpacityProperty, fadeDimTop);
+                }
             }
         }
 
@@ -880,6 +946,7 @@ namespace SlideShowBob
         }
 
         #endregion
+
 
         #region UI helpers
 
@@ -2276,11 +2343,26 @@ namespace SlideShowBob
 
                 // In fullscreen, always use minimized notch toolbar
                 MinimizeToolbar();
-                ShowChrome();  // start bright
+                
+                // Show fullscreen top overlay
+                if (FullscreenTopOverlay != null)
+                {
+                    FullscreenTopOverlay.Visibility = Visibility.Visible;
+                    FullscreenTopOverlay.Opacity = 0;
+                }
+                
+                ShowChrome();  // start bright (shows both toolbar and top overlay)
             }
             else
             {
                 _isFullscreen = false;
+                
+                // Hide fullscreen top overlay when exiting fullscreen
+                if (FullscreenTopOverlay != null)
+                {
+                    FullscreenTopOverlay.Visibility = Visibility.Collapsed;
+                    FullscreenTopOverlay.Opacity = 0;
+                }
 
                 // Restore style / mode
                 WindowStyle = _prevStyle;

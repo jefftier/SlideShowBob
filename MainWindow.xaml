@@ -252,6 +252,7 @@
             </DoubleAnimation>
         </Storyboard>
 
+
     </Window.Resources>
 
 
@@ -635,6 +636,20 @@
 
                     <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
+                    <Button Style="{StaticResource IconButton}"
+                            Content="⚙"
+                            ToolTip="Settings"
+                            Command="{Binding OpenSettingsCommand}"/>
+
+                    <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
+
+                    <Button Style="{StaticResource IconButton}"
+                            Content="☰"
+                            ToolTip="Playlist"
+                            Command="{Binding OpenPlaylistCommand}"/>
+
+                    <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
+
                     <Button x:Name="ToolbarExpandButton"
                             Style="{StaticResource IconButton}"
                             Content="▴"
@@ -726,6 +741,45 @@
                                    HorizontalAlignment="Center"
                                    Opacity="0.9"/>
                     </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Fullscreen top overlay: File name and slide index (only in fullscreen) -->
+            <Border x:Name="FullscreenTopOverlay"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Top"
+                    Background="{StaticResource SurfaceAltBrush}"
+                    Opacity="0"
+                    Visibility="Collapsed"
+                    Padding="16,10"
+                    Panel.ZIndex="150"
+                    IsHitTestVisible="False">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="20" ShadowDepth="0" Opacity="0.3" Color="#000000"/>
+                </Border.Effect>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding CurrentFileName, Mode=OneWay}"
+                               FontSize="13"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center"
+                               Margin="8,0"/>
+                    <TextBlock Grid.Column="1"
+                               Margin="16,0,8,0"
+                               FontSize="13"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               VerticalAlignment="Center">
+                        <TextBlock.Inlines>
+                            <Run Text="{Binding DisplayIndex, Mode=OneWay}"/>
+                            <Run Text=" / "/>
+                            <Run Text="{Binding TotalCount, Mode=OneWay}"/>
+                        </TextBlock.Inlines>
+                    </TextBlock>
                 </Grid>
             </Border>
         </Grid>
