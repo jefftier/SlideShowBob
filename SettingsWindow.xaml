@@ -186,7 +186,8 @@
                               Grid.Row="0" Grid.Column="1"
                               VerticalAlignment="Center"
                               Margin="0,0,0,12"
-                              HorizontalAlignment="Left"/>
+                              HorizontalAlignment="Left"
+                              IsChecked="{Binding SaveSlideDelay, Mode=TwoWay}"/>
                     
                     <!-- Row 1: Save Include Videos -->
                     <TextBlock Grid.Row="1" Grid.Column="0"
@@ -197,7 +198,8 @@
                               Grid.Row="1" Grid.Column="1"
                               VerticalAlignment="Center"
                               Margin="0,0,0,12"
-                              HorizontalAlignment="Left"/>
+                              HorizontalAlignment="Left"
+                              IsChecked="{Binding SaveIncludeVideos, Mode=TwoWay}"/>
                     
                     <!-- Row 2: Save Sort Mode -->
                     <TextBlock Grid.Row="2" Grid.Column="0"
@@ -208,7 +210,8 @@
                               Grid.Row="2" Grid.Column="1"
                               VerticalAlignment="Center"
                               Margin="0,0,0,12"
-                              HorizontalAlignment="Left"/>
+                              HorizontalAlignment="Left"
+                              IsChecked="{Binding SaveSortMode, Mode=TwoWay}"/>
                     
                     <!-- Row 3: Save Mute State -->
                     <TextBlock Grid.Row="3" Grid.Column="0"
@@ -219,7 +222,8 @@
                               Grid.Row="3" Grid.Column="1"
                               VerticalAlignment="Center"
                               Margin="0,0,0,12"
-                              HorizontalAlignment="Left"/>
+                              HorizontalAlignment="Left"
+                              IsChecked="{Binding SaveIsMuted, Mode=TwoWay}"/>
                     
                     <!-- Row 4: Save Folder Paths -->
                     <TextBlock Grid.Row="4" Grid.Column="0"
@@ -230,7 +234,8 @@
                               Grid.Row="4" Grid.Column="1"
                               VerticalAlignment="Center"
                               Margin="0,0,0,12"
-                              HorizontalAlignment="Left"/>
+                              HorizontalAlignment="Left"
+                              IsChecked="{Binding SaveFolderPaths, Mode=TwoWay}"/>
                     
                     <!-- Row 5: Toolbar Inactivity Behavior -->
                     <TextBlock Grid.Row="5" Grid.Column="0"
@@ -256,7 +261,8 @@
                               Grid.Row="6" Grid.Column="1"
                               VerticalAlignment="Center"
                               HorizontalAlignment="Left"
-                              Margin="0,0,0,12"/>
+                              Margin="0,0,0,12"
+                              IsChecked="{Binding PortraitBlurEffect, Mode=TwoWay}"/>
                     
                     <!-- Row 7: Use FFMPEG for Playback -->
                     <TextBlock Grid.Row="7" Grid.Column="0"
@@ -268,8 +274,7 @@
                               VerticalAlignment="Center"
                               HorizontalAlignment="Left"
                               Margin="0,0,0,12"
-                              Checked="UseFfmpegForPlaybackCheckBox_Changed"
-                              Unchecked="UseFfmpegForPlaybackCheckBox_Changed"/>
+                              IsChecked="{Binding UseFfmpegForPlayback, Mode=TwoWay}"/>
                     
                     <!-- Row 8: FFMPEG Status Indicator -->
                     <TextBlock Grid.Row="8" Grid.Column="0"
@@ -281,7 +286,9 @@
                               VerticalAlignment="Center"
                               HorizontalAlignment="Left"
                               FontSize="13"
-                              Margin="0,0,0,0"/>
+                              Margin="0,0,0,0"
+                              Text="{Binding FfmpegStatusText}"
+                              Foreground="{Binding FfmpegStatusForeground}"/>
                 </Grid>
             </ScrollViewer>
             
@@ -291,10 +298,10 @@
                         HorizontalAlignment="Right">
                 <Button x:Name="SaveButton"
                         Content="Save"
-                        Click="SaveButton_Click"/>
+                        Command="{Binding SaveCommand}"/>
                 <Button Content="Cancel"
                         IsCancel="True"
-                        Click="CancelButton_Click"/>
+                        Command="{Binding CancelCommand}"/>
             </StackPanel>
         </Grid>
     </Grid>

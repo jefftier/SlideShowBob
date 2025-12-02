@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:scm="clr-namespace:System.ComponentModel;assembly=WindowsBase"
         xmlns:local="clr-namespace:SlideShowBob"
+        xmlns:vm="clr-namespace:SlideShowBob.ViewModels"
         Title="Playlist"
         Height="450"
         Width="720"
@@ -53,8 +54,8 @@
         <!-- Duration converter -->
         <local:DurationConverter x:Key="DurationConverter"/>
 
-        <!-- CollectionViewSource for sorting media items -->
-        <CollectionViewSource x:Key="MediaItemsViewSource">
+        <!-- CollectionViewSource for sorting media items - now bound to ViewModel -->
+        <CollectionViewSource x:Key="MediaItemsViewSource" Source="{Binding MediaItems}">
             <CollectionViewSource.SortDescriptions>
                 <scm:SortDescription PropertyName="Name" Direction="Ascending"/>
             </CollectionViewSource.SortDescriptions>
@@ -168,6 +169,7 @@
                              Background="Transparent"
                              BorderThickness="0"
                              Foreground="{StaticResource TextPrimaryBrush}"
+                             ItemsSource="{Binding FolderTreeRoots}"
                              SelectedItemChanged="FolderTree_SelectedItemChanged">
                         <!-- TreeViewItem style is defined globally in App.xaml -->
                         <TreeView.ItemTemplate>
@@ -226,20 +228,23 @@
                                 Content="Thumbnail"
                                 Padding="8,3"
                                 Margin="0,0,1,0"
-                                Click="ViewModeButton_Click"
+                                Command="{Binding SetViewModeCommand}"
+                                CommandParameter="{x:Static vm:PlaylistViewMode.Thumbnail}"
                                 Tag="Thumbnail"
                                 Style="{StaticResource ViewModeButtonStyle}"/>
                         <Button x:Name="ListViewButton"
                                 Content="List"
                                 Padding="8,3"
                                 Margin="0,0,1,0"
-                                Click="ViewModeButton_Click"
+                                Command="{Binding SetViewModeCommand}"
+                                CommandParameter="{x:Static vm:PlaylistViewMode.List}"
                                 Tag="List"
                                 Style="{StaticResource ViewModeButtonStyle}"/>
                         <Button x:Name="DetailedViewButton"
                                 Content="Detailed"
                                 Padding="8,3"
-                                Click="ViewModeButton_Click"
+                                Command="{Binding SetViewModeCommand}"
+                                CommandParameter="{x:Static vm:PlaylistViewMode.Detailed}"
                                 Tag="Detailed"
                                 Style="{StaticResource ViewModeButtonStyle}"/>
                     </StackPanel>
@@ -263,7 +268,8 @@
                                      Background="Transparent"
                                      CanContentScroll="False"
                                      PreviewMouseWheel="ThumbnailViewContainer_PreviewMouseWheel">
-                            <ItemsControl x:Name="ThumbnailViewControl">
+                            <ItemsControl x:Name="ThumbnailViewControl"
+                                         ItemsSource="{Binding MediaItems}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
                                         <WrapPanel Orientation="Horizontal"/>
@@ -361,6 +367,8 @@
                                  BorderThickness="0"
                                  Foreground="{StaticResource TextPrimaryBrush}"
                                  HorizontalContentAlignment="Stretch"
+                                 ItemsSource="{Binding MediaItems}"
+                                 SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                  VirtualizingStackPanel.IsVirtualizing="True"
@@ -437,6 +445,8 @@
                                  Background="Transparent"
                                  BorderThickness="0"
                                  Foreground="{StaticResource TextPrimaryBrush}"
+                                 ItemsSource="{Binding MediaItems}"
+                                 SelectedItem="{Binding SelectedItem, Mode=TwoWay}"
                                  VirtualizingStackPanel.IsVirtualizing="True"
                                  VirtualizingStackPanel.VirtualizationMode="Recycling"
                                  SelectionChanged="DetailedViewControl_SelectionChanged"
@@ -528,7 +538,7 @@
                     MinWidth="90"
                     Padding="10,10"
                     Margin="0,0,6,0"
-                    Click="AddFolderButton_Click"
+                    Command="{Binding AddFolderCommand}"
                     Style="{StaticResource ModernButtonStyle}"/>
             <Button Content="Close"
                     MinWidth="70"

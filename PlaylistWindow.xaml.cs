@@ -1,42 +1,23 @@
 using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.ComponentModel;
-using System.Globalization;
-using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
+using Microsoft.WindowsAPICodePack.Dialogs;
 using SlideShowBob.Models;
+using SlideShowBob.ViewModels;
 
 namespace SlideShowBob
 {
-    public enum PlaylistViewMode
-    {
-        Thumbnail,
-        List,
-        Detailed
-    }
-
     public partial class PlaylistWindow : Window
     {
-        private readonly MainWindow _owner;
-        private readonly List<string> _folders;
-        private readonly List<string> _allFiles;
-        private readonly ObservableCollection<FolderNode> _folderTreeRoots = new ObservableCollection<FolderNode>();
-        private readonly ObservableCollection<PlaylistMediaItem> _mediaItems = new ObservableCollection<PlaylistMediaItem>();
-        private CollectionViewSource? _mediaItemsViewSource;
-        private PlaylistViewMode _currentViewMode = PlaylistViewMode.Detailed;
-        private PlaylistMediaItem? _selectedItem;
-        private readonly ThumbnailService _thumbnailService = new ThumbnailService();
+        private readonly PlaylistViewModel _viewModel;
         
-        // Virtual scrolling support
+        // Virtual scrolling support (UI-specific)
         private CancellationTokenSource? _thumbnailLoadCancellation;
         private readonly object _thumbnailLoadLock = new object();
         private bool _isClosed = false;
@@ -57,41 +38,29 @@ namespace SlideShowBob
             ref int pvAttribute,
             int cbAttribute);
 
-        public PlaylistWindow(MainWindow owner, List<string> folders, List<string> allFiles)
+        public PlaylistWindow(PlaylistViewModel viewModel)
         {
             InitializeComponent();
 
-            _owner = owner;
-            _folders = folders;
-            _allFiles = allFiles;
+            _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+            DataContext = _viewModel;
 
             Loaded += PlaylistWindow_Loaded;
             
-            // Set up CollectionViewSource for sorting
-            _mediaItemsViewSource = (CollectionViewSource)FindResource("MediaItemsViewSource");
-            if (_mediaItemsViewSource != null)
-            {
-                _mediaItemsViewSource.Source = _mediaItems;
-            }
-            
-            // Bind all views to the CollectionViewSource
-            if (_mediaItemsViewSource != null)
-            {
-                ListViewControl.ItemsSource = _mediaItemsViewSource.View;
-                DetailedViewControl.ItemsSource = _mediaItemsViewSource.View;
-                ThumbnailViewControl.ItemsSource = _mediaItemsViewSource.View;
-            }
-            
-            // Initialize view mode
-            UpdateViewMode();
-            
-            // Set up scroll event handler for virtual scrolling
+            // Set up scroll event handler for virtual scrolling (UI-specific)
             ThumbnailViewContainer.ScrollChanged += ThumbnailViewContainer_ScrollChanged;
             
             // Handle window resize to recalculate visible items
             SizeChanged += PlaylistWindow_SizeChanged;
-            
-            BuildFolderTree();
+
+            // Subscribe to ViewModel events
+            _viewModel.RequestAddFolder += ViewModel_RequestAddFolder;
+
+            // Subscribe to ViewModel property changes for view mode updates
+            _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+
+            // Initialize view mode
+            UpdateViewMode();
         }
 
         private void PlaylistWindow_Loaded(object sender, RoutedEventArgs e)
@@ -110,7 +79,20 @@ namespace SlideShowBob
                 _thumbnailLoadCancellation?.Dispose();
                 _thumbnailLoadCancellation = null;
             }
+
+            // Unsubscribe from events
+            _viewModel.RequestAddFolder -= ViewModel_RequestAddFolder;
+            _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+
             base.OnClosed(e);
+        }
+
+        private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(PlaylistViewModel.CurrentViewMode))
+            {
+                UpdateViewMode();
+            }
         }
 
         /// <summary>
@@ -118,7 +100,7 @@ namespace SlideShowBob
         /// </summary>
         private void PlaylistWindow_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            if (_currentViewMode == PlaylistViewMode.Thumbnail && _mediaItems.Count > 0)
+            if (_viewModel.CurrentViewMode == PlaylistViewMode.Thumbnail && _viewModel.MediaItems.Count > 0)
             {
                 // Trigger recalculation of visible items after resize
                 lock (_thumbnailLoadLock)
@@ -169,548 +151,266 @@ namespace SlideShowBob
             }
         }
 
-        /// <summary>
-        /// Builds the hierarchical folder tree from root folders and files in the playlist.
-        /// Creates FolderNode objects with parent-child relationships and auto-expands folders with subfolders.
-        /// </summary>
-        private void BuildFolderTree()
+        #region ViewModel Event Handlers
+
+        private async void ViewModel_RequestAddFolder(object? sender, EventArgs e)
         {
-            _folderTreeRoots.Clear();
-
-            if (_folders.Count == 0)
+            // Open folder dialog and add folders
+            try
             {
-                FolderTree.ItemsSource = _folderTreeRoots;
-                return;
-            }
-
-            // Get all unique folder paths from files in the playlist
-            var allFolderPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var filePath in _allFiles)
-            {
-                if (string.IsNullOrWhiteSpace(filePath))
-                    continue;
-
-                try
+                var dlg = new CommonOpenFileDialog
                 {
-                    string? dir = Path.GetDirectoryName(filePath);
-                    if (!string.IsNullOrEmpty(dir))
-                    {
-                        allFolderPaths.Add(Path.GetFullPath(dir));
-                    }
-                }
-                catch
+                    IsFolderPicker = true,
+                    Multiselect = true,
+                    Title = "Select one or more folders"
+                };
+
+                if (dlg.ShowDialog() == CommonFileDialogResult.Ok)
                 {
-                    // Skip invalid paths
+                    await _viewModel.AddFoldersAsync(dlg.FileNames);
                 }
             }
-
-            // Build tree for each root folder - show ALL root folders, even if empty
-            foreach (var rootFolder in _folders)
+            catch
             {
-                if (string.IsNullOrWhiteSpace(rootFolder))
-                    continue;
-
-                try
+                // Fallback: classic single-folder dialog
+                var fb = new System.Windows.Forms.FolderBrowserDialog
                 {
-                    string normalizedRoot = Path.GetFullPath(rootFolder)
-                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    Description = "Select folder containing images/videos"
+                };
 
-                    // Create root node (always create it - it's a root folder we're tracking)
-                    var rootNode = FolderNode.CreateRoot(normalizedRoot);
-
-                    // Find all folders under this root that contain files
-                    var foldersUnderRoot = allFolderPaths
-                        .Where(f => 
-                        {
-                            string normalizedF = Path.GetFullPath(f)
-                                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                            return string.Equals(normalizedF, normalizedRoot, StringComparison.OrdinalIgnoreCase) ||
-                                   IsUnderFolder(f, normalizedRoot);
-                        })
-                        .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-                        .ToList();
-
-                    // Filter out the root folder itself from children
-                    var childFolders = foldersUnderRoot
-                        .Where(f => !string.Equals(
-                            Path.GetFullPath(f).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                            normalizedRoot,
-                            StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-
-                    // Build the tree structure
-                    if (childFolders.Count > 0)
-                    {
-                        BuildFolderTreeRecursive(rootNode, childFolders, normalizedRoot);
-                    }
-
-                    // Auto-expand if it has children
-                    if (rootNode.Children.Count > 0)
-                    {
-                        rootNode.IsExpanded = true;
-                    }
-
-                    _folderTreeRoots.Add(rootNode);
-                }
-                catch
+                var result = fb.ShowDialog();
+                if (result == System.Windows.Forms.DialogResult.OK)
                 {
-                    // Skip invalid folders
-                }
-            }
-
-            // Sort root nodes by name
-            var sortedRoots = _folderTreeRoots.OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase).ToList();
-            _folderTreeRoots.Clear();
-            foreach (var root in sortedRoots)
-            {
-                _folderTreeRoots.Add(root);
-            }
-
-            FolderTree.ItemsSource = _folderTreeRoots;
-            
-            // Auto-select the first folder if available
-            // Use Dispatcher to ensure TreeView is rendered before selecting
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                if (_folderTreeRoots.Count > 0)
-                {
-                    var firstFolder = _folderTreeRoots[0];
-                    // Find the TreeViewItem container and select it
-                    var container = FindTreeViewItem(FolderTree, firstFolder);
-                    if (container != null)
-                    {
-                        container.IsSelected = true;
-                        container.Focus();
-                    }
-                    else
-                    {
-                        // Fallback: Set IsSelected on the node and manually trigger file loading
-                        ClearSelection();
-                        firstFolder.IsSelected = true;
-                        // Manually load files for the first folder
-#pragma warning disable CS4014 // Fire-and-forget: intentionally not awaited
-                        _ = LoadMediaItemsForFolderAsync(firstFolder.FullPath);
-#pragma warning restore CS4014
-                    }
-                }
-            }), System.Windows.Threading.DispatcherPriority.Loaded);
-        }
-
-        private void BuildFolderTreeRecursive(FolderNode parentNode, List<string> allFolders, string parentPath)
-        {
-            // Normalize parent path for comparison
-            string normalizedParent = Path.GetFullPath(parentPath)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-            // Find direct children of the parent folder
-            // A folder is a direct child if its parent directory exactly matches the parent path
-            var children = allFolders
-                .Where(f => 
-                {
-                    try
-                    {
-                        string normalizedChild = Path.GetFullPath(f)
-                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                        
-                        // Get the parent directory of this folder
-                        string? childParentDir = Path.GetDirectoryName(normalizedChild);
-                        if (string.IsNullOrEmpty(childParentDir))
-                            return false;
-
-                        string normalizedChildParent = Path.GetFullPath(childParentDir)
-                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-                        // Check if this folder's parent matches our parent path
-                        return string.Equals(normalizedChildParent, normalizedParent, StringComparison.OrdinalIgnoreCase);
-                    }
-                    catch
-                    {
-                        return false;
-                    }
-                })
-                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            foreach (var childPath in children)
-            {
-                try
-                {
-                    string normalizedChild = Path.GetFullPath(childPath)
-                        .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    
-                    string childName = Path.GetFileName(normalizedChild);
-                    if (string.IsNullOrEmpty(childName))
-                        childName = normalizedChild; // Root drive, etc.
-
-                    var childNode = new FolderNode
-                    {
-                        Name = childName,
-                        FullPath = normalizedChild,
-                        Parent = parentNode,
-                        IsExpanded = false // Will be set below if it has children
-                    };
-
-                    // Recursively build children of this child first
-                    BuildFolderTreeRecursive(childNode, allFolders, normalizedChild);
-
-                    // Auto-expand if it has children
-                    if (childNode.Children.Count > 0)
-                    {
-                        childNode.IsExpanded = true;
-                    }
-
-                    parentNode.Children.Add(childNode);
-                }
-                catch
-                {
-                    // Skip invalid paths
+                    await _viewModel.AddFoldersAsync(new[] { fb.SelectedPath });
                 }
             }
         }
 
+        #endregion
 
-        private static bool IsUnderFolder(string filePath, string folderPath)
-        {
-            if (string.IsNullOrEmpty(filePath) || string.IsNullOrEmpty(folderPath))
-                return false;
-
-            folderPath = Path.GetFullPath(folderPath)
-                             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                             + Path.DirectorySeparatorChar;
-            filePath = Path.GetFullPath(filePath);
-
-            return filePath.StartsWith(folderPath, StringComparison.OrdinalIgnoreCase);
-        }
+        #region UI Event Handlers
 
         /// <summary>
         /// Handles folder selection in the tree view.
-        /// When a folder is selected, populates the MediaItem collection with files from that folder.
         /// </summary>
-        private async void FolderTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+        private void FolderTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         {
-            if (FolderTree.SelectedItem is not FolderNode selectedNode)
-            {
-                _mediaItems.Clear();
-                return;
-            }
-
-            // Update selection state (avoid circular updates)
-            if (!selectedNode.IsSelected)
-            {
-                ClearSelection();
-                selectedNode.IsSelected = true;
-            }
-
-            // Load media items for the selected folder asynchronously
-            // This populates the _mediaItems collection which is shared across all view modes
-            await LoadMediaItemsForFolderAsync(selectedNode.FullPath);
-        }
-
-        /// <summary>
-        /// Asynchronously loads media files from the selected folder and populates the MediaItem collection.
-        /// This collection is shared across all view modes (Thumbnail/List/Detailed).
-        /// Only shows files that are actually in the current playlist.
-        /// </summary>
-        private async Task LoadMediaItemsForFolderAsync(string folderPath)
-        {
-            // Clear existing items
-            _mediaItems.Clear();
-
-            if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
-                return;
-
-            // Get current playlist files from the owner (MainWindow)
-            // This ensures we only show files that are actually in the playlist
-            var currentPlaylistFiles = _owner.GetCurrentPlaylist();
-            var playlistFileSet = currentPlaylistFiles
-                .Select(f => Path.GetFullPath(f))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            // Determine if videos are included by checking if any .mp4 files exist in the playlist
-            bool includeVideos = currentPlaylistFiles.Any(f => 
-                Path.GetExtension(f).Equals(".mp4", StringComparison.OrdinalIgnoreCase));
-
-            // Use the same extension logic as MediaPlaylistManager
-            string[] imageExts = { ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff" };
-            string[] motionExts = includeVideos ? new[] { ".gif", ".mp4" } : new[] { ".gif" };
-            var allExts = imageExts.Concat(motionExts).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            // Enumerate files asynchronously to avoid blocking UI
-            await Task.Run(() =>
-            {
-                try
-                {
-                    var files = Directory.GetFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly)
-                        .Where(f => allExts.Contains(Path.GetExtension(f)))
-                        .Where(File.Exists)
-                        .Where(f => playlistFileSet.Contains(Path.GetFullPath(f))) // Only include files in the playlist
-                        .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-                        .ToList();
-
-                    // Create PlaylistMediaItem objects on UI thread
-                    Dispatcher.Invoke(() =>
-                    {
-                        foreach (var filePath in files)
-                        {
-                            try
-                            {
-                                var mediaItem = PlaylistMediaItem.FromFilePath(filePath);
-                                _mediaItems.Add(mediaItem);
-                            }
-                            catch
-                            {
-                                // Skip files that can't be processed
-                            }
-                        }
-                        
-                        // Start loading thumbnails asynchronously if in thumbnail view
-                        // Use a small delay to ensure layout is complete before calculating visible range
-                        if (_currentViewMode == PlaylistViewMode.Thumbnail)
-                        {
-                            // Fire-and-forget: intentionally not awaited
-#pragma warning disable CS4014
-                            _ = Task.Delay(100).ContinueWith(async _ => await LoadThumbnailsAsync(), TaskScheduler.Default);
-#pragma warning restore CS4014
-                        }
-                    });
-                }
-                catch
-                {
-                    // Skip folders we can't access
-                }
-            });
-        }
-
-        private void ClearSelection()
-        {
-            foreach (var root in _folderTreeRoots)
-            {
-                ClearSelectionRecursive(root);
-            }
-        }
-
-        private void ClearSelectionRecursive(FolderNode node)
-        {
-            // Only update if actually selected to avoid unnecessary property change notifications
-            if (node.IsSelected)
-            {
-                node.IsSelected = false;
-            }
-            foreach (var child in node.Children)
-            {
-                ClearSelectionRecursive(child);
-            }
-        }
-
-        /// <summary>
-        /// Finds the TreeViewItem container for a given data item.
-        /// </summary>
-        private TreeViewItem? FindTreeViewItem(ItemsControl parent, object item)
-        {
-            if (parent.ItemContainerGenerator.ContainerFromItem(item) is TreeViewItem container)
-            {
-                return container;
-            }
-
-            // Recursively search child items
-            foreach (var childItem in parent.Items)
-            {
-                if (parent.ItemContainerGenerator.ContainerFromItem(childItem) is TreeViewItem childContainer)
-                {
-                    var found = FindTreeViewItem(childContainer, item);
-                    if (found != null)
-                        return found;
-                }
-            }
-
-            return null;
-        }
-
-        private async void AddFolderButton_Click(object sender, RoutedEventArgs e)
-        {
-            // Reuse main window logic for multi-folder selection
-            await _owner.ChooseFoldersFromDialogAsync();
-            BuildFolderTree();
-        }
-
-        private void RemoveFolderMenuItem_Click(object sender, RoutedEventArgs e)
-        {
-            if (FolderTree.SelectedItem is not FolderNode selectedNode)
-                return;
-
-            _owner.RemoveFolderFromPlaylist(selectedNode.FullPath);
-            BuildFolderTree();
-        }
-
-        private void RemoveFileMenuItem_Click(object sender, RoutedEventArgs e)
-        {
-            // Get selected item from current view
-            PlaylistMediaItem? selected = _currentViewMode switch
-            {
-                PlaylistViewMode.List => ListViewControl.SelectedItem as PlaylistMediaItem,
-                PlaylistViewMode.Detailed => DetailedViewControl.SelectedItem as PlaylistMediaItem,
-                _ => null
-            };
-
-            if (selected == null)
-                return;
-
-            string filePathToRemove = selected.FullPath;
-            
-            // Remove from playlist
-            _owner.RemoveFileFromPlaylist(filePathToRemove);
-            
-            // Immediately remove from the displayed collection
-            string normalizedPath = Path.GetFullPath(filePathToRemove);
-            var itemToRemove = _mediaItems.FirstOrDefault(item => 
-                string.Equals(Path.GetFullPath(item.FullPath), normalizedPath, StringComparison.OrdinalIgnoreCase));
-            if (itemToRemove != null)
-            {
-                _mediaItems.Remove(itemToRemove);
-            }
-            
-            BuildFolderTree();
-            
-            // Reload media items for the currently selected folder to ensure consistency
             if (FolderTree.SelectedItem is FolderNode selectedNode)
             {
-                _ = LoadMediaItemsForFolderAsync(selectedNode.FullPath);
+                // Update selection state (avoid circular updates)
+                if (!selectedNode.IsSelected)
+                {
+                    selectedNode.IsSelected = true;
+                }
+
+                // Call ViewModel command to select folder
+                if (_viewModel.SelectFolderCommand.CanExecute(selectedNode))
+                {
+                    _viewModel.SelectFolderCommand.Execute(selectedNode);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles context menu for removing folder.
+        /// </summary>
+        private void RemoveFolderMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (FolderTree.SelectedItem is FolderNode selectedNode)
+            {
+                if (_viewModel.RemoveFolderCommand.CanExecute(selectedNode.FullPath))
+                {
+                    _viewModel.RemoveFolderCommand.Execute(selectedNode.FullPath);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handles context menu for removing file.
+        /// </summary>
+        private void RemoveFileMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            // Use ViewModel's SelectedItem
+            if (_viewModel.SelectedItem != null && _viewModel.RemoveFileCommand.CanExecute(_viewModel.SelectedItem))
+            {
+                _viewModel.RemoveFileCommand.Execute(_viewModel.SelectedItem);
+            }
+        }
+
+        private void ListViewControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            _viewModel.SelectedItem = ListViewControl.SelectedItem as PlaylistMediaItem;
+        }
+
+        private void DetailedViewControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            _viewModel.SelectedItem = DetailedViewControl.SelectedItem as PlaylistMediaItem;
+        }
+
+        private void ListViewControl_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            // Handle single-click to open file
+            var item = ((FrameworkElement)e.OriginalSource).DataContext as PlaylistMediaItem;
+            if (item != null)
+            {
+                if (_viewModel.NavigateToFileCommand.CanExecute(item.FullPath))
+                {
+                    _viewModel.NavigateToFileCommand.Execute(item.FullPath);
+                }
+                e.Handled = true;
+            }
+        }
+
+        private void DetailedViewControl_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            // Handle single-click to open file
+            var item = ((FrameworkElement)e.OriginalSource).DataContext as PlaylistMediaItem;
+            if (item != null)
+            {
+                if (_viewModel.NavigateToFileCommand.CanExecute(item.FullPath))
+                {
+                    _viewModel.NavigateToFileCommand.Execute(item.FullPath);
+                }
+                e.Handled = true;
+            }
+        }
+
+        private void ListViewControl_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (ListViewControl.SelectedItem is PlaylistMediaItem selectedItem)
+            {
+                if (_viewModel.NavigateToFileCommand.CanExecute(selectedItem.FullPath))
+                {
+                    _viewModel.NavigateToFileCommand.Execute(selectedItem.FullPath);
+                }
+            }
+        }
+
+        private void DetailedViewControl_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (DetailedViewControl.SelectedItem is PlaylistMediaItem selectedItem)
+            {
+                if (_viewModel.NavigateToFileCommand.CanExecute(selectedItem.FullPath))
+                {
+                    _viewModel.NavigateToFileCommand.Execute(selectedItem.FullPath);
+                }
+            }
+        }
+
+        private void Thumbnail_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is FrameworkElement element && element.DataContext is PlaylistMediaItem item)
+            {
+                if (_viewModel.NavigateToFileCommand.CanExecute(item.FullPath))
+                {
+                    _viewModel.NavigateToFileCommand.Execute(item.FullPath);
+                }
+            }
+        }
+
+        private void ColumnHeader_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not GridViewColumnHeader header)
+                return;
+
+            string? propertyName = PlaylistViewModel.GetPropertyNameFromColumn(header.Content?.ToString() ?? "");
+            if (string.IsNullOrEmpty(propertyName))
+                return;
+
+            if (_viewModel.SortByPropertyCommand.CanExecute(propertyName))
+            {
+                _viewModel.SortByPropertyCommand.Execute(propertyName);
             }
         }
 
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
-            // Clean up cancellation token
-            lock (_thumbnailLoadLock)
-            {
-                _thumbnailLoadCancellation?.Cancel();
-                _thumbnailLoadCancellation?.Dispose();
-                _thumbnailLoadCancellation = null;
-            }
             Close();
         }
 
-        private void ColumnHeader_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is not GridViewColumnHeader header || _mediaItemsViewSource?.View == null)
-                return;
+        #endregion
 
-            string? propertyName = GetPropertyNameFromColumn(header);
-            if (string.IsNullOrEmpty(propertyName))
-                return;
-
-            SortByProperty(propertyName);
-        }
-
-        private string? GetPropertyNameFromColumn(GridViewColumnHeader header)
-        {
-            if (header.Content == null)
-                return null;
-
-            string headerText = header.Content.ToString() ?? "";
-            return headerText switch
-            {
-                "File Name" => "Name",
-                "File Type" => "FileType",
-                "Duration" => "Duration",
-                "File Date" => "FileDate",
-                _ => null
-            };
-        }
-
-        private void SortByProperty(string propertyName)
-        {
-            if (_mediaItemsViewSource?.View == null)
-                return;
-
-            var view = (ListCollectionView)_mediaItemsViewSource.View;
-            
-            // Check if already sorting by this property
-            var existingSort = view.SortDescriptions
-                .FirstOrDefault(sd => sd.PropertyName == propertyName);
-
-            ListSortDirection newDirection = ListSortDirection.Ascending;
-
-            // Check if we found an existing sort for this property
-            if (existingSort.PropertyName != null && existingSort.PropertyName == propertyName)
-            {
-                // Toggle direction
-                newDirection = existingSort.Direction == ListSortDirection.Ascending
-                    ? ListSortDirection.Descending
-                    : ListSortDirection.Ascending;
-                
-                // Remove existing sort
-                view.SortDescriptions.Remove(existingSort);
-            }
-            else
-            {
-                // Clear all sorts and add new one
-                view.SortDescriptions.Clear();
-            }
-
-            // Add new sort
-            view.SortDescriptions.Add(new SortDescription(propertyName, newDirection));
-        }
-
-        private void ViewModeButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is not Button button || button.Tag is not string tag)
-                return;
-
-            // Parse the view mode from the tag
-            if (Enum.TryParse<PlaylistViewMode>(tag, out var newMode))
-            {
-                SetViewMode(newMode);
-            }
-        }
+        #region View Mode Management (UI-specific)
 
         /// <summary>
-        /// Switches between view modes (Thumbnail/List/Detailed).
-        /// Preserves selection across mode changes and reuses the same MediaItem collection.
+        /// Updates UI visibility based on current view mode.
         /// </summary>
-        private void SetViewMode(PlaylistViewMode mode)
-        {
-            if (_currentViewMode == mode)
-                return;
-
-            // Preserve selection before switching
-            PreserveSelection();
-
-            _currentViewMode = mode;
-            UpdateViewMode();
-            
-            // Restore selection after switching
-            RestoreSelection();
-        }
-
         private void UpdateViewMode()
         {
             // Update button states
             UpdateViewModeButtons();
 
             // Show/hide appropriate views
-            ThumbnailViewContainer.Visibility = _currentViewMode == PlaylistViewMode.Thumbnail 
+            ThumbnailViewContainer.Visibility = _viewModel.CurrentViewMode == PlaylistViewMode.Thumbnail 
                 ? Visibility.Visible 
                 : Visibility.Collapsed;
             
-            ListViewControl.Visibility = _currentViewMode == PlaylistViewMode.List 
+            ListViewControl.Visibility = _viewModel.CurrentViewMode == PlaylistViewMode.List 
                 ? Visibility.Visible 
                 : Visibility.Collapsed;
             
-            DetailedViewControl.Visibility = _currentViewMode == PlaylistViewMode.Detailed 
+            DetailedViewControl.Visibility = _viewModel.CurrentViewMode == PlaylistViewMode.Detailed 
                 ? Visibility.Visible 
                 : Visibility.Collapsed;
 
             // Start loading thumbnails if switching to thumbnail view
             // Use a small delay to ensure layout is complete before calculating visible range
-            if (_currentViewMode == PlaylistViewMode.Thumbnail && _mediaItems.Count > 0)
+            if (_viewModel.CurrentViewMode == PlaylistViewMode.Thumbnail && _viewModel.MediaItems.Count > 0)
             {
                 // Fire-and-forget: intentionally not awaited
 #pragma warning disable CS4014
                 _ = Task.Delay(100).ContinueWith(async _ => await LoadThumbnailsAsync(), TaskScheduler.Default);
 #pragma warning restore CS4014
             }
+
+            // Restore selection after switching
+            RestoreSelection();
         }
+
+        private void UpdateViewModeButtons()
+        {
+            // Reset all buttons
+            ThumbnailViewButton.Tag = "Thumbnail";
+            ListViewButton.Tag = "List";
+            DetailedViewButton.Tag = "Detailed";
+
+            // Set selected button
+            Button? selectedButton = _viewModel.CurrentViewMode switch
+            {
+                PlaylistViewMode.Thumbnail => ThumbnailViewButton,
+                PlaylistViewMode.List => ListViewButton,
+                PlaylistViewMode.Detailed => DetailedViewButton,
+                _ => null
+            };
+
+            if (selectedButton != null)
+            {
+                selectedButton.Tag = "Selected";
+            }
+        }
+
+        private void RestoreSelection()
+        {
+            if (_viewModel.SelectedItem == null)
+                return;
+
+            // Restore selection in the new view
+            switch (_viewModel.CurrentViewMode)
+            {
+                case PlaylistViewMode.List:
+                    ListViewControl.SelectedItem = _viewModel.SelectedItem;
+                    ListViewControl.ScrollIntoView(_viewModel.SelectedItem);
+                    break;
+                case PlaylistViewMode.Detailed:
+                    DetailedViewControl.SelectedItem = _viewModel.SelectedItem;
+                    DetailedViewControl.ScrollIntoView(_viewModel.SelectedItem);
+                    break;
+            }
+        }
+
+        #endregion
+
+        #region Virtual Scrolling (UI-specific)
 
         /// <summary>
         /// Handles scroll changes in the thumbnail view to implement virtual scrolling.
@@ -718,7 +418,7 @@ namespace SlideShowBob
         /// </summary>
         private void ThumbnailViewContainer_ScrollChanged(object sender, ScrollChangedEventArgs e)
         {
-            if (_currentViewMode != PlaylistViewMode.Thumbnail || _mediaItems.Count == 0)
+            if (_viewModel.CurrentViewMode != PlaylistViewMode.Thumbnail || _viewModel.MediaItems.Count == 0)
                 return;
 
             // Debounce rapid scroll events - reload thumbnails after scrolling stops
@@ -756,7 +456,7 @@ namespace SlideShowBob
         /// </summary>
         private (int startIndex, int endIndex) CalculateVisibleRange()
         {
-            if (_mediaItems.Count == 0)
+            if (_viewModel.MediaItems.Count == 0)
                 return (0, 0);
 
             var scrollViewer = ThumbnailViewContainer;
@@ -775,7 +475,7 @@ namespace SlideShowBob
                 // Load first page of items as fallback
                 itemsPerRow = Math.Max(1, (int)Math.Floor(600.0 / TotalItemWidth)); // Assume ~600px width
                 int rowsToLoad = Math.Max(3, (int)Math.Ceiling(viewportHeight > 0 ? viewportHeight / TotalItemHeight : 3.0));
-                return (0, Math.Min(_mediaItems.Count - 1, itemsPerRow * rowsToLoad - 1));
+                return (0, Math.Min(_viewModel.MediaItems.Count - 1, itemsPerRow * rowsToLoad - 1));
             }
 
             itemsPerRow = Math.Max(1, (int)Math.Floor(viewportWidth / TotalItemWidth));
@@ -795,7 +495,7 @@ namespace SlideShowBob
 
             // Calculate item indices
             int startIndex = Math.Max(0, topRow * itemsPerRow);
-            int endIndex = Math.Min(_mediaItems.Count - 1, (bottomRow + 1) * itemsPerRow - 1);
+            int endIndex = Math.Min(_viewModel.MediaItems.Count - 1, (bottomRow + 1) * itemsPerRow - 1);
 
             return (startIndex, endIndex);
         }
@@ -806,12 +506,12 @@ namespace SlideShowBob
         /// </summary>
         private async Task LoadVisibleThumbnailsAsync(CancellationToken cancellationToken)
         {
-            if (_mediaItems.Count == 0)
+            if (_viewModel.MediaItems.Count == 0)
                 return;
 
             var (startIndex, endIndex) = CalculateVisibleRange();
 
-            System.Diagnostics.Debug.WriteLine($"LoadVisibleThumbnailsAsync: Loading thumbnails for indices {startIndex} to {endIndex} (total: {_mediaItems.Count})");
+            System.Diagnostics.Debug.WriteLine($"LoadVisibleThumbnailsAsync: Loading thumbnails for indices {startIndex} to {endIndex} (total: {_viewModel.MediaItems.Count})");
 
             // Release thumbnails outside the buffer zone
             try
@@ -820,14 +520,14 @@ namespace SlideShowBob
                 {
                     if (_isClosed) return;
                     
-                    for (int i = 0; i < _mediaItems.Count; i++)
+                    for (int i = 0; i < _viewModel.MediaItems.Count; i++)
                     {
                         if (i < startIndex || i > endIndex)
                         {
                             // Item is outside buffer zone - release thumbnail
-                            if (_mediaItems[i].Thumbnail != null)
+                            if (_viewModel.MediaItems[i].Thumbnail != null)
                             {
-                                _mediaItems[i].Thumbnail = null;
+                                _viewModel.MediaItems[i].Thumbnail = null;
                             }
                         }
                     }
@@ -851,7 +551,7 @@ namespace SlideShowBob
             for (int i = startIndex; i <= endIndex && !cancellationToken.IsCancellationRequested; i += batchSize)
             {
                 var batchEnd = Math.Min(i + batchSize - 1, endIndex);
-                var batch = new List<PlaylistMediaItem>();
+                var batch = new System.Collections.Generic.List<PlaylistMediaItem>();
                 
                 try
                 {
@@ -861,9 +561,9 @@ namespace SlideShowBob
                         
                         for (int j = i; j <= batchEnd; j++)
                         {
-                            if (j < _mediaItems.Count)
+                            if (j < _viewModel.MediaItems.Count)
                             {
-                                batch.Add(_mediaItems[j]);
+                                batch.Add(_viewModel.MediaItems[j]);
                             }
                         }
                     }, System.Windows.Threading.DispatcherPriority.Normal, cancellationToken);
@@ -883,6 +583,7 @@ namespace SlideShowBob
                     break;
 
                 // Process batch in parallel
+                // Use ThumbnailService from ViewModel (injected via DI)
                 var tasks = batch.Select(async item =>
                 {
                     if (cancellationToken.IsCancellationRequested)
@@ -892,9 +593,9 @@ namespace SlideShowBob
                     if (item.Thumbnail != null)
                         return;
 
-                    try
-                    {
-                        var thumbnail = await _thumbnailService.LoadThumbnailAsync(item.FullPath);
+                           try
+                           {
+                               var thumbnail = await _viewModel.ThumbnailService.LoadThumbnailAsync(item.FullPath);
                         if (thumbnail != null && !cancellationToken.IsCancellationRequested)
                         {
                             // Update on UI thread - check if window is still valid
@@ -998,128 +699,7 @@ namespace SlideShowBob
             await LoadVisibleThumbnailsAsync(_thumbnailLoadCancellation.Token);
         }
 
-        private void UpdateViewModeButtons()
-        {
-            // Reset all buttons
-            ThumbnailViewButton.Tag = "Thumbnail";
-            ListViewButton.Tag = "List";
-            DetailedViewButton.Tag = "Detailed";
-
-            // Set selected button
-            Button? selectedButton = _currentViewMode switch
-            {
-                PlaylistViewMode.Thumbnail => ThumbnailViewButton,
-                PlaylistViewMode.List => ListViewButton,
-                PlaylistViewMode.Detailed => DetailedViewButton,
-                _ => null
-            };
-
-            if (selectedButton != null)
-            {
-                selectedButton.Tag = "Selected";
-            }
-        }
-
-        private void PreserveSelection()
-        {
-            // Get selected item from current view
-            _selectedItem = _currentViewMode switch
-            {
-                PlaylistViewMode.List => ListViewControl.SelectedItem as PlaylistMediaItem,
-                PlaylistViewMode.Detailed => DetailedViewControl.SelectedItem as PlaylistMediaItem,
-                _ => null
-            };
-        }
-
-        private void RestoreSelection()
-        {
-            if (_selectedItem == null)
-                return;
-
-            // Restore selection in the new view
-            switch (_currentViewMode)
-            {
-                case PlaylistViewMode.List:
-                    ListViewControl.SelectedItem = _selectedItem;
-                    ListViewControl.ScrollIntoView(_selectedItem);
-                    break;
-                case PlaylistViewMode.Detailed:
-                    DetailedViewControl.SelectedItem = _selectedItem;
-                    DetailedViewControl.ScrollIntoView(_selectedItem);
-                    break;
-            }
-        }
-
-        private void ListViewControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            _selectedItem = ListViewControl.SelectedItem as PlaylistMediaItem;
-        }
-
-        private void DetailedViewControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            _selectedItem = DetailedViewControl.SelectedItem as PlaylistMediaItem;
-        }
-
-        private void ListViewControl_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            // Handle single-click to open file
-            var item = ((FrameworkElement)e.OriginalSource).DataContext as PlaylistMediaItem;
-            if (item != null)
-            {
-                ShowFileInMainWindow(item.FullPath);
-                e.Handled = true;
-            }
-        }
-
-        private void DetailedViewControl_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            // Handle single-click to open file
-            var item = ((FrameworkElement)e.OriginalSource).DataContext as PlaylistMediaItem;
-            if (item != null)
-            {
-                ShowFileInMainWindow(item.FullPath);
-                e.Handled = true;
-            }
-        }
-
-        private void ListViewControl_MouseDoubleClick(object sender, MouseButtonEventArgs e)
-        {
-            if (ListViewControl.SelectedItem is not PlaylistMediaItem selectedItem)
-                return;
-
-            ShowFileInMainWindow(selectedItem.FullPath);
-        }
-
-        private void DetailedViewControl_MouseDoubleClick(object sender, MouseButtonEventArgs e)
-        {
-            if (DetailedViewControl.SelectedItem is not PlaylistMediaItem selectedItem)
-                return;
-
-            ShowFileInMainWindow(selectedItem.FullPath);
-        }
-
-        private void Thumbnail_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            if (sender is not FrameworkElement element || element.DataContext is not PlaylistMediaItem item)
-                return;
-
-            ShowFileInMainWindow(item.FullPath);
-        }
-
-        /// <summary>
-        /// Centralized method to request MainWindow to display a specific media file.
-        /// This is the single point of communication from PlaylistWindow to MainWindow for navigation.
-        /// MainWindow's NavigateToFile method handles finding the file in the playlist and updating the current index.
-        /// </summary>
-        private void ShowFileInMainWindow(string filePath)
-        {
-            if (string.IsNullOrWhiteSpace(filePath))
-                return;
-
-            // Delegate to MainWindow's centralized navigation method
-            // MainWindow will find the file in the playlist, set the index, and display it
-            _owner.NavigateToFile(filePath);
-        }
+        #endregion
 
         /// <summary>
         /// Implements smooth, Windows 11-style scrolling for the thumbnail view ScrollViewer.
@@ -1138,9 +718,9 @@ namespace SlideShowBob
     /// Converter to format TimeSpan? duration as a readable string.
     /// Returns "—" for null, or formatted time like "1:23" or "0:05".
     /// </summary>
-    public class DurationConverter : IValueConverter
+    public class DurationConverter : System.Windows.Data.IValueConverter
     {
-        public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        public object? Convert(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
         {
             if (value is not TimeSpan duration)
                 return "—";
@@ -1155,7 +735,7 @@ namespace SlideShowBob
             }
         }
 
-        public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        public object? ConvertBack(object? value, Type targetType, object? parameter, System.Globalization.CultureInfo culture)
         {
             throw new NotImplementedException();
         }

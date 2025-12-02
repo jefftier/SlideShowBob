@@ -1,10 +1,10 @@
 ﻿using System;
-using System.Configuration;
-using System.Data;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using FFMediaToolkit;
+using SlideShowBob.ViewModels;
 
 namespace SlideShowBob
 {
@@ -13,6 +13,22 @@ namespace SlideShowBob
     /// </summary>
     public partial class App : Application
     {
+        // Composition root: Services (singleton instances)
+        private SettingsManagerWrapper? _settingsManager;
+        private MediaLoaderService? _mediaLoaderService;
+        private MediaPlaylistManager? _playlistManager;
+        private ThumbnailService? _thumbnailService;
+        private VideoPlaybackService? _videoPlaybackService;
+        private SlideshowController? _slideshowController;
+
+        // Composition root: ViewModels
+        private MainViewModel? _mainViewModel;
+        private PlaylistViewModel? _playlistViewModel;
+        private SettingsViewModel? _settingsViewModel;
+
+        // Main window reference
+        private MainWindow? _mainWindow;
+
         // Windows API to add directory to DLL search path (Windows 8+)
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern IntPtr AddDllDirectory(string lpPathName);
@@ -151,6 +167,118 @@ namespace SlideShowBob
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool FreeLibrary(IntPtr hModule);
+
+        protected override void OnStartup(StartupEventArgs e)
+        {
+            base.OnStartup(e);
+
+            try
+            {
+                // Step 1: Create service instances (composition root - singleton instances)
+                _settingsManager = new SettingsManagerWrapper();
+                _mediaLoaderService = new MediaLoaderService();
+                _playlistManager = new MediaPlaylistManager();
+                _thumbnailService = new ThumbnailService();
+
+                // Step 2: Create MainWindow to access UI elements needed for VideoPlaybackService
+                _mainWindow = new MainWindow();
+                
+                // Get UI elements from MainWindow
+                var videoElement = _mainWindow.FindName("VideoElement") as MediaElement;
+                var videoProgressBar = _mainWindow.FindName("VideoProgressBar") as ProgressBar;
+
+                if (videoElement == null || videoProgressBar == null)
+                {
+                    throw new InvalidOperationException("Required UI elements (VideoElement, VideoProgressBar) not found in MainWindow.");
+                }
+
+                // Step 3: Create VideoPlaybackService with UI elements
+                _videoPlaybackService = new VideoPlaybackService(videoElement, videoProgressBar);
+
+                // Step 4: Create SlideshowController (depends on MediaPlaylistManager)
+                _slideshowController = new SlideshowController(_playlistManager);
+
+                // Step 5: Create MainViewModel with all services
+                _mainViewModel = new MainViewModel(
+                    settingsManager: _settingsManager,
+                    playlistManager: _playlistManager,
+                    mediaLoaderService: _mediaLoaderService,
+                    thumbnailService: _thumbnailService,
+                    videoPlaybackService: _videoPlaybackService,
+                    slideshowController: _slideshowController);
+
+                // Step 6: Subscribe to MainViewModel events for window creation
+                _mainViewModel.RequestOpenPlaylistWindow += MainViewModel_RequestOpenPlaylistWindow;
+                _mainViewModel.RequestOpenSettingsWindow += MainViewModel_RequestOpenSettingsWindow;
+
+                // Step 7: Pass MainViewModel to MainWindow and show it
+                _mainWindow.InitializeWithViewModel(_mainViewModel);
+                _mainWindow.Show();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[App] Error during startup: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[App] Stack trace: {ex.StackTrace}");
+                
+                // Show error to user
+                MessageBox.Show(
+                    $"Failed to start application: {ex.Message}",
+                    "Startup Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                
+                Shutdown();
+            }
+        }
+
+        private void MainViewModel_RequestOpenPlaylistWindow(object? sender, EventArgs e)
+        {
+            // Create PlaylistViewModel if not already created (lazy initialization)
+            if (_playlistViewModel == null)
+            {
+                if (_thumbnailService == null || _mainViewModel == null)
+                {
+                    throw new InvalidOperationException("Required services not initialized.");
+                }
+                _playlistViewModel = new PlaylistViewModel(_thumbnailService, _mainViewModel);
+            }
+
+            // Create and show PlaylistWindow
+            var playlistWindow = new PlaylistWindow(_playlistViewModel);
+            playlistWindow.Owner = _mainWindow;
+            playlistWindow.Show();
+        }
+
+        private void MainViewModel_RequestOpenSettingsWindow(object? sender, EventArgs e)
+        {
+            // Create SettingsViewModel if not already created (lazy initialization)
+            if (_settingsViewModel == null)
+            {
+                if (_settingsManager == null)
+                {
+                    throw new InvalidOperationException("Required services not initialized.");
+                }
+                _settingsViewModel = new SettingsViewModel(_settingsManager);
+            }
+            else
+            {
+                // Reload settings in case they were changed externally
+                _settingsViewModel = new SettingsViewModel(_settingsManager);
+            }
+
+            // Create and show SettingsWindow
+            var settingsWindow = new SettingsWindow(_settingsViewModel);
+            settingsWindow.Owner = _mainWindow;
+            
+            if (settingsWindow.ShowDialog() == true)
+            {
+                // Settings were saved, notify MainViewModel to reload
+                if (_mainViewModel != null)
+                {
+                    _mainViewModel.ReloadSettings();
+                }
+            }
+        }
     }
 
 }
