@@ -97,8 +97,19 @@ namespace SlideShowBob
         private readonly Dictionary<string, CachedThumbnail> _cache = new();
         private readonly object _cacheLock = new();
         private readonly SemaphoreSlim _videoExtractionSemaphore = new SemaphoreSlim(1, 1); // Limit concurrent video extractions
-        private const int MaxCacheSize = 200; // Maximum number of thumbnails to cache
-        private const int ThumbnailSize = 200; // Thumbnail size in pixels
+        
+        // Cache configuration:
+        // - MaxCacheSize: 200 thumbnails (reasonable for playlist views)
+        // - LRU eviction: Uses LastAccessed timestamp to remove least recently used items
+        // - ThumbnailSize: 200px (small enough for fast loading, large enough for recognition)
+        private const int MaxCacheSize = 200;
+        private const int ThumbnailSize = 200;
+        
+        // Maximum video frame dimensions: Safety guardrail for video frame extraction
+        // Prevents memory issues when extracting frames from extremely high-resolution videos
+        // (e.g., 8K videos would create huge bitmaps before scaling)
+        private const int MaxVideoFrameWidth = 4096;
+        private const int MaxVideoFrameHeight = 4096;
 
         private class CachedThumbnail
         {
@@ -305,56 +316,113 @@ namespace SlideShowBob
                         frame = mediaFile.Video.GetFrame(TimeSpan.Zero);
                         
                         // Get video dimensions from frame (ImageData is a struct, so check dimensions)
-                        int width = frame.ImageSize.Width;
-                        int height = frame.ImageSize.Height;
+                        int originalWidth = frame.ImageSize.Width;
+                        int originalHeight = frame.ImageSize.Height;
 
-                        if (width <= 0 || height <= 0)
+                        if (originalWidth <= 0 || originalHeight <= 0)
                         {
                             frame.Dispose();
                             frameDisposed = true;
                             return CreateVideoPlaceholder();
                         }
 
-                        // Calculate thumbnail dimensions maintaining aspect ratio
+                        // Apply maximum dimension guardrails to prevent memory issues with extremely high-resolution videos
+                        // Calculate scale factor if video exceeds maximum dimensions
+                        double scaleFactor = 1.0;
+                        int targetWidth = originalWidth;
+                        int targetHeight = originalHeight;
+                        
+                        if (originalWidth > MaxVideoFrameWidth || originalHeight > MaxVideoFrameHeight)
+                        {
+                            double scaleX = (double)MaxVideoFrameWidth / originalWidth;
+                            double scaleY = (double)MaxVideoFrameHeight / originalHeight;
+                            scaleFactor = Math.Min(scaleX, scaleY);
+                            targetWidth = (int)(originalWidth * scaleFactor);
+                            targetHeight = (int)(originalHeight * scaleFactor);
+                        }
+
+                        // Calculate thumbnail dimensions maintaining aspect ratio (use original dimensions for aspect ratio)
                         int thumbWidth, thumbHeight;
-                        if (width >= height)
+                        if (originalWidth >= originalHeight)
                         {
                             thumbWidth = ThumbnailSize;
-                            thumbHeight = (int)(ThumbnailSize * height / (double)width);
+                            thumbHeight = (int)(ThumbnailSize * originalHeight / (double)originalWidth);
                         }
                         else
                         {
                             thumbHeight = ThumbnailSize;
-                            thumbWidth = (int)(ThumbnailSize * width / (double)height);
+                            thumbWidth = (int)(ThumbnailSize * originalWidth / (double)originalHeight);
                         }
 
                         // Convert FFMediaToolkit frame data to WPF BitmapSource
-                        // Frame.Data is a Span<byte>, need to convert to array for WritePixels
                         var pixelDataSpan = frame.Data;
-                        var stride = width * 4; // Bgra32 = 4 bytes per pixel
+                        var originalStride = originalWidth * 4; // Bgra32 = 4 bytes per pixel
                         
                         // Convert Span<byte> to byte array for WritePixels
                         byte[] pixelDataArray = new byte[pixelDataSpan.Length];
                         pixelDataSpan.CopyTo(pixelDataArray);
                         
-                        // Create full-size bitmap first
-                        var fullBitmap = new WriteableBitmap(
-                            width,
-                            height,
-                            96, 96, PixelFormats.Bgra32, null);
+                        // Create bitmap - scale down if necessary to prevent memory issues
+                        WriteableBitmap fullBitmap;
                         
-                        fullBitmap.WritePixels(
-                            new Int32Rect(0, 0, width, height),
-                            pixelDataArray,
-                            stride,
-                            0);
+                        if (scaleFactor < 1.0)
+                        {
+                            // Scale down during pixel copy (simple nearest-neighbor for performance)
+                            // This prevents creating huge bitmaps for 8K+ videos
+                            int scaledStride = targetWidth * 4;
+                            byte[] scaledData = new byte[scaledStride * targetHeight];
+                            
+                            for (int y = 0; y < targetHeight; y++)
+                            {
+                                int srcY = (int)(y / scaleFactor);
+                                for (int x = 0; x < targetWidth; x++)
+                                {
+                                    int srcX = (int)(x / scaleFactor);
+                                    int srcIndex = (srcY * originalStride) + (srcX * 4);
+                                    int dstIndex = (y * scaledStride) + (x * 4);
+                                    
+                                    if (srcIndex + 3 < pixelDataArray.Length && dstIndex + 3 < scaledData.Length)
+                                    {
+                                        scaledData[dstIndex] = pixelDataArray[srcIndex];     // B
+                                        scaledData[dstIndex + 1] = pixelDataArray[srcIndex + 1]; // G
+                                        scaledData[dstIndex + 2] = pixelDataArray[srcIndex + 2]; // R
+                                        scaledData[dstIndex + 3] = pixelDataArray[srcIndex + 3]; // A
+                                    }
+                                }
+                            }
+                            
+                            fullBitmap = new WriteableBitmap(
+                                targetWidth,
+                                targetHeight,
+                                96, 96, PixelFormats.Bgra32, null);
+                            
+                            fullBitmap.WritePixels(
+                                new Int32Rect(0, 0, targetWidth, targetHeight),
+                                scaledData,
+                                scaledStride,
+                                0);
+                        }
+                        else
+                        {
+                            // No scaling needed - use original dimensions
+                            fullBitmap = new WriteableBitmap(
+                                originalWidth,
+                                originalHeight,
+                                96, 96, PixelFormats.Bgra32, null);
+                            
+                            fullBitmap.WritePixels(
+                                new Int32Rect(0, 0, originalWidth, originalHeight),
+                                pixelDataArray,
+                                originalStride,
+                                0);
+                        }
 
                         // Scale down to thumbnail size efficiently using TransformedBitmap
                         var scaledBitmap = new TransformedBitmap(
                             fullBitmap,
                             new ScaleTransform(
-                                (double)thumbWidth / width,
-                                (double)thumbHeight / height));
+                                (double)thumbWidth / fullBitmap.PixelWidth,
+                                (double)thumbHeight / fullBitmap.PixelHeight));
 
                         scaledBitmap.Freeze();
                         
@@ -446,12 +514,16 @@ namespace SlideShowBob
             return renderTarget;
         }
 
+        /// <summary>
+        /// Enforces cache size limit using LRU (Least Recently Used) eviction policy.
+        /// Removes items with the oldest LastAccessed timestamp until cache is within limit.
+        /// </summary>
         private void EnforceCacheSize()
         {
             if (_cache.Count <= MaxCacheSize)
                 return;
 
-            // Remove least recently used items
+            // LRU eviction: Remove least recently used items (oldest LastAccessed)
             var itemsToRemove = _cache
                 .OrderBy(kvp => kvp.Value.LastAccessed)
                 .Take(_cache.Count - MaxCacheSize)

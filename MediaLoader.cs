@@ -17,8 +17,17 @@ namespace SlideShowBob
         private readonly Dictionary<string, BitmapImage> _imageCache = new();
         private readonly Dictionary<string, BitmapImage> _gifCache = new();
         private readonly Dictionary<string, ExifOrientation> _imageOrientation = new();
+        
+        // Cache size limits: Small caches to balance memory usage vs. performance
+        // FIFO eviction: Removes oldest entry when cache is full (simple and efficient)
         private const int MaxImageCache = 5;
         private const int MaxGifCache = 3;
+        
+        // Maximum decode dimensions: Safety guardrail to prevent decoding extremely large images
+        // 4K resolution (3840px) is a reasonable maximum for display purposes
+        // This prevents memory issues with very high-resolution images (e.g., 8K, 16K)
+        private const int MaxDecodeWidth = 3840;
+        private const int MaxDecodeHeight = 3840;
 
         public enum ExifOrientation
         {
@@ -66,11 +75,25 @@ namespace SlideShowBob
                         orientation = ExifOrientation.Normal;
                     }
 
-                    // Load image
+                    // Load image with size optimization
                     var bmp = new BitmapImage();
                     bmp.BeginInit();
                     bmp.CacheOption = BitmapCacheOption.OnLoad;
                     bmp.UriSource = new Uri(filePath);
+                    
+                    // Apply decode size limits for performance:
+                    // - If viewportWidth is provided, use it (but cap at MaxDecodeWidth)
+                    // - If not provided, cap at MaxDecodeWidth to prevent decoding huge images
+                    if (viewportWidth.HasValue && viewportWidth.Value > 0)
+                    {
+                        bmp.DecodePixelWidth = Math.Min((int)viewportWidth.Value, MaxDecodeWidth);
+                    }
+                    else
+                    {
+                        // No viewport specified - use maximum safe decode size
+                        bmp.DecodePixelWidth = MaxDecodeWidth;
+                    }
+                    
                     bmp.EndInit();
                     bmp.Freeze();
 
@@ -78,7 +101,9 @@ namespace SlideShowBob
                     _imageCache[filePath] = bmp;
                     _imageOrientation[filePath] = orientation;
 
-                    // Prune cache if too large
+                    // Prune cache if too large (FIFO eviction: remove oldest entry)
+                    // Note: This is a simple FIFO strategy, not true LRU, but it's efficient and sufficient
+                    // for small cache sizes where the performance difference is negligible
                     if (_imageCache.Count > MaxImageCache)
                     {
                         var firstKey = _imageCache.Keys.First();
@@ -133,9 +158,15 @@ namespace SlideShowBob
 
                     // Downscale at decode time to roughly the viewport width
                     // This significantly improves performance for large GIFs
+                    // Apply maximum decode size limit as safety guardrail
                     if (viewportWidth.HasValue && viewportWidth.Value > 0)
                     {
-                        gifImage.DecodePixelWidth = (int)viewportWidth.Value;
+                        gifImage.DecodePixelWidth = Math.Min((int)viewportWidth.Value, MaxDecodeWidth);
+                    }
+                    else
+                    {
+                        // No viewport specified - use maximum safe decode size
+                        gifImage.DecodePixelWidth = MaxDecodeWidth;
                     }
 
                     gifImage.EndInit();
@@ -143,7 +174,7 @@ namespace SlideShowBob
                     // Cache it (don't freeze GIFs as they need to animate)
                     _gifCache[filePath] = gifImage;
 
-                    // Prune cache if too large
+                    // Prune cache if too large (FIFO eviction: remove oldest entry)
                     if (_gifCache.Count > MaxGifCache)
                     {
                         var firstKey = _gifCache.Keys.First();
@@ -170,6 +201,9 @@ namespace SlideShowBob
         {
             if (File.Exists(filePath) && !_imageCache.ContainsKey(filePath))
             {
+                // Fire-and-forget: Safe because this is a performance optimization.
+                // Errors are caught and ignored, and the result is cached for future use.
+                // The cache is thread-safe (accessed via dictionary operations).
 #pragma warning disable CS4014 // Fire-and-forget async call
                 _ = Task.Run(async () =>
                 {

@@ -8,7 +8,7 @@ namespace SlideShowBob
     /// Centralized state machine for slideshow transitions.
     /// Prevents race conditions by ensuring only one transition happens at a time.
     /// </summary>
-    public class SlideshowController
+    public class SlideshowController : IDisposable
     {
         private readonly MediaPlaylistManager _playlist;
         private readonly DispatcherTimer _slideTimer;
@@ -173,6 +173,7 @@ namespace SlideShowBob
             if (_isSlideshowRunning)
             {
                 // Small delay to let video fully stop
+                // Fire-and-forget: Safe because NavigateNext() is thread-safe and handles its own state
                 _slideTimer.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (_isSlideshowRunning && _videoEnded)
@@ -213,6 +214,15 @@ namespace SlideShowBob
         private void ResetMediaStartTime()
         {
             _mediaStartTime = DateTime.UtcNow;
+        }
+
+        /// <summary>
+        /// Disposes resources and unsubscribes from events to prevent memory leaks.
+        /// </summary>
+        public void Dispose()
+        {
+            _slideTimer.Tick -= SlideTimer_Tick;
+            _slideTimer.Stop();
         }
     }
 }

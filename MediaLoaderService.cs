@@ -19,8 +19,17 @@ namespace SlideShowBob
     {
         private readonly Dictionary<string, CachedImage> _imageCache = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, ExifOrientation> _imageOrientation = new(StringComparer.OrdinalIgnoreCase);
-        private const int MaxCacheSize = 5; // Small LRU cache
+        
+        // Cache size limit: Small cache to balance memory usage vs. performance
+        // LRU eviction: Moves accessed items to end, removes oldest (first) when full
+        private const int MaxCacheSize = 5;
         private readonly object _cacheLock = new();
+        
+        // Maximum decode dimensions: Safety guardrail to prevent decoding extremely large images
+        // 4K resolution (3840px) is a reasonable maximum for display purposes
+        // This prevents memory issues with very high-resolution images (e.g., 8K, 16K)
+        private const int MaxDecodeWidth = 3840;
+        private const int MaxDecodeHeight = 3840;
 
         /// <summary>
         /// Loads an image asynchronously with caching and optimized decoding.
@@ -31,12 +40,13 @@ namespace SlideShowBob
             if (!File.Exists(filePath))
                 return null;
 
-            // Check cache first
+            // Check cache first (LRU: move accessed item to end to mark as recently used)
             lock (_cacheLock)
             {
                 if (_imageCache.TryGetValue(filePath, out var cached))
                 {
-                    // Move to end (LRU)
+                    // Update access time and move to end (LRU: most recently used items stay at end)
+                    cached.LoadTime = DateTime.UtcNow;
                     _imageCache.Remove(filePath);
                     _imageCache.Add(filePath, cached);
                     return cached.Bitmap;
@@ -78,19 +88,27 @@ namespace SlideShowBob
                     bitmap.UriSource = new Uri(filePath);
                     bitmap.CacheOption = BitmapCacheOption.OnLoad; // Cache in memory for performance
 
-                    // Optimize decode size if specified
+                    // Optimize decode size with safety guardrails:
+                    // - If maxDecodeWidth is provided, use it (but cap at MaxDecodeWidth)
+                    // - If not provided, cap at MaxDecodeWidth to prevent decoding huge images
                     if (maxDecodeWidth.HasValue && maxDecodeWidth.Value > 0)
                     {
-                        bitmap.DecodePixelWidth = (int)maxDecodeWidth.Value;
+                        bitmap.DecodePixelWidth = Math.Min((int)maxDecodeWidth.Value, MaxDecodeWidth);
+                    }
+                    else
+                    {
+                        // No max width specified - use maximum safe decode size
+                        bitmap.DecodePixelWidth = MaxDecodeWidth;
                     }
 
                     bitmap.EndInit();
                     bitmap.Freeze(); // Freeze for thread safety
 
-                    // Cache it
+                    // Cache it (LRU: new items added at end, oldest removed from front when full)
                     lock (_cacheLock)
                     {
-                        // Remove oldest if cache is full
+                        // Remove oldest (least recently used) if cache is full
+                        // LRU strategy: items at the beginning are least recently used
                         if (_imageCache.Count >= MaxCacheSize && _imageCache.Count > 0)
                         {
                             var firstKey = _imageCache.Keys.First();
@@ -98,6 +116,7 @@ namespace SlideShowBob
                             _imageOrientation.Remove(firstKey);
                         }
 
+                        // Add new item at end (most recently used position)
                         _imageCache[filePath] = new CachedImage { Bitmap = bitmap, LoadTime = DateTime.UtcNow };
                     }
 
@@ -129,10 +148,15 @@ namespace SlideShowBob
                     bitmap.UriSource = new Uri(filePath);
                     bitmap.CacheOption = BitmapCacheOption.OnDemand; // Stream for GIFs
 
-                    // Optimize decode size
+                    // Optimize decode size with safety guardrails
                     if (maxDecodeWidth.HasValue && maxDecodeWidth.Value > 0)
                     {
-                        bitmap.DecodePixelWidth = (int)maxDecodeWidth.Value;
+                        bitmap.DecodePixelWidth = Math.Min((int)maxDecodeWidth.Value, MaxDecodeWidth);
+                    }
+                    else
+                    {
+                        // No max width specified - use maximum safe decode size
+                        bitmap.DecodePixelWidth = MaxDecodeWidth;
                     }
 
                     bitmap.EndInit();
@@ -161,7 +185,9 @@ namespace SlideShowBob
                 var item = items[idx];
                 if (item.Type == MediaType.Image)
                 {
-                    // Fire and forget - preload in background
+                    // Fire-and-forget: Safe because this is a performance optimization for preloading neighbors.
+                    // Errors are handled internally by LoadImageAsync (returns null on failure).
+                    // The result is cached for future use, and ConfigureAwait(false) prevents unnecessary context capture.
 #pragma warning disable CS4014 // Fire-and-forget async call
                     _ = LoadImageAsync(item.FilePath, maxDecodeWidth).ConfigureAwait(false);
 #pragma warning restore CS4014

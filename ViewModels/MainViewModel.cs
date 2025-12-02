@@ -102,7 +102,8 @@ namespace SlideShowBob.ViewModels
                 if (Folders.Count > 0)
                 {
                     StatusText = "Folders: " + string.Join("; ", Folders);
-                    // Load folders asynchronously (fire-and-forget)
+                    // Fire-and-forget: Safe because LoadFoldersAsync updates UI via Dispatcher and handles errors internally.
+                    // The ViewModel is long-lived, so we don't need to await this initialization.
 #pragma warning disable CS4014 // Fire-and-forget async call
                     _ = LoadFoldersAsync();
 #pragma warning restore CS4014
@@ -245,6 +246,8 @@ namespace SlideShowBob.ViewModels
                     // Reload playlist if we already have folders
                     if (Folders.Count > 0)
                     {
+                        // Fire-and-forget: Safe because LoadFoldersAsync updates UI via Dispatcher and handles errors internally.
+                        // The user can continue interacting while the playlist reloads in the background.
 #pragma warning disable CS4014 // Fire-and-forget async call
                         _ = LoadFoldersAsync();
 #pragma warning restore CS4014
@@ -302,6 +305,31 @@ namespace SlideShowBob.ViewModels
         /// Event that fires when the playlist is reloaded (after LoadFoldersAsync completes).
         /// </summary>
         public event EventHandler? PlaylistReloaded;
+
+        /// <summary>
+        /// Cleans up event subscriptions to prevent memory leaks.
+        /// Should be called when the ViewModel is no longer needed (e.g., when the window closes).
+        /// </summary>
+        public void Cleanup()
+        {
+            // Unsubscribe from service events
+            // Note: Services are long-lived, but it's good practice to unsubscribe when ViewModel is disposed
+            if (_playlistManager != null)
+                _playlistManager.PlaylistChanged -= OnPlaylistChanged;
+
+            if (_slideshowController != null)
+            {
+                _slideshowController.NavigateToIndex -= OnNavigateToIndex;
+                _slideshowController.SlideshowStarted -= OnSlideshowStarted;
+                _slideshowController.SlideshowStopped -= OnSlideshowStopped;
+            }
+
+            if (_videoPlaybackService != null)
+            {
+                _videoPlaybackService.MediaEnded -= OnVideoMediaEnded;
+                _videoPlaybackService.MediaOpened -= OnVideoMediaOpened;
+            }
+        }
 
         #endregion
 
@@ -490,7 +518,8 @@ namespace SlideShowBob.ViewModels
                 // Save folders to settings after removal
                 SaveFoldersToSettings();
 
-                // Reload playlist asynchronously
+                // Fire-and-forget: Safe because LoadFoldersAsync updates UI via Dispatcher and handles errors internally.
+                // The playlist has already been cleared synchronously, so the UI is in a consistent state.
 #pragma warning disable CS4014 // Fire-and-forget async call
                 _ = LoadFoldersAsync();
 #pragma warning restore CS4014
@@ -745,6 +774,8 @@ namespace SlideShowBob.ViewModels
             // Ensure UpdateState runs on UI thread since it updates UI-bound properties
             if (Application.Current?.Dispatcher != null && !Application.Current.Dispatcher.CheckAccess())
             {
+                // Fire-and-forget: Safe because UpdateState only updates properties, which are thread-safe via INotifyPropertyChanged.
+                // The dispatcher ensures UI updates happen on the correct thread.
                 Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     UpdateState();

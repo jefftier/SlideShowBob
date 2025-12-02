@@ -11,7 +11,7 @@ namespace SlideShowBob
     /// Manages video playback with smooth transitions and state management.
     /// Wraps MediaElement interactions to prevent stutter and race conditions.
     /// </summary>
-    public class VideoPlaybackService
+    public class VideoPlaybackService : IDisposable
     {
         private readonly MediaElement _mediaElement;
         private readonly ProgressBar _progressBar;
@@ -121,6 +121,7 @@ namespace SlideShowBob
 
             // Try to start playing immediately - MediaElement will queue it if not ready yet
             // This reduces delay compared to waiting for MediaOpened
+            // Fire-and-forget: Safe because MediaOpened handler will retry if this fails, and we verify source hasn't changed
             _mediaElement.Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (_mediaElement.Source == source) // Verify source hasn't changed
@@ -288,6 +289,28 @@ namespace SlideShowBob
                 return (0, 0);
 
             return (_mediaElement.NaturalVideoWidth, _mediaElement.NaturalVideoHeight);
+        }
+
+        /// <summary>
+        /// Disposes resources and unsubscribes from events to prevent memory leaks.
+        /// </summary>
+        public void Dispose()
+        {
+            _progressTimer.Tick -= ProgressTimer_Tick;
+            _progressTimer.Stop();
+
+            // Unsubscribe from media element events
+            if (_mediaOpenedHandler != null)
+            {
+                _mediaElement.MediaOpened -= _mediaOpenedHandler;
+                _mediaOpenedHandler = null;
+            }
+
+            if (_mediaEndedHandler != null)
+            {
+                _mediaElement.MediaEnded -= _mediaEndedHandler;
+                _mediaEndedHandler = null;
+            }
         }
     }
 }
