@@ -23,4 +23,5 @@ public class AppSettings
     // Multi-monitor support
     public string? PreferredFullscreenMonitorDeviceName { get; set; } = null;
     public string? LastFullscreenMonitorDeviceName { get; set; } = null;
+    public bool SavePreferredFullscreenMonitorDeviceName { get; set; } = true;
 }

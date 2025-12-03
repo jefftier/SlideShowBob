@@ -108,19 +108,30 @@ namespace SlideShowBob
                 })
                 .ToList();
 
-            PreferredMonitorComboBox.ItemsSource = monitors;
+            // Temporarily unsubscribe from SelectionChanged to prevent clearing the preference during initialization
+            PreferredMonitorComboBox.SelectionChanged -= PreferredMonitorComboBox_SelectionChanged;
 
-            // Select the current preferred monitor if set
-            string? preferredDeviceName = _viewModel.GetPreferredFullscreenMonitor();
-            if (!string.IsNullOrEmpty(preferredDeviceName))
+            try
             {
-                var preferredMonitor = monitors.FirstOrDefault(m => m.DeviceName == preferredDeviceName);
-                if (preferredMonitor != null)
+                PreferredMonitorComboBox.ItemsSource = monitors;
+
+                // Select the current preferred monitor if set
+                string? preferredDeviceName = _viewModel.GetPreferredFullscreenMonitor();
+                if (!string.IsNullOrEmpty(preferredDeviceName))
                 {
-                    PreferredMonitorComboBox.SelectedItem = preferredMonitor;
+                    var preferredMonitor = monitors.FirstOrDefault(m => m.DeviceName == preferredDeviceName);
+                    if (preferredMonitor != null)
+                    {
+                        PreferredMonitorComboBox.SelectedItem = preferredMonitor;
+                    }
                 }
+                // If no preference is set, ComboBox will remain unselected (null)
             }
-            // If no preference is set, ComboBox will remain unselected (null)
+            finally
+            {
+                // Re-subscribe to SelectionChanged after initialization is complete
+                PreferredMonitorComboBox.SelectionChanged += PreferredMonitorComboBox_SelectionChanged;
+            }
         }
 
         private void PreferredMonitorComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)

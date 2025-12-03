@@ -16,7 +16,6 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
-using System.Drawing;
 using WinForms = System.Windows.Forms;
 using Microsoft.WindowsAPICodePack.Dialogs;
 using WpfAnimatedGif;
@@ -36,6 +35,17 @@ namespace SlideShowBob
         {
             get => (bool)GetValue(HasScrollBarsProperty);
             set => SetValue(HasScrollBarsProperty, value);
+        }
+
+        // Dependency property to track fullscreen state for UI binding
+        public static readonly DependencyProperty IsFullscreenProperty =
+            DependencyProperty.Register(nameof(IsFullscreen), typeof(bool), typeof(MainWindow),
+                new PropertyMetadata(false));
+
+        public bool IsFullscreen
+        {
+            get => (bool)GetValue(IsFullscreenProperty);
+            set => SetValue(IsFullscreenProperty, value);
         }
 
         // ViewModel (injected from App.xaml.cs)
@@ -219,7 +229,7 @@ namespace SlideShowBob
             SetSlideshowState(false);
 
             VideoElement.IsMuted = true; // Default muted
-            MuteButton.Content = "🔇";
+            MuteButton.Content = "\uE74F"; // Muted icon
             ReplayButton.IsEnabled = false;
 
             // Empty state panel visibility is now handled via data binding
@@ -369,16 +379,6 @@ namespace SlideShowBob
             ref int pvAttribute,
             int cbAttribute);
 
-        // DPI awareness APIs
-        [DllImport("user32.dll")]
-        private static extern IntPtr MonitorFromPoint(System.Drawing.Point pt, uint dwFlags);
-
-        [DllImport("shcore.dll")]
-        private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
-
-        private const int MONITOR_DEFAULTTONEAREST = 2;
-        private const int MDT_EFFECTIVE_DPI = 0;
-
         private void EnableDarkTitleBar()
         {
             try
@@ -487,7 +487,7 @@ namespace SlideShowBob
             // Apply soft drop shadow to the main image
             ImageElement.Effect = new DropShadowEffect
             {
-                Color = System.Windows.Media.Colors.Black,
+                Color = Colors.Black,
                 Direction = 270,
                 ShadowDepth = 10,
                 BlurRadius = 25,
@@ -599,7 +599,7 @@ namespace SlideShowBob
                     // Apply soft drop shadow to the video
                     VideoElement.Effect = new DropShadowEffect
                     {
-                        Color = System.Windows.Media.Colors.Black,
+                        Color = Colors.Black,
                         Direction = 270,
                         ShadowDepth = 10,
                         BlurRadius = 25,
@@ -646,7 +646,7 @@ namespace SlideShowBob
             {
                 VideoElement.Effect = new DropShadowEffect
                 {
-                    Color = System.Windows.Media.Colors.Black,
+                    Color = Colors.Black,
                     Direction = 270,
                     ShadowDepth = 10,
                     BlurRadius = 25,
@@ -1390,7 +1390,7 @@ namespace SlideShowBob
                 Title = Title.Replace(" [Running]", "");
             }
 
-            NotchPlayPauseButton.Content = running ? "⏸" : "⏵";
+            NotchPlayPauseButton.Content = running ? "\uE769" : "\uEDB5"; // E769 = Pause, EDB5 = Play
             ReplayButton.IsEnabled = !running && CurrentMediaType == MediaType.Video;
         }
 
@@ -1513,12 +1513,12 @@ namespace SlideShowBob
                 {
                     Width = 6,
                     Height = 6,
-                    Fill = new SolidColorBrush(System.Windows.Media.Color.FromRgb(45, 125, 255))
+                    Fill = new SolidColorBrush(Color.FromRgb(45, 125, 255))
                 };
                 dot.Effect = new DropShadowEffect
                 {
                     BlurRadius = 8,
-                    Color = System.Windows.Media.Color.FromRgb(45, 125, 255),
+                    Color = Color.FromRgb(45, 125, 255),
                     ShadowDepth = 0,
                     Opacity = 0.8
                 };
@@ -2345,134 +2345,61 @@ namespace SlideShowBob
             ToggleFullscreen();
         }
 
-        private void MonitorButton_Click(object sender, RoutedEventArgs e)
+        private void ApplyFullscreenPosition()
         {
-            var screens = WinForms.Screen.AllScreens;
-
-            // If only one screen, do nothing (or optionally show a message)
-            if (screens.Length <= 1)
-            {
-                return;
-            }
-
-            // Get current settings
-            if (_viewModel?.Settings == null || _viewModel.SettingsService == null)
-            {
-                return;
-            }
-
-            var settings = _viewModel.Settings;
-
-            // Find the current preferred screen index
-            int currentIndex = 0;
-            if (!string.IsNullOrEmpty(settings.PreferredFullscreenMonitorDeviceName))
-            {
-                var currentScreen = screens.FirstOrDefault(s => 
-                    s.DeviceName == settings.PreferredFullscreenMonitorDeviceName);
-                if (currentScreen != null)
-                {
-                    currentIndex = Array.IndexOf(screens, currentScreen);
-                }
-            }
-
-            // Advance to the next index (wrap around)
-            int nextIndex = (currentIndex + 1) % screens.Length;
-            var nextScreen = screens[nextIndex];
-
-            // Update the preferred monitor
-            settings.PreferredFullscreenMonitorDeviceName = nextScreen.DeviceName;
-
-            // Save settings
-            _viewModel.SettingsService.Save(settings);
-
-            // If currently in fullscreen, re-enter fullscreen to apply the new monitor
-            if (_isFullscreen)
-            {
-                // Exit fullscreen (first call toggles off)
-                ToggleFullscreen();
-                // Re-enter fullscreen on the new monitor (second call toggles on)
-                ToggleFullscreen();
-            }
-        }
-
-        /// <summary>
-        /// Gets the target screen for fullscreen mode based on user preferences.
-        /// Priority: PreferredFullscreenMonitorDeviceName > LastFullscreenMonitorDeviceName > Current screen
-        /// </summary>
-        private WinForms.Screen GetTargetFullscreenScreen()
-        {
+            // Get the target screen (preferred monitor or current screen)
             var windowInteropHelper = new WindowInteropHelper(this);
-            var currentScreen = WinForms.Screen.FromHandle(windowInteropHelper.Handle);
+            WinForms.Screen targetScreen = WinForms.Screen.FromHandle(windowInteropHelper.Handle);
             
-            // If no ViewModel or settings, fall back to current screen
-            if (_viewModel?.Settings == null)
+            // Check if there's a preferred monitor setting
+            string? preferredDeviceName = _viewModel?.Settings?.PreferredFullscreenMonitorDeviceName;
+            if (!string.IsNullOrEmpty(preferredDeviceName))
             {
-                return currentScreen;
-            }
-
-            var settings = _viewModel.Settings;
-            var allScreens = WinForms.Screen.AllScreens;
-
-            // Try PreferredFullscreenMonitorDeviceName first
-            if (!string.IsNullOrEmpty(settings.PreferredFullscreenMonitorDeviceName))
-            {
-                var preferredScreen = allScreens.FirstOrDefault(s => 
-                    s.DeviceName == settings.PreferredFullscreenMonitorDeviceName);
+                var preferredScreen = WinForms.Screen.AllScreens
+                    .FirstOrDefault(s => s.DeviceName == preferredDeviceName);
                 if (preferredScreen != null)
                 {
-                    return preferredScreen;
+                    targetScreen = preferredScreen;
                 }
             }
+            
+            var screenBounds = targetScreen.Bounds;
 
-            // Try LastFullscreenMonitorDeviceName second
-            if (!string.IsNullOrEmpty(settings.LastFullscreenMonitorDeviceName))
+            // Get DPI scaling factor for WPF
+            // WPF uses device-independent units (1/96 inch), so we need to account for DPI scaling
+            var source = PresentationSource.FromVisual(this);
+            double dpiScaleX = 1.0;
+            double dpiScaleY = 1.0;
+            
+            if (source?.CompositionTarget != null)
             {
-                var lastScreen = allScreens.FirstOrDefault(s => 
-                    s.DeviceName == settings.LastFullscreenMonitorDeviceName);
-                if (lastScreen != null)
-                {
-                    return lastScreen;
-                }
+                var transform = source.CompositionTarget.TransformToDevice;
+                dpiScaleX = transform.M11;
+                dpiScaleY = transform.M22;
             }
-
-            // Fall back to current screen
-            return currentScreen;
-        }
-
-        /// <summary>
-        /// Gets DPI-aware screen bounds for WPF. Converts device pixels to WPF logical pixels.
-        /// </summary>
-        private Rect GetDpiAwareScreenBounds(WinForms.Screen screen)
-        {
-            try
+            
+            // For per-monitor DPI, we need to get the DPI of the target monitor
+            // Use Win32 API to get the actual DPI of the target screen
+            IntPtr monitorHandle = Win32.MonitorFromPoint(
+                new Win32.POINT { X = screenBounds.Left + screenBounds.Width / 2, Y = screenBounds.Top + screenBounds.Height / 2 },
+                Win32.MONITOR_DEFAULTTONEAREST);
+            
+            uint dpiX = 96, dpiY = 96;
+            int result = Win32.GetDpiForMonitor(monitorHandle, Win32.MONITOR_DPI_TYPE.MDT_EFFECTIVE_DPI, out dpiX, out dpiY);
+            if (result == 0) // Success
             {
-                // Get the monitor handle for this screen
-                var centerPoint = new System.Drawing.Point(
-                    screen.Bounds.Left + screen.Bounds.Width / 2,
-                    screen.Bounds.Top + screen.Bounds.Height / 2);
-                IntPtr hMonitor = MonitorFromPoint(centerPoint, MONITOR_DEFAULTTONEAREST);
-
-                // Get DPI for this monitor
-                if (GetDpiForMonitor(hMonitor, MDT_EFFECTIVE_DPI, out uint dpiX, out uint dpiY) == 0)
-                {
-                    // Convert from device pixels to WPF logical pixels (96 DPI)
-                    double scaleX = 96.0 / dpiX;
-                    double scaleY = 96.0 / dpiY;
-
-                    return new Rect(
-                        screen.Bounds.Left * scaleX,
-                        screen.Bounds.Top * scaleY,
-                        screen.Bounds.Width * scaleX,
-                        screen.Bounds.Height * scaleY);
-                }
+                dpiScaleX = dpiX / 96.0;
+                dpiScaleY = dpiY / 96.0;
             }
-            catch
-            {
-                // If DPI API fails, fall back to using screen bounds directly
-            }
-
-            // Fallback: return screen bounds as-is (may not be accurate with DPI scaling)
-            return new Rect(screen.Bounds.Left, screen.Bounds.Top, screen.Bounds.Width, screen.Bounds.Height);
+            // If GetDpiForMonitor fails (e.g., on Windows 7), fall back to current window DPI scale
+            
+            // True fullscreen: cover entire screen, including over taskbar
+            // Convert physical pixel bounds to WPF logical coordinates
+            WindowState = WindowState.Normal;  // so manual bounds apply
+            Left = screenBounds.Left / dpiScaleX;
+            Top = screenBounds.Top / dpiScaleY;
+            Width = screenBounds.Width / dpiScaleX;
+            Height = screenBounds.Height / dpiScaleY;
         }
 
         private void ToggleFullscreen()
@@ -2480,6 +2407,7 @@ namespace SlideShowBob
             if (!_isFullscreen)
             {
                 _isFullscreen = true;
+                IsFullscreen = true;
 
                 // Save current window state and bounds
                 _prevState = WindowState;
@@ -2495,25 +2423,8 @@ namespace SlideShowBob
                 ResizeMode = ResizeMode.NoResize;
                 Topmost = true;
 
-                // Get the target screen based on user preferences
-                var targetScreen = GetTargetFullscreenScreen();
-                
-                // Get DPI-aware screen bounds (converts device pixels to WPF logical pixels)
-                var screenBounds = GetDpiAwareScreenBounds(targetScreen);
-
-                // True fullscreen: cover entire screen, including over taskbar
-                WindowState = WindowState.Normal;  // so manual bounds apply
-                Left = screenBounds.Left;
-                Top = screenBounds.Top;
-                Width = screenBounds.Width;
-                Height = screenBounds.Height;
-
-                // Save the monitor device name that was actually used for fullscreen
-                if (_viewModel?.Settings != null && _viewModel.SettingsService != null)
-                {
-                    _viewModel.Settings.LastFullscreenMonitorDeviceName = targetScreen.DeviceName;
-                    _viewModel.SettingsService.Save(_viewModel.Settings);
-                }
+                // Apply fullscreen positioning
+                ApplyFullscreenPosition();
 
                 // In fullscreen, always use minimized notch toolbar
                 MinimizeToolbar();
@@ -2530,6 +2441,7 @@ namespace SlideShowBob
             else
             {
                 _isFullscreen = false;
+                IsFullscreen = false;
                 
                 // Hide fullscreen top overlay when exiting fullscreen
                 if (FullscreenTopOverlay != null)
@@ -2574,7 +2486,7 @@ namespace SlideShowBob
         {
             _isMuted = !_isMuted;
             VideoElement.IsMuted = _isMuted;
-            MuteButton.Content = _isMuted ? "🔇" : "🔊";
+            MuteButton.Content = _isMuted ? "\uE74F" : "\uE767"; // E74F = Mute, E767 = Unmute
 
             if (_viewModel?.Settings != null && _viewModel.Settings.SaveIsMuted)
             {
@@ -2588,6 +2500,68 @@ namespace SlideShowBob
             if (CurrentMediaType != MediaType.Video) return;
             if (_slideshowController == null || _slideshowController.IsRunning) return;
             _videoService?.Replay();
+        }
+
+        private void MonitorButton_Click(object sender, RoutedEventArgs e)
+        {
+            // Create context menu with available monitors
+            var menu = new ContextMenu();
+            var screens = WinForms.Screen.AllScreens;
+            
+            for (int i = 0; i < screens.Length; i++)
+            {
+                var screen = screens[i];
+                var menuItem = new MenuItem
+                {
+                    Header = $"Monitor {i + 1}{(screen.Primary ? " (Primary)" : "")}",
+                    Tag = screen.DeviceName
+                };
+                
+                // Check if this is the current preferred monitor
+                string? preferredDeviceName = _viewModel?.Settings?.PreferredFullscreenMonitorDeviceName;
+                if (screen.DeviceName == preferredDeviceName)
+                {
+                    menuItem.IsChecked = true;
+                }
+                
+                menuItem.Click += (s, args) =>
+                {
+                    if (_viewModel?.Settings != null)
+                    {
+                        _viewModel.Settings.PreferredFullscreenMonitorDeviceName = screen.DeviceName;
+                        if (_viewModel.Settings.SavePreferredFullscreenMonitorDeviceName)
+                        {
+                            _viewModel.SettingsService?.Save(_viewModel.Settings);
+                        }
+                        
+                        // If currently in fullscreen mode, immediately switch to the new monitor
+                        if (_isFullscreen)
+                        {
+                            ApplyFullscreenPosition();
+                            
+                            // Re-apply fit so media matches new size
+                            if (CurrentMediaType == MediaType.Video && VideoElement.Source != null && FitToggle.IsChecked == true)
+                            {
+                                SetVideoFit();
+                            }
+                            else if (ImageElement.Source != null && FitToggle.IsChecked == true)
+                            {
+                                SetZoomFit(CurrentMediaType == MediaType.Gif);
+                            }
+                        }
+                    }
+                };
+                
+                menu.Items.Add(menuItem);
+            }
+            
+            // Show menu at button position
+            if (sender is Button button)
+            {
+                menu.PlacementTarget = button;
+                menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+                menu.IsOpen = true;
+            }
         }
 
         private void PrevButton_Click(object sender, RoutedEventArgs e) => ShowPrevious();
@@ -2920,7 +2894,7 @@ namespace SlideShowBob
         /// Checks if the mouse is currently over any UI element that should not be affected by scrolling.
         /// Uses the visual tree to check if the mouse is over UI elements.
         /// </summary>
-        private bool IsMouseOverUIElement(System.Windows.Point mousePosition)
+        private bool IsMouseOverUIElement(Point mousePosition)
         {
             // Convert window-relative position to screen coordinates for InputHitTest
             var screenPoint = PointToScreen(mousePosition);
@@ -3373,5 +3347,31 @@ namespace SlideShowBob
         #endregion
 
     }
-}
 
+    #region Win32 API for DPI detection
+    internal static class Win32
+    {
+        [DllImport("user32.dll")]
+        public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+        [DllImport("shcore.dll")]
+        public static extern int GetDpiForMonitor(IntPtr hmonitor, MONITOR_DPI_TYPE dpiType, out uint dpiX, out uint dpiY);
+
+        public const uint MONITOR_DEFAULTTONEAREST = 2;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT
+        {
+            public int X;
+            public int Y;
+        }
+
+        public enum MONITOR_DPI_TYPE
+        {
+            MDT_EFFECTIVE_DPI = 0,
+            MDT_ANGULAR_DPI = 1,
+            MDT_RAW_DPI = 2
+        }
+    }
+    #endregion
+}

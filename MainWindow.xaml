@@ -17,12 +17,13 @@
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanResize"
         AllowDrop="True"
-        KeyDown="Window_KeyDown"
+        PreviewKeyDown="Window_KeyDown"
         MouseMove="Window_MouseMove"
         SizeChanged="Window_SizeChanged"
         DragEnter="Window_DragEnter"
         DragOver="Window_DragOver"
-        Drop="Window_Drop">
+        Drop="Window_Drop"
+        ToolTipService.InitialShowDelay="0">
 
 
 
@@ -447,18 +448,25 @@
                                 VerticalAlignment="Center">
                         <!-- Prev / Play / Pause / Next with modern icons -->
                         <Button x:Name="PrevButton"
-                                Style="{StaticResource IconButton}"
-                                Content="⏮"
-                                Command="{Binding PreviousCommand}"/>
+                                ToolTip="Previous"
+                                Command="{Binding PreviousCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                    <Setter Property="Content" Value="&#xE892;"/>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                         <Button x:Name="StartButton"
-                                Content="⏵"
                                 ToolTip="Start slideshow"
                                 Command="{Binding StartSlideshowCommand}">
                             <Button.Style>
                                 <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                    <Setter Property="Content" Value="&#xEDB5;"/>
                                     <Setter Property="Visibility" Value="Visible"/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsPlaying}" Value="True">
@@ -470,11 +478,12 @@
                         </Button>
 
                         <Button x:Name="StopButton"
-                                Content="⏸"
                                 ToolTip="Pause slideshow"
                                 Command="{Binding StopSlideshowCommand}">
                             <Button.Style>
                                 <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                    <Setter Property="Content" Value="&#xE769;"/>
                                     <Setter Property="Visibility" Value="Collapsed"/>
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding IsPlaying}" Value="True">
@@ -488,23 +497,35 @@
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                         <Button x:Name="NextButton"
-                                Style="{StaticResource IconButton}"
-                                Content="⏭"
-                                Command="{Binding NextCommand}"/>
+                                ToolTip="Next"
+                                Command="{Binding NextCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                    <Setter Property="Content" Value="&#xE893;"/>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                         <Button x:Name="ReplayButton"
-                                Style="{StaticResource IconButton}"
-                                Content="⟲"
                                 ToolTip="Replay video"
-                                Click="ReplayButton_Click"/>
+                                Click="ReplayButton_Click">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                    <Setter Property="Content" Value="&#xE72C;"/>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                         <ToggleButton x:Name="FitToggle"
                                       Style="{StaticResource PillToggle}"
                                       Content="Fit"
+                                      ToolTip="Fit to window"
                                       IsChecked="True"
                                       Checked="FitToggle_Checked"
                                       Unchecked="FitToggle_Unchecked"/>
@@ -525,6 +546,7 @@
                         <Button x:Name="ZoomResetButton"
                                 Style="{StaticResource IconButton}"
                                 Content="100%"
+                                ToolTip="Reset zoom to 100%"
                                 Click="ZoomResetButton_Click"
                                 FontSize="11"
                                 FontFamily="Segoe UI Variable"
@@ -535,43 +557,82 @@
                         <ToggleButton x:Name="IncludeVideoToggle"
                                       Style="{StaticResource PillToggle}"
                                       Content="GIF / MP4"
+                                      ToolTip="Include videos and GIFs"
                                       IsChecked="{Binding IncludeVideos, Mode=TwoWay}"/>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                         <Button x:Name="MuteButton"
-                                Style="{StaticResource IconButton}"
-                                Content="🔇"
-                                Click="MuteButton_Click"/>
+                                ToolTip="Mute/Unmute"
+                                Click="MuteButton_Click">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                    <Setter Property="Content" Value="&#xE74F;"/>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                         <Button x:Name="FullscreenButton"
-                                Style="{StaticResource IconButton}"
                                 Content="⛶"
-                                Click="FullscreenButton_Click"/>
+                                ToolTip="Toggle fullscreen"
+                                Click="FullscreenButton_Click">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsFullscreen, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
                         <Button x:Name="MonitorButton"
-                                Style="{StaticResource IconButton}"
-                                Content="🖥"
                                 ToolTip="Change fullscreen monitor"
-                                Click="MonitorButton_Click"/>
+                                Click="MonitorButton_Click">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                    <Setter Property="Content" Value="&#xE7F8;"/>
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsFullscreen, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                         <Button x:Name="SelectFolderButton"
-                                Style="{StaticResource IconButton}"
-                                Content="📁"
                                 ToolTip="Change folder"
-                                Command="{Binding AddFolderCommand}"/>
+                                Command="{Binding AddFolderCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                    <Setter Property="Content" Value="&#xED25;"/>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                         <Button x:Name="PlaylistButton"
-                                Style="{StaticResource IconButton}"
-                                Content="☰"
                                 ToolTip="Playlist editor"
-                                Command="{Binding OpenPlaylistCommand}"/>
+                                Command="{Binding OpenPlaylistCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                    <Setter Property="Content" Value="&#xE700;"/>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
@@ -609,10 +670,15 @@
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                         <Button x:Name="SettingsButton"
-                                Style="{StaticResource IconButton}"
-                                Content="⚙"
                                 ToolTip="App Settings"
-                                Command="{Binding OpenSettingsCommand}"/>
+                                Command="{Binding OpenSettingsCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                    <Setter Property="Content" Value="&#xE713;"/>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
                         <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
@@ -671,21 +737,28 @@
                             VerticalAlignment="Center"
                             Margin="0">
                     <Button x:Name="NotchPrevButton"
-                            Style="{StaticResource IconButton}"
-                            Content="⏮"
-                            Command="{Binding PreviousCommand}"/>
+                            ToolTip="Previous"
+                            Command="{Binding PreviousCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                <Setter Property="Content" Value="&#xE892;"/>
+                            </Style>
+                        </Button.Style>
+                    </Button>
 
                     <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                     <Button x:Name="NotchPlayPauseButton"
-                            Content="⏵"
+                            ToolTip="Play/Pause"
                             Command="{Binding PlayPauseCommand}">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
-                                <Setter Property="Content" Value="⏵"/>
+                                <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                <Setter Property="Content" Value="&#xEDB5;"/>
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsPlaying}" Value="True">
-                                        <Setter Property="Content" Value="⏸"/>
+                                        <Setter Property="Content" Value="&#xE769;"/>
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
@@ -695,23 +768,62 @@
                     <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
                     <Button x:Name="NotchNextButton"
-                            Style="{StaticResource IconButton}"
-                            Content="⏭"
-                            Command="{Binding NextCommand}"/>
+                            ToolTip="Next"
+                            Command="{Binding NextCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                <Setter Property="Content" Value="&#xE893;"/>
+                            </Style>
+                        </Button.Style>
+                    </Button>
 
                     <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
-                    <Button Style="{StaticResource IconButton}"
-                            Content="⚙"
-                            ToolTip="Settings"
-                            Command="{Binding OpenSettingsCommand}"/>
+                    <Button x:Name="NotchFullscreenButton"
+                            Content="⛶"
+                            ToolTip="Toggle fullscreen"
+                            Click="FullscreenButton_Click">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                <Setter Property="Visibility" Value="Visible"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsFullscreen, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
+                    <Button x:Name="NotchMonitorButton"
+                            ToolTip="Change fullscreen monitor"
+                            Click="MonitorButton_Click">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                <Setter Property="Content" Value="&#xE7F8;"/>
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsFullscreen, RelativeSource={RelativeSource AncestorType=Window}}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
 
                     <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
-                    <Button Style="{StaticResource IconButton}"
-                            Content="☰"
-                            ToolTip="Playlist"
-                            Command="{Binding OpenPlaylistCommand}"/>
+                    <Button ToolTip="Playlist"
+                            Command="{Binding OpenPlaylistCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
+                                <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+                                <Setter Property="Content" Value="&#xE700;"/>
+                            </Style>
+                        </Button.Style>
+                    </Button>
 
                     <Rectangle Width="1" Height="20" Fill="{StaticResource SubtleBorderBrush}" Margin="0" VerticalAlignment="Center" Opacity="0.3"/>
 
