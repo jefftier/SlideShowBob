@@ -544,21 +544,47 @@
                                    Margin="0,0,0,12"/>
                         
                         <!-- Preferred Fullscreen Monitor -->
-                        <StackPanel Margin="0,0,0,8">
-                            <TextBlock Text="Preferred fullscreen monitor"
-                                       FontWeight="Medium"
-                                       Margin="0,0,0,8"/>
+                        <Grid Margin="0,0,0,16">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Preferred fullscreen monitor"
+                                           FontWeight="Medium"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,6,0"/>
+                                <TextBlock Style="{StaticResource InfoIconStyle}">
+                                    <ToolTipService.ToolTip>
+                                        <ToolTip>
+                                            <TextBlock Text="Select which monitor to use for fullscreen mode. If none is selected, the last used monitor will be used."
+                                                       TextWrapping="Wrap"
+                                                       MaxWidth="300"/>
+                                        </ToolTip>
+                                    </ToolTipService.ToolTip>
+                                </TextBlock>
+                            </StackPanel>
                             <ComboBox x:Name="PreferredMonitorComboBox"
+                                      Grid.Column="1"
+                                      Grid.Row="0"
+                                      VerticalAlignment="Center"
                                       HorizontalAlignment="Left"
                                       MinWidth="200"
                                       DisplayMemberPath="DisplayName"
                                       SelectedValuePath="DeviceName"/>
-                            <TextBlock Text="If none is selected, the last used monitor will be used."
+                            <TextBlock Grid.Row="1"
+                                       Grid.Column="0"
+                                       Grid.ColumnSpan="2"
+                                       Text="If none is selected, the last used monitor will be used."
                                        Foreground="{StaticResource TextSecondaryBrush}"
                                        FontSize="12"
                                        Margin="0,8,0,0"
                                        TextWrapping="Wrap"/>
-                        </StackPanel>
+                        </Grid>
                     </StackPanel>
                     
                 </StackPanel>

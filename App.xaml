@@ -412,12 +412,46 @@
                                     BorderBrush="{TemplateBinding BorderBrush}"
                                     BorderThickness="{TemplateBinding BorderThickness}"
                                     CornerRadius="2">
+                                <Border.Resources>
+                                    <!-- Override system colors to prevent default theme colors -->
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0E1524"/>
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.HotTrackBrushKey}" Color="#0E1524"/>
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#111827"/>
+                                </Border.Resources>
                                 <ToggleButton x:Name="ToggleButton"
                                             Background="Transparent"
                                             BorderThickness="0"
                                             Focusable="False"
                                             ClickMode="Press"
                                             IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border x:Name="ToggleButtonBorder"
+                                                    Background="{TemplateBinding Background}"
+                                                    BorderThickness="0">
+                                                <Border.Resources>
+                                                    <!-- Override system colors to prevent default theme colors -->
+                                                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="Transparent"/>
+                                                    <SolidColorBrush x:Key="{x:Static SystemColors.HotTrackBrushKey}" Color="Transparent"/>
+                                                    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="Transparent"/>
+                                                </Border.Resources>
+                                                <ContentPresenter Content="{TemplateBinding Content}"
+                                                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="ToggleButtonBorder" Property="Background" Value="Transparent"/>
+                                                </Trigger>
+                                                <Trigger Property="IsPressed" Value="True">
+                                                    <Setter TargetName="ToggleButtonBorder" Property="Background" Value="Transparent"/>
+                                                </Trigger>
+                                                <Trigger Property="IsChecked" Value="True">
+                                                    <Setter TargetName="ToggleButtonBorder" Property="Background" Value="Transparent"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition/>
@@ -518,10 +552,22 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ComboBoxItem">
                         <Grid x:Name="Root" Background="{StaticResource SurfaceAltBrush}">
+                            <Grid.Resources>
+                                <!-- Override system colors to prevent default theme colors -->
+                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0E1524"/>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.HotTrackBrushKey}" Color="#0E1524"/>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#111827"/>
+                            </Grid.Resources>
                             <Border x:Name="Border"
                                     Background="{StaticResource SurfaceAltBrush}"
                                     BorderThickness="0"
                                     Padding="{TemplateBinding Padding}">
+                                <Border.Resources>
+                                    <!-- Override system colors to prevent default theme colors -->
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#0E1524"/>
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.HotTrackBrushKey}" Color="#0E1524"/>
+                                    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="#111827"/>
+                                </Border.Resources>
                                 <ContentPresenter x:Name="ContentPresenter"
                                                 Content="{TemplateBinding Content}"
                                                 ContentTemplate="{TemplateBinding ContentTemplate}"
