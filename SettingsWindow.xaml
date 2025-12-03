@@ -561,7 +561,7 @@
                                 <TextBlock Style="{StaticResource InfoIconStyle}">
                                     <ToolTipService.ToolTip>
                                         <ToolTip>
-                                            <TextBlock Text="Select which monitor to use for fullscreen mode. If none is selected, the last used monitor will be used."
+                                            <TextBlock Text="Select which monitor to use for fullscreen mode. Choose 'None' to use the last used monitor, or select a specific monitor to always use for fullscreen."
                                                        TextWrapping="Wrap"
                                                        MaxWidth="300"/>
                                         </ToolTip>
@@ -579,7 +579,7 @@
                             <TextBlock Grid.Row="1"
                                        Grid.Column="0"
                                        Grid.ColumnSpan="2"
-                                       Text="If none is selected, the last used monitor will be used."
+                                       Text="Select 'None' to use the last used monitor, or choose a specific monitor to always use for fullscreen."
                                        Foreground="{StaticResource TextSecondaryBrush}"
                                        FontSize="12"
                                        Margin="0,8,0,0"

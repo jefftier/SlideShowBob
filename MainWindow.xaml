@@ -284,6 +284,7 @@
                     </Grid.Style>
                     <!-- Blurred background for portrait images - behind everything -->
                     <Image x:Name="BlurredBackgroundImage"
+                           Panel.ZIndex="0"
                            Stretch="UniformToFill"
                            RenderOptions.BitmapScalingMode="HighQuality"
                            HorizontalAlignment="Stretch"
@@ -296,10 +297,11 @@
                     </Image>
                     
                     <ScrollViewer x:Name="ScrollHost"
+                                  Panel.ZIndex="1"
                                   HorizontalScrollBarVisibility="Auto"
                                   VerticalScrollBarVisibility="Auto"
                                   CanContentScroll="False"
-                                  Background="{StaticResource SurfaceBrush}"
+                                  Background="Transparent"
                                   PanningMode="Both"
                                   PreviewMouseWheel="ScrollHost_PreviewMouseWheel"
                                   PreviewMouseRightButtonUp="ScrollHost_PreviewMouseRightButtonUp"

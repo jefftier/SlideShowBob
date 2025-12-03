@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -16,7 +17,7 @@ namespace SlideShowBob
         // Simple class to hold monitor information for ComboBox
         private class MonitorInfo
         {
-            public string DeviceName { get; set; } = string.Empty;
+            public string? DeviceName { get; set; } = string.Empty;
             public string DisplayName { get; set; } = string.Empty;
         }
 
@@ -100,6 +101,14 @@ namespace SlideShowBob
 
         private void PopulateMonitorComboBox()
         {
+            // Create "None" option first
+            var noneOption = new MonitorInfo
+            {
+                DeviceName = null, // null indicates "none"
+                DisplayName = "None"
+            };
+
+            // Get all monitors
             var monitors = WinForms.Screen.AllScreens
                 .Select((screen, index) => new MonitorInfo
                 {
@@ -108,14 +117,18 @@ namespace SlideShowBob
                 })
                 .ToList();
 
+            // Combine "None" option with monitors
+            var allOptions = new List<MonitorInfo> { noneOption };
+            allOptions.AddRange(monitors);
+
             // Temporarily unsubscribe from SelectionChanged to prevent clearing the preference during initialization
             PreferredMonitorComboBox.SelectionChanged -= PreferredMonitorComboBox_SelectionChanged;
 
             try
             {
-                PreferredMonitorComboBox.ItemsSource = monitors;
+                PreferredMonitorComboBox.ItemsSource = allOptions;
 
-                // Select the current preferred monitor if set
+                // Select the current preferred monitor if set, otherwise select "None"
                 string? preferredDeviceName = _viewModel.GetPreferredFullscreenMonitor();
                 if (!string.IsNullOrEmpty(preferredDeviceName))
                 {
@@ -124,8 +137,17 @@ namespace SlideShowBob
                     {
                         PreferredMonitorComboBox.SelectedItem = preferredMonitor;
                     }
+                    else
+                    {
+                        // Monitor not found, select "None"
+                        PreferredMonitorComboBox.SelectedItem = noneOption;
+                    }
                 }
-                // If no preference is set, ComboBox will remain unselected (null)
+                else
+                {
+                    // No preference set, select "None"
+                    PreferredMonitorComboBox.SelectedItem = noneOption;
+                }
             }
             finally
             {
@@ -138,6 +160,7 @@ namespace SlideShowBob
         {
             if (PreferredMonitorComboBox.SelectedItem is MonitorInfo selectedMonitor)
             {
+                // If DeviceName is null, it's the "None" option
                 _viewModel.SetPreferredFullscreenMonitor(selectedMonitor.DeviceName);
             }
             else

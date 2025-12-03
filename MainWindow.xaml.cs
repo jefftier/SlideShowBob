@@ -471,8 +471,9 @@ namespace SlideShowBob
             BlurredBackgroundImage.Source = null;
             ImageElement.Effect = null;
 
-            // Check if setting is enabled
-            if (_viewModel?.Settings != null && !_viewModel.Settings.PortraitBlurEffect)
+            // Check if setting is enabled (default to true if Settings is null, matching AppSettings default)
+            bool blurEnabled = _viewModel?.Settings?.PortraitBlurEffect ?? true;
+            if (!blurEnabled)
                 return;
 
             // Check if image is portrait
@@ -505,8 +506,9 @@ namespace SlideShowBob
             BlurredBackgroundImage.Source = null;
             VideoElement.Effect = null;
 
-            // Check if setting is enabled
-            if (_viewModel?.Settings != null && !_viewModel.Settings.PortraitBlurEffect)
+            // Check if setting is enabled (default to true if Settings is null, matching AppSettings default)
+            bool blurEnabled = _viewModel?.Settings?.PortraitBlurEffect ?? true;
+            if (!blurEnabled)
                 return;
 
             // Check if video is portrait
@@ -1846,6 +1848,16 @@ namespace SlideShowBob
                     // Apply portrait blur effect immediately - directly tied to the GIF source
                     ApplyPortraitBlurEffectForImage(gifImage, currentItem.FilePath);
 
+                    // Re-apply blur effect after layout completes to ensure it's visible
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        UpdateLayout();
+                        if (ImageElement.Source is BitmapSource bmp)
+                        {
+                            ApplyPortraitBlurEffectForImage(bmp, currentItem.FilePath);
+                        }
+                    }), DispatcherPriority.Loaded);
+
                     // Wait for GIF to load and layout to complete before fitting
                     if (FitToggle.IsChecked == true)
                     {
@@ -1940,6 +1952,16 @@ namespace SlideShowBob
                     // Apply portrait blur effect immediately - directly tied to the image source
                     ApplyPortraitBlurEffectForImage(img, currentItem.FilePath);
                     
+                    // Re-apply blur effect after layout completes to ensure it's visible
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        UpdateLayout();
+                        if (ImageElement.Source is BitmapSource bmp)
+                        {
+                            ApplyPortraitBlurEffectForImage(bmp, currentItem.FilePath);
+                        }
+                    }), DispatcherPriority.Loaded);
+                    
                     // Apply EXIF rotation if needed
                     var orientation = _mediaLoader?.GetOrientation(currentItem.FilePath);
                     if (orientation == ExifOrientation.Rotate90)
@@ -2009,6 +2031,13 @@ namespace SlideShowBob
                             ScrollHost.UpdateLayout();
                             ImageElement.UpdateLayout();
                             UpdateLayout();
+                            
+                            // Re-apply portrait blur effect after layout
+                            if (ImageElement.Source is BitmapSource bmp)
+                            {
+                                string? currentFile = _viewModel?.PlaylistManager?.CurrentItem?.FilePath;
+                                ApplyPortraitBlurEffect(bmp, currentFile);
+                            }
                         }), DispatcherPriority.Loaded);
                         
                         Dispatcher.BeginInvoke(new Action(() =>
@@ -2468,16 +2497,104 @@ namespace SlideShowBob
                 }
 
                 ShowChrome();
+
+                // Wait for window layout to complete before recalculating media fit
+                // This ensures the ScrollHost viewport has the correct size when exiting fullscreen
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    UpdateLayout();
+                    if (ScrollHost != null)
+                    {
+                        ScrollHost.UpdateLayout();
+                        MediaGrid?.UpdateLayout();
+                    }
+
+                    // Re-apply fit so media matches new size after layout is complete
+                    if (CurrentMediaType == MediaType.Video && VideoElement.Source != null && FitToggle.IsChecked == true)
+                    {
+                        SetVideoFit();
+                        // Re-apply portrait blur effect after resize
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            ApplyPortraitBlurEffectForVideo();
+                        }), System.Windows.Threading.DispatcherPriority.Loaded);
+                    }
+                    else if (ImageElement.Source != null && FitToggle.IsChecked == true)
+                    {
+                        SetZoomFit(CurrentMediaType == MediaType.Gif);
+                        // Re-apply portrait blur effect after resize
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            if (ImageElement.Source is BitmapSource bmp)
+                            {
+                                string? currentFile = _viewModel?.PlaylistManager?.CurrentItem?.FilePath;
+                                ApplyPortraitBlurEffect(bmp, currentFile);
+                            }
+                        }), System.Windows.Threading.DispatcherPriority.Loaded);
+                    }
+                    else if (ImageElement.Source != null)
+                    {
+                        // Even if not in fit mode, reset scroll position and re-apply blur when exiting fullscreen
+                        if (ScrollHost != null)
+                        {
+                            ScrollHost.UpdateLayout();
+                            MediaGrid?.UpdateLayout();
+                            Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                ScrollHost.ScrollToHorizontalOffset(0);
+                                ScrollHost.ScrollToVerticalOffset(0);
+                            }), DispatcherPriority.Render);
+                        }
+                        // Re-apply portrait blur effect after resize (even when not in fit mode)
+                        Dispatcher.BeginInvoke(new Action(() =>
+                        {
+                            if (ImageElement.Source is BitmapSource bmp)
+                            {
+                                string? currentFile = _viewModel?.PlaylistManager?.CurrentItem?.FilePath;
+                                ApplyPortraitBlurEffect(bmp, currentFile);
+                            }
+                        }), System.Windows.Threading.DispatcherPriority.Loaded);
+                    }
+                }), DispatcherPriority.Loaded);
             }
 
-            // Re-apply fit so media matches new size
-            if (CurrentMediaType == MediaType.Video && VideoElement.Source != null && FitToggle.IsChecked == true)
+            // Re-apply fit so media matches new size (for entering fullscreen)
+            if (_isFullscreen)
             {
-                SetVideoFit();
-            }
-            else if (ImageElement.Source != null && FitToggle.IsChecked == true)
-            {
-                SetZoomFit(CurrentMediaType == MediaType.Gif);
+                if (CurrentMediaType == MediaType.Video && VideoElement.Source != null && FitToggle.IsChecked == true)
+                {
+                    SetVideoFit();
+                    // Re-apply portrait blur effect after entering fullscreen
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        ApplyPortraitBlurEffectForVideo();
+                    }), System.Windows.Threading.DispatcherPriority.Loaded);
+                }
+                else if (ImageElement.Source != null && FitToggle.IsChecked == true)
+                {
+                    SetZoomFit(CurrentMediaType == MediaType.Gif);
+                    // Re-apply portrait blur effect after entering fullscreen
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (ImageElement.Source is BitmapSource bmp)
+                        {
+                            string? currentFile = _viewModel?.PlaylistManager?.CurrentItem?.FilePath;
+                            ApplyPortraitBlurEffect(bmp, currentFile);
+                        }
+                    }), System.Windows.Threading.DispatcherPriority.Loaded);
+                }
+                else if (ImageElement.Source != null)
+                {
+                    // Re-apply portrait blur effect even when not in fit mode
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (ImageElement.Source is BitmapSource bmp)
+                        {
+                            string? currentFile = _viewModel?.PlaylistManager?.CurrentItem?.FilePath;
+                            ApplyPortraitBlurEffect(bmp, currentFile);
+                        }
+                    }), System.Windows.Threading.DispatcherPriority.Loaded);
+                }
             }
         }
 
