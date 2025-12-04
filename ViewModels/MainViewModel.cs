@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using SlideShowBob.Commands;
 
@@ -22,6 +23,14 @@ namespace SlideShowBob.ViewModels
         private readonly MediaPlaylistManager _playlistManager;
         private readonly MediaLoaderService _mediaLoaderService;
         private readonly ThumbnailService _thumbnailService;
+
+        /// <summary>
+        /// Extracts the first frame from a video file. Used for displaying video previews.
+        /// </summary>
+        public async Task<BitmapSource?> ExtractFirstFrameAsync(string filePath)
+        {
+            return await _thumbnailService.ExtractFirstFrameAsync(filePath);
+        }
         private readonly VideoPlaybackService _videoPlaybackService;
         private readonly SlideshowController _slideshowController;
 

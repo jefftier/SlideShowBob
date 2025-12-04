@@ -20,11 +20,6 @@ namespace SlideShowBob.ViewModels
         // Settings values
         private string _toolbarInactivityBehavior = "Dim";
         private bool _portraitBlurEffect;
-        private bool _useFfmpegForPlayback;
-
-        // Computed properties for FFMPEG status
-        private string _ffmpegStatusText = "FFMPEG: Not Active";
-        private Brush _ffmpegStatusForeground = new SolidColorBrush(Color.FromRgb(158, 158, 158)); // Gray
 
         public event EventHandler<bool>? RequestClose; // bool = DialogResult
 
@@ -133,30 +128,6 @@ namespace SlideShowBob.ViewModels
             set => SetProperty(ref _portraitBlurEffect, value);
         }
 
-        public bool UseFfmpegForPlayback
-        {
-            get => _useFfmpegForPlayback;
-            set
-            {
-                if (SetProperty(ref _useFfmpegForPlayback, value))
-                {
-                    UpdateFfmpegStatus();
-                }
-            }
-        }
-
-        public string FfmpegStatusText
-        {
-            get => _ffmpegStatusText;
-            private set => SetProperty(ref _ffmpegStatusText, value);
-        }
-
-        public Brush FfmpegStatusForeground
-        {
-            get => _ffmpegStatusForeground;
-            private set => SetProperty(ref _ffmpegStatusForeground, value);
-        }
-
         #endregion
 
         #region Commands
@@ -182,9 +153,6 @@ namespace SlideShowBob.ViewModels
 
             // Update portrait blur effect setting
             _originalSettings.PortraitBlurEffect = PortraitBlurEffect;
-
-            // Update FFMPEG setting
-            _originalSettings.UseFfmpegForPlayback = UseFfmpegForPlayback;
 
             // PreferredFullscreenMonitorDeviceName is set via SetPreferredFullscreenMonitor() from code-behind
 
@@ -221,35 +189,6 @@ namespace SlideShowBob.ViewModels
 
             // Load portrait blur effect setting
             PortraitBlurEffect = _originalSettings.PortraitBlurEffect;
-
-            // Load FFMPEG setting
-            UseFfmpegForPlayback = _originalSettings.UseFfmpegForPlayback;
-
-            // Update FFMPEG status
-            UpdateFfmpegStatus();
-        }
-
-        private void UpdateFfmpegStatus()
-        {
-            var statusText = ThumbnailService.GetFfmpegStatusText(UseFfmpegForPlayback);
-            FfmpegStatusText = $"FFMPEG: {statusText}";
-            
-            // Set color based on status
-            if (statusText.Contains("Active"))
-            {
-                // Green for active
-                FfmpegStatusForeground = new SolidColorBrush(Color.FromRgb(76, 175, 80));
-            }
-            else if (statusText.Contains("Available") && !statusText.Contains("Not"))
-            {
-                // Blue for available but not tested
-                FfmpegStatusForeground = new SolidColorBrush(Color.FromRgb(33, 150, 243));
-            }
-            else
-            {
-                // Gray for not available
-                FfmpegStatusForeground = new SolidColorBrush(Color.FromRgb(158, 158, 158));
-            }
         }
 
         /// <summary>

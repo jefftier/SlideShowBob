@@ -1770,7 +1770,10 @@ namespace SlideShowBob
                     BitmapSource? firstFrame = null;
                     try
                     {
-                        firstFrame = await VideoFrameService.ExtractFirstFrameAsync(currentItem.FilePath);
+                        if (_viewModel != null)
+                        {
+                            firstFrame = await _viewModel.ExtractFirstFrameAsync(currentItem.FilePath);
+                        }
                     }
                     catch (OperationCanceledException)
                     {

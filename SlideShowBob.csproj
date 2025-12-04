@@ -39,18 +39,9 @@
 
 	<ItemGroup>
 		<Content Include="SlideShowBob.ico" />
-		<!-- FFMPEG files: Optional - if present, will be used; otherwise app offers to download -->
-		<!-- Excluded from single-file bundle - files will be alongside EXE if included -->
-		<Content Include="ffmpeg\**\*">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
-		</Content>
-		<!-- Note: Embedded resources removed - app now offers to download FFMPEG if not found -->
 	</ItemGroup>
 
 	<ItemGroup>
-	  <PackageReference Include="FFMediaToolkit" Version="4.8.1" />
 	  <PackageReference Include="Microsoft-WindowsAPICodePack-Shell" Version="1.1.5" />
 	  <PackageReference Include="WpfAnimatedGif" Version="2.0.2" />
 	</ItemGroup>
