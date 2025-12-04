@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,13 +24,34 @@ namespace SlideShowBob
     /// </summary>
     public class ThumbnailService
     {
+        // Windows API to load/unload DLLs for testing
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr LoadLibrary(string lpFileName);
+        
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool FreeLibrary(IntPtr hModule);
         private static bool _ffmpegAvailable = false;
         private static bool _ffmpegChecked = false;
+        private static string? _ffmpegFailureReason = null;
         private static readonly object _ffmpegCheckLock = new object();
 
         // Note: FFmpeg configuration is handled in App.xaml.cs static constructor
         // to ensure it happens before any FFMediaToolkit code runs.
         // This static constructor is intentionally minimal to avoid early FFMediaToolkit initialization.
+
+        /// <summary>
+        /// Resets the FFMPEG availability check. Call this when FFMPEG is reconfigured or reinstalled.
+        /// </summary>
+        public static void ResetFFmpegAvailability()
+        {
+            lock (_ffmpegCheckLock)
+            {
+                _ffmpegAvailable = false;
+                _ffmpegChecked = false;
+                _ffmpegFailureReason = null;
+                System.Diagnostics.Debug.WriteLine("[ThumbnailService] FFMPEG availability check reset");
+            }
+        }
 
         /// <summary>
         /// Checks if FFmpeg is available. Returns true if available, false if unavailable.
@@ -59,9 +81,9 @@ namespace SlideShowBob
             if (!useFfmpegSetting)
                 return false;
 
-            // Check if FFmpeg directory exists
-            var appDir = AppDomain.CurrentDomain.BaseDirectory;
-            var ffmpegPath = Path.Combine(appDir, "ffmpeg");
+            // Check if FFmpeg directory exists (use EXE directory, not BaseDirectory)
+            var exeDir = GetExeDirectory();
+            var ffmpegPath = Path.Combine(exeDir, "ffmpeg");
             
             if (!Directory.Exists(ffmpegPath))
                 return false;
@@ -83,14 +105,139 @@ namespace SlideShowBob
         }
 
         /// <summary>
+        /// Gets the directory where the application EXE is located.
+        /// For single-file published apps, this is the actual EXE location, not the BaseDirectory.
+        /// </summary>
+        private static string GetExeDirectory()
+        {
+            try
+            {
+                // For single-file published apps, Location points to the actual EXE
+                var exePath = Assembly.GetExecutingAssembly().Location;
+                if (!string.IsNullOrEmpty(exePath))
+                {
+                    return Path.GetDirectoryName(exePath) ?? AppDomain.CurrentDomain.BaseDirectory;
+                }
+            }
+            catch
+            {
+                // Fallback to BaseDirectory if Location is not available
+            }
+            
+            return AppDomain.CurrentDomain.BaseDirectory;
+        }
+
+        /// <summary>
+        /// Gets the FFMPEG path being used. Useful for diagnostics.
+        /// </summary>
+        public static string GetFfmpegPath()
+        {
+            var configuredPath = FFmpegLoader.FFmpegPath;
+            if (!string.IsNullOrEmpty(configuredPath))
+                return configuredPath;
+            
+            // Use EXE directory, not BaseDirectory (which may point to publish folder for single-file apps)
+            var exeDir = GetExeDirectory();
+            return Path.Combine(exeDir, "ffmpeg");
+        }
+
+        /// <summary>
+        /// Gets the detailed FFMPEG status for display purposes.
+        /// Returns: "Available", "Not Available", or "Not Tested"
+        /// </summary>
+        public static string GetFfmpegStatusText(bool useFfmpegSetting)
+        {
+            if (!useFfmpegSetting)
+                return "Not Available (disabled in settings)";
+
+            var configuredPath = FFmpegLoader.FFmpegPath;
+            var exeDir = GetExeDirectory();
+            var ffmpegPath = Path.Combine(exeDir, "ffmpeg");
+            
+            // Check both expected path and configured path
+            var checkPath = configuredPath ?? ffmpegPath;
+            
+            // Log path info for debugging
+            System.Diagnostics.Debug.WriteLine($"[ThumbnailService] GetFfmpegStatusText - ExeDir: {exeDir}, BaseDir: {AppDomain.CurrentDomain.BaseDirectory}, ConfiguredPath: {configuredPath ?? "null"}, CheckPath: {checkPath}");
+            
+            if (!Directory.Exists(checkPath))
+            {
+                return $"Not Available (path not found: {checkPath})";
+            }
+
+            var dllFiles = Directory.GetFiles(checkPath, "avcodec-*.dll");
+            if (dllFiles.Length == 0)
+                return $"Not Available (no DLLs in: {checkPath})";
+
+            // Check FFMPEG version (informational only - we'll test compatibility at runtime)
+            var versionInfo = CheckFFmpegVersion(ffmpegPath);
+            if (versionInfo.HasValue)
+            {
+                // Version 62 could be FFmpeg 6.2 or 8.0.1 - we'll test at runtime
+                // Don't block based on version number alone
+                System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFMPEG version detected: {versionInfo.Value.Version} (compatible: {versionInfo.Value.IsCompatible})");
+            }
+
+            lock (_ffmpegCheckLock)
+            {
+                if (_ffmpegChecked)
+                {
+                    if (_ffmpegAvailable)
+                        return $"Active (path: {checkPath})";
+                    
+                    // Show failure reason if available, always include path
+                    if (!string.IsNullOrEmpty(_ffmpegFailureReason))
+                        return $"Not Available - {_ffmpegFailureReason} (path: {checkPath})";
+                    
+                    return $"Not Available - test failed (path: {checkPath})";
+                }
+            }
+
+            return $"Available (path: {checkPath}, will be tested on first use)";
+        }
+
+        /// <summary>
+        /// Checks the FFMPEG version from DLL filenames.
+        /// </summary>
+        private static (string Version, bool IsCompatible)? CheckFFmpegVersion(string ffmpegPath)
+        {
+            try
+            {
+                var avcodecFiles = Directory.GetFiles(ffmpegPath, "avcodec-*.dll");
+                if (avcodecFiles.Length == 0)
+                    return null;
+
+                var fileName = Path.GetFileName(avcodecFiles[0]);
+                // Extract version number: avcodec-70.dll -> 70, avcodec-62.dll -> 62
+                var parts = fileName.Split('-');
+                if (parts.Length >= 2)
+                {
+                    var versionPart = parts[1].Split('.')[0];
+                    if (int.TryParse(versionPart, out int version))
+                    {
+                        // FFMediaToolkit 4.8.1 requires FFMPEG 7.x (version 70+)
+                        bool isCompatible = version >= 70;
+                        return (versionPart, isCompatible);
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore errors in version checking
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Marks FFmpeg as unavailable after a failure. Thread-safe.
         /// </summary>
-        private static void MarkFFmpegUnavailable()
+        private static void MarkFFmpegUnavailable(string? reason = null)
         {
             lock (_ffmpegCheckLock)
             {
                 _ffmpegAvailable = false;
                 _ffmpegChecked = true;
+                _ffmpegFailureReason = reason;
             }
         }
 
@@ -426,6 +573,17 @@ namespace SlideShowBob
 
                         scaledBitmap.Freeze();
                         
+                        // Mark FFMPEG as available since we successfully extracted a frame
+                        lock (_ffmpegCheckLock)
+                        {
+                            if (!_ffmpegChecked || !_ffmpegAvailable)
+                            {
+                                _ffmpegAvailable = true;
+                                _ffmpegChecked = true;
+                                System.Diagnostics.Debug.WriteLine("[ThumbnailService] FFMPEG marked as available after successful frame extraction");
+                            }
+                        }
+                        
                         // Dispose frame before returning
                         frame.Dispose();
                         frameDisposed = true;
@@ -435,7 +593,8 @@ namespace SlideShowBob
                     catch (DirectoryNotFoundException ex)
                     {
                         // FFmpeg binaries not found - mark as unavailable for future attempts
-                        MarkFFmpegUnavailable();
+                        var reason = "FFMPEG path not found";
+                        MarkFFmpegUnavailable(reason);
                         System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpeg DirectoryNotFoundException for {Path.GetFileName(filePath)}: {ex.Message}");
                         System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpegLoader.FFmpegPath = {FFmpegLoader.FFmpegPath ?? "null"}");
                         return CreateVideoPlaceholder();
@@ -444,28 +603,90 @@ namespace SlideShowBob
                     {
                         // FFmpeg not properly initialized or memory issue
                         // This often happens when FFmpeg binaries are missing or incompatible
-                        MarkFFmpegUnavailable();
+                        var reason = "Access violation (may need Visual C++ Redistributable)";
+                        MarkFFmpegUnavailable(reason);
                         System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpeg AccessViolationException for {Path.GetFileName(filePath)}: {ex.Message}");
                         return CreateVideoPlaceholder();
                     }
                     catch (DllNotFoundException ex)
                     {
                         // FFmpeg DLLs not found - mark as unavailable
-                        MarkFFmpegUnavailable();
+                        var exeDir = GetExeDirectory();
+                        var expectedPath = Path.Combine(exeDir, "ffmpeg");
+                        var configuredPath = FFmpegLoader.FFmpegPath ?? "null";
+                        var reason = $"DLL not found. Path: {configuredPath}. May need Visual C++ Redistributable.";
+                        MarkFFmpegUnavailable(reason);
                         System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpeg DllNotFoundException for {Path.GetFileName(filePath)}: {ex.Message}");
-                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpegLoader.FFmpegPath = {FFmpegLoader.FFmpegPath ?? "null"}");
-                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Check that FFmpeg DLLs are in the configured path and all dependencies are available.");
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Exception details: {ex}");
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Exe directory: {exeDir}");
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] AppDomain.CurrentDomain.BaseDirectory = {AppDomain.CurrentDomain.BaseDirectory}");
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Expected FFMPEG path = {expectedPath}");
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpegLoader.FFmpegPath = {configuredPath}");
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Directory exists: {Directory.Exists(configuredPath)}");
+                        if (Directory.Exists(configuredPath))
+                        {
+                            var dlls = Directory.GetFiles(configuredPath, "*.dll");
+                            System.Diagnostics.Debug.WriteLine($"[ThumbnailService] DLLs found in path: {dlls.Length}");
+                            if (dlls.Length > 0)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Sample DLLs:");
+                                foreach (var dll in dlls.Take(5))
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"[ThumbnailService]   - {Path.GetFileName(dll)}");
+                                }
+                                
+                                // Try to load a DLL directly to see what error we get
+                                try
+                                {
+                                    var testDll = dlls.FirstOrDefault(f => f.Contains("avcodec"));
+                                    if (testDll != null)
+                                    {
+                                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Attempting to load: {testDll}");
+                                        var handle = LoadLibrary(testDll);
+                                        if (handle == IntPtr.Zero)
+                                        {
+                                            int error = Marshal.GetLastWin32Error();
+                                            System.Diagnostics.Debug.WriteLine($"[ThumbnailService] LoadLibrary failed with error code: {error}");
+                                        }
+                                        else
+                                        {
+                                            System.Diagnostics.Debug.WriteLine($"[ThumbnailService] LoadLibrary succeeded!");
+                                            FreeLibrary(handle);
+                                        }
+                                    }
+                                }
+                                catch (Exception loadEx)
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Error testing DLL load: {loadEx.Message}");
+                                }
+                            }
+                        }
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] SOLUTION: Install Visual C++ Redistributable from Microsoft if not already installed.");
                         return CreateVideoPlaceholder();
                     }
                     catch (Exception ex)
                     {
                         // Any other error - return placeholder
-                        MarkFFmpegUnavailable();
+                        var reason = $"{ex.GetType().Name}";
+                        if (!string.IsNullOrEmpty(ex.Message))
+                        {
+                            // Truncate long messages
+                            var shortMessage = ex.Message.Length > 50 ? ex.Message.Substring(0, 50) + "..." : ex.Message;
+                            reason += $": {shortMessage}";
+                        }
+                        if (ex.InnerException != null)
+                        {
+                            reason += $" ({ex.InnerException.GetType().Name})";
+                        }
+                        MarkFFmpegUnavailable(reason);
                         System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpeg error for {Path.GetFileName(filePath)}: {ex.GetType().Name}: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] FFmpegLoader.FFmpegPath = {FFmpegLoader.FFmpegPath ?? "null"}");
                         if (ex.InnerException != null)
                         {
                             System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Inner exception: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
                         }
+                        // Log stack trace for debugging
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Stack trace: {ex.StackTrace}");
                         return CreateVideoPlaceholder();
                     }
                     finally

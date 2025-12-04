@@ -231,19 +231,24 @@ namespace SlideShowBob.ViewModels
 
         private void UpdateFfmpegStatus()
         {
-            bool isEnabled = ThumbnailService.IsFfmpegEnabled(UseFfmpegForPlayback);
-
-            if (isEnabled)
+            var statusText = ThumbnailService.GetFfmpegStatusText(UseFfmpegForPlayback);
+            FfmpegStatusText = $"FFMPEG: {statusText}";
+            
+            // Set color based on status
+            if (statusText.Contains("Active"))
             {
-                FfmpegStatusText = "FFMPEG: Active";
-                // Use green color for active status
-                FfmpegStatusForeground = new SolidColorBrush(Color.FromRgb(76, 175, 80)); // Green
+                // Green for active
+                FfmpegStatusForeground = new SolidColorBrush(Color.FromRgb(76, 175, 80));
+            }
+            else if (statusText.Contains("Available") && !statusText.Contains("Not"))
+            {
+                // Blue for available but not tested
+                FfmpegStatusForeground = new SolidColorBrush(Color.FromRgb(33, 150, 243));
             }
             else
             {
-                FfmpegStatusText = "FFMPEG: Not Active";
-                // Use muted/gray color for inactive status
-                FfmpegStatusForeground = new SolidColorBrush(Color.FromRgb(158, 158, 158)); // Gray
+                // Gray for not available
+                FfmpegStatusForeground = new SolidColorBrush(Color.FromRgb(158, 158, 158));
             }
         }
 

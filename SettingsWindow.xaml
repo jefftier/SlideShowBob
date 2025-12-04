@@ -494,7 +494,17 @@
                                       FontSize="13"
                                       FontWeight="Medium"
                                       Text="{Binding FfmpegStatusText}"
-                                      Foreground="{Binding FfmpegStatusForeground}"/>
+                                      Foreground="{Binding FfmpegStatusForeground}"
+                                      TextWrapping="Wrap"
+                                      MaxWidth="400">
+                                <ToolTipService.ToolTip>
+                                    <ToolTip>
+                                        <TextBlock Text="{Binding FfmpegStatusText}"
+                                                   TextWrapping="Wrap"
+                                                   MaxWidth="500"/>
+                                    </ToolTip>
+                                </ToolTipService.ToolTip>
+                            </TextBlock>
                         </Grid>
                     </StackPanel>
                     

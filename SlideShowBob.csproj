@@ -39,12 +39,14 @@
 
 	<ItemGroup>
 		<Content Include="SlideShowBob.ico" />
-		<!-- Copy ffmpeg folder to output directory -->
-		<!-- For single-file publishing, these will be extracted alongside the executable -->
+		<!-- FFMPEG files: Optional - if present, will be used; otherwise app offers to download -->
+		<!-- Excluded from single-file bundle - files will be alongside EXE if included -->
 		<Content Include="ffmpeg\**\*">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 			<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+			<ExcludeFromSingleFile>true</ExcludeFromSingleFile>
 		</Content>
+		<!-- Note: Embedded resources removed - app now offers to download FFMPEG if not found -->
 	</ItemGroup>
 
 	<ItemGroup>
