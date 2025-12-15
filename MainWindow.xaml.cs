@@ -75,9 +75,13 @@ namespace SlideShowBob
         private CancellationTokenSource? _showMediaCancellation;
         private readonly object _showMediaLock = new object();
         private ContextMenu? _mainContextMenu;
+        private bool _isWindowClosed = false;
 
         protected override void OnClosed(EventArgs e)
         {
+            // Mark window as closed to prevent dispatcher operations after close
+            _isWindowClosed = true;
+            
             // Clean up cancellation tokens
             lock (_showMediaLock)
             {
@@ -93,6 +97,29 @@ namespace SlideShowBob
             _chromeTimer?.Stop();
             
             base.OnClosed(e);
+        }
+
+        /// <summary>
+        /// Safely invokes an action on the dispatcher, checking if window is still open.
+        /// Prevents crashes from dispatcher operations after window is closed.
+        /// </summary>
+        private void SafeDispatcherInvoke(Action action, DispatcherPriority priority = DispatcherPriority.Normal)
+        {
+            if (_isWindowClosed || Dispatcher == null || !Dispatcher.CheckAccess())
+            {
+                try
+                {
+                    Dispatcher?.BeginInvoke(action, priority);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Window is closing or dispatcher is shutting down - ignore
+                }
+            }
+            else
+            {
+                action();
+            }
         }
 
         // Sort mode (still needed for UI)
@@ -274,12 +301,25 @@ namespace SlideShowBob
         private void SlideshowController_NavigateToIndex(object? sender, int index)
         {
             // Fire-and-forget: intentionally not awaited
-#pragma warning disable CS4014 // Fire-and-forget async call
-            _ = Dispatcher.InvokeAsync(async () =>
+            // Check if window is still open before dispatching
+            if (_isWindowClosed) return;
+            
+            try
             {
-                await ShowCurrentMediaAsync();
-            }, DispatcherPriority.Normal);
+#pragma warning disable CS4014 // Fire-and-forget async call
+                _ = Dispatcher.InvokeAsync(async () =>
+                {
+                    if (!_isWindowClosed)
+                    {
+                        await ShowCurrentMediaAsync();
+                    }
+                }, DispatcherPriority.Normal);
 #pragma warning restore CS4014
+            }
+            catch (InvalidOperationException)
+            {
+                // Window is closing or dispatcher is shutting down - ignore
+            }
         }
 
         private void VideoService_MediaOpened(object? sender, EventArgs e)
@@ -306,19 +346,25 @@ namespace SlideShowBob
             
             if (FitToggle.IsChecked == true)
             {
-                Dispatcher.BeginInvoke(new Action(() =>
+                SafeDispatcherInvoke(() =>
                 {
-                    SetVideoFit();
-                    ApplyPortraitBlurEffectForVideo();
-                }), DispatcherPriority.Background);
+                    if (!_isWindowClosed)
+                    {
+                        SetVideoFit();
+                        ApplyPortraitBlurEffectForVideo();
+                    }
+                }, DispatcherPriority.Background);
             }
             else
             {
                 ResetVideoScale();
-                Dispatcher.BeginInvoke(new Action(() =>
+                SafeDispatcherInvoke(() =>
                 {
-                    ApplyPortraitBlurEffectForVideo();
-                }), DispatcherPriority.Loaded);
+                    if (!_isWindowClosed)
+                    {
+                        ApplyPortraitBlurEffectForVideo();
+                    }
+                }, DispatcherPriority.Loaded);
             }
 
             var currentItem = _viewModel?.PlaylistManager?.CurrentItem;

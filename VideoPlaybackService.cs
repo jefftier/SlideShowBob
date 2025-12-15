@@ -21,6 +21,7 @@ namespace SlideShowBob
         private Uri? _currentSource = null;
         private RoutedEventHandler? _mediaOpenedHandler;
         private RoutedEventHandler? _mediaEndedHandler;
+        private readonly object _loadLock = new object();
 
         public event EventHandler? MediaOpened;
         public event EventHandler? MediaEnded;
@@ -55,90 +56,111 @@ namespace SlideShowBob
         /// <summary>
         /// Loads and starts playing a video with smooth transition.
         /// Sequences operations to prevent stutter.
+        /// Thread-safe to prevent crashes during rapid navigation.
         /// </summary>
         public void LoadVideo(Uri source, Action? onMediaOpened = null, Action? onMediaEnded = null)
         {
             if (source == null) return;
 
-            // Stop current playback cleanly
-            Stop();
-
-            // Remove old handlers
-            if (_mediaOpenedHandler != null)
-                _mediaElement.MediaOpened -= _mediaOpenedHandler;
-            if (_mediaEndedHandler != null)
-                _mediaElement.MediaEnded -= _mediaEndedHandler;
-
-            // Set up new handlers
-            _mediaOpenedHandler = (s, e) =>
+            // Prevent concurrent loads - only one load operation at a time
+            lock (_loadLock)
             {
-                // Ensure playback is started (in case the immediate Play() call didn't work)
-                if (_mediaElement.Source == source)
+                // Stop current playback cleanly
+                Stop();
+
+                // Remove old handlers
+                if (_mediaOpenedHandler != null)
+                    _mediaElement.MediaOpened -= _mediaOpenedHandler;
+                if (_mediaEndedHandler != null)
+                    _mediaElement.MediaEnded -= _mediaEndedHandler;
+
+                // Set up new handlers with source verification to prevent race conditions
+                Uri handlerSource = source; // Capture source for handler
+                _mediaOpenedHandler = (s, e) =>
                 {
+                    // Verify source hasn't changed (prevent handler from firing for wrong video)
+                    if (_mediaElement.Source != handlerSource || _currentSource != handlerSource)
+                        return;
+
+                    // Ensure playback is started (in case the immediate Play() call didn't work)
                     try
                     {
-                        _mediaElement.Play();
+                        if (_mediaElement.Source == handlerSource)
+                        {
+                            _mediaElement.Play();
+                        }
                     }
                     catch
                     {
                         // If play fails, ignore - it might already be playing
                     }
-                }
-                // Ensure progress timer is running
-                if (!_progressTimer.IsEnabled)
-                {
-                    _progressTimer.Start();
-                    _progressBar.Visibility = Visibility.Visible;
-                    _progressBar.Value = 0;
-                }
-                _isPlaying = true;
-                MediaOpened?.Invoke(this, EventArgs.Empty);
-                onMediaOpened?.Invoke();
-            };
-
-            _mediaEndedHandler = (s, e) =>
-            {
-                _isPlaying = false;
-                // Capture last frame BEFORE stopping (while video is still visible)
-                var lastFrame = CaptureCurrentFrame();
-                if (lastFrame != null)
-                {
-                    FrameCaptured?.Invoke(this, lastFrame);
-                }
-                // Now stop the video
-                Stop(captureLastFrame: false);
-                MediaEnded?.Invoke(this, EventArgs.Empty);
-                onMediaEnded?.Invoke();
-            };
-
-            _mediaElement.MediaOpened += _mediaOpenedHandler;
-            _mediaElement.MediaEnded += _mediaEndedHandler;
-
-            // Sequence the load: set source first, then visibility, then play
-            _currentSource = source;
-            _mediaElement.Source = source;
-            _mediaElement.Visibility = Visibility.Visible;
-
-            // Try to start playing immediately - MediaElement will queue it if not ready yet
-            // This reduces delay compared to waiting for MediaOpened
-            // Fire-and-forget: Safe because MediaOpened handler will retry if this fails, and we verify source hasn't changed
-            _mediaElement.Dispatcher.BeginInvoke(new Action(() =>
-            {
-                if (_mediaElement.Source == source) // Verify source hasn't changed
-                {
-                    try
+                    // Ensure progress timer is running
+                    if (!_progressTimer.IsEnabled && _mediaElement.Source == handlerSource)
                     {
-                        _mediaElement.Play();
                         _progressTimer.Start();
                         _progressBar.Visibility = Visibility.Visible;
                         _progressBar.Value = 0;
                     }
-                    catch
+                    if (_mediaElement.Source == handlerSource)
                     {
-                        // If play fails (media not ready), MediaOpened handler will retry
+                        _isPlaying = true;
+                        MediaOpened?.Invoke(this, EventArgs.Empty);
+                        onMediaOpened?.Invoke();
                     }
-                }
-            }), DispatcherPriority.Normal);
+                };
+
+                _mediaEndedHandler = (s, e) =>
+                {
+                    // Verify source hasn't changed
+                    if (_mediaElement.Source != handlerSource || _currentSource != handlerSource)
+                        return;
+
+                    _isPlaying = false;
+                    // Capture last frame BEFORE stopping (while video is still visible)
+                    var lastFrame = CaptureCurrentFrame();
+                    if (lastFrame != null)
+                    {
+                        FrameCaptured?.Invoke(this, lastFrame);
+                    }
+                    // Now stop the video
+                    Stop(captureLastFrame: false);
+                    MediaEnded?.Invoke(this, EventArgs.Empty);
+                    onMediaEnded?.Invoke();
+                };
+
+                _mediaElement.MediaOpened += _mediaOpenedHandler;
+                _mediaElement.MediaEnded += _mediaEndedHandler;
+
+                // Sequence the load: set source first, then visibility, then play
+                _currentSource = source;
+                _mediaElement.Source = source;
+                _mediaElement.Visibility = Visibility.Visible;
+
+                // Try to start playing immediately - MediaElement will queue it if not ready yet
+                // This reduces delay compared to waiting for MediaOpened
+                // Fire-and-forget: Safe because MediaOpened handler will retry if this fails, and we verify source hasn't changed
+                _mediaElement.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    // Double-check source hasn't changed before playing
+                    if (_mediaElement.Source == source && _currentSource == source)
+                    {
+                        try
+                        {
+                            _mediaElement.Play();
+                            if (_mediaElement.Source == source) // Verify again after play
+                            {
+                                _progressTimer.Start();
+                                _progressBar.Visibility = Visibility.Visible;
+                                _progressBar.Value = 0;
+                            }
+                        }
+                        catch
+                        {
+                            // If play fails (media not ready), MediaOpened handler will retry
+                        }
+                    }
+                }), DispatcherPriority.Normal);
+            }
         }
 
         /// <summary>
@@ -191,32 +213,36 @@ namespace SlideShowBob
         /// <summary>
         /// Stops playback and clears the video source.
         /// Optionally captures the last frame before stopping.
+        /// Thread-safe.
         /// </summary>
         public void Stop(bool captureLastFrame = false)
         {
-            // Capture last frame before stopping if requested
-            if (captureLastFrame && _isPlaying)
+            lock (_loadLock)
             {
-                var lastFrame = CaptureCurrentFrame();
-                if (lastFrame != null)
+                // Capture last frame before stopping if requested
+                if (captureLastFrame && _isPlaying)
                 {
-                    FrameCaptured?.Invoke(this, lastFrame);
+                    var lastFrame = CaptureCurrentFrame();
+                    if (lastFrame != null)
+                    {
+                        FrameCaptured?.Invoke(this, lastFrame);
+                    }
                 }
+
+                _isPlaying = false;
+                _progressTimer.Stop();
+
+                if (_mediaElement != null)
+                {
+                    _mediaElement.Stop();
+                    _mediaElement.Source = null;
+                    _mediaElement.Visibility = Visibility.Collapsed;
+                }
+
+                _progressBar.Visibility = Visibility.Collapsed;
+                _progressBar.Value = 0;
+                _currentSource = null;
             }
-
-            _isPlaying = false;
-            _progressTimer.Stop();
-
-            if (_mediaElement != null)
-            {
-                _mediaElement.Stop();
-                _mediaElement.Source = null;
-                _mediaElement.Visibility = Visibility.Collapsed;
-            }
-
-            _progressBar.Visibility = Visibility.Collapsed;
-            _progressBar.Value = 0;
-            _currentSource = null;
         }
 
         /// <summary>

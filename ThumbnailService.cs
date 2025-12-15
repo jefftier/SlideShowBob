@@ -21,6 +21,7 @@ namespace SlideShowBob
     {
         private readonly Dictionary<string, CachedThumbnail> _cache = new();
         private readonly object _cacheLock = new();
+        private readonly object _shellFileLock = new(); // Prevent concurrent ShellFile operations (not thread-safe)
         
         // Cache configuration:
         // - MaxCacheSize: 200 thumbnails (reasonable for playlist views)
@@ -199,18 +200,22 @@ namespace SlideShowBob
         /// Uses Windows' built-in thumbnail extraction - no external dependencies required.
         /// Note: Windows Shell requires video codecs to be installed to generate thumbnails.
         /// If thumbnails aren't showing, ensure codecs are installed (e.g., K-Lite Codec Pack).
+        /// Thread-safe: Uses lock to prevent concurrent ShellFile operations which can crash.
         /// </summary>
         private async Task<BitmapSource?> ExtractVideoThumbnailAsync(string filePath)
         {
             return await Task.Run(() =>
             {
-                try
+                // ShellFile operations are not thread-safe and can crash if called concurrently
+                // Use lock to serialize access
+                lock (_shellFileLock)
                 {
-                    // Use Windows Shell to get video thumbnail
-                    // Note: ShellFile operations might need to be on UI thread, but we'll try background first
-                    var shellFile = ShellFile.FromFilePath(filePath);
+                    try
+                    {
+                        // Use Windows Shell to get video thumbnail
+                        var shellFile = ShellFile.FromFilePath(filePath);
                     
-                    if (shellFile == null)
+                        if (shellFile == null)
                     {
                         System.Diagnostics.Debug.WriteLine($"[ThumbnailService] ShellFile is null for: {Path.GetFileName(filePath)}");
                         return CreateVideoPlaceholder();
@@ -276,19 +281,20 @@ namespace SlideShowBob
                         return scaledBitmap;
                     }
                     
-                    bitmapSource.Freeze();
-                    System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Successfully created thumbnail ({bitmapSource.PixelWidth}x{bitmapSource.PixelHeight}) for: {Path.GetFileName(filePath)}");
-                    return bitmapSource;
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Error extracting video thumbnail using Windows Shell for {Path.GetFileName(filePath)}: {ex.GetType().Name}: {ex.Message}");
-                    if (ex.InnerException != null)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Inner exception: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                        bitmapSource.Freeze();
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Successfully created thumbnail ({bitmapSource.PixelWidth}x{bitmapSource.PixelHeight}) for: {Path.GetFileName(filePath)}");
+                        return bitmapSource;
                     }
-                    System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Stack trace: {ex.StackTrace}");
-                    return CreateVideoPlaceholder();
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Error extracting video thumbnail using Windows Shell for {Path.GetFileName(filePath)}: {ex.GetType().Name}: {ex.Message}");
+                        if (ex.InnerException != null)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Inner exception: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                        }
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Stack trace: {ex.StackTrace}");
+                        return CreateVideoPlaceholder();
+                    }
                 }
             });
         }
@@ -470,6 +476,7 @@ namespace SlideShowBob
         /// <summary>
         /// Extracts the first frame from a video file for display purposes.
         /// Uses Windows Shell thumbnail extraction - same as thumbnail generation but returns full-size frame.
+        /// Thread-safe: Uses lock to prevent concurrent ShellFile operations.
         /// </summary>
         public async Task<BitmapSource?> ExtractFirstFrameAsync(string filePath)
         {
@@ -482,10 +489,14 @@ namespace SlideShowBob
 
             return await Task.Run(() =>
             {
-                try
+                // ShellFile operations are not thread-safe and can crash if called concurrently
+                // Use lock to serialize access
+                lock (_shellFileLock)
                 {
-                    // Use Windows Shell to get video thumbnail
-                    var shellFile = ShellFile.FromFilePath(filePath);
+                    try
+                    {
+                        // Use Windows Shell to get video thumbnail
+                        var shellFile = ShellFile.FromFilePath(filePath);
                     var shellThumbnail = shellFile.Thumbnail;
                     
                     if (shellThumbnail == null)
@@ -519,20 +530,21 @@ namespace SlideShowBob
                         return null;
                     }
 
-                    // Convert System.Drawing.Bitmap to WPF BitmapSource
-                    // For first frame display, we want larger size (not thumbnail size)
-                    var bitmapSource = ConvertToBitmapSource(bitmap);
-                    bitmapSource.Freeze();
-                    return bitmapSource;
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Error extracting first frame using Windows Shell for {Path.GetFileName(filePath)}: {ex.GetType().Name}: {ex.Message}");
-                    if (ex.InnerException != null)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Inner exception: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                        // Convert System.Drawing.Bitmap to WPF BitmapSource
+                        // For first frame display, we want larger size (not thumbnail size)
+                        var bitmapSource = ConvertToBitmapSource(bitmap);
+                        bitmapSource.Freeze();
+                        return bitmapSource;
                     }
-                    return null;
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Error extracting first frame using Windows Shell for {Path.GetFileName(filePath)}: {ex.GetType().Name}: {ex.Message}");
+                        if (ex.InnerException != null)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[ThumbnailService] Inner exception: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                        }
+                        return null;
+                    }
                 }
             });
         }

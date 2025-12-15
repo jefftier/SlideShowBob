@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -36,6 +37,9 @@ namespace SlideShowBob.ViewModels
 
         // Settings cache
         private AppSettings _settings;
+
+        // Prevent concurrent LoadFoldersAsync calls to avoid race conditions
+        private readonly SemaphoreSlim _loadFoldersSemaphore = new SemaphoreSlim(1, 1);
 
         // Private fields for properties
         private MediaItem? _currentMedia;
@@ -340,6 +344,9 @@ namespace SlideShowBob.ViewModels
                 _videoPlaybackService.MediaEnded -= OnVideoMediaEnded;
                 _videoPlaybackService.MediaOpened -= OnVideoMediaOpened;
             }
+
+            // Dispose semaphore
+            _loadFoldersSemaphore?.Dispose();
         }
 
         #endregion
@@ -680,48 +687,81 @@ namespace SlideShowBob.ViewModels
 
         private async Task LoadFoldersAsync()
         {
-            StatusText = "Loading...";
-
-            // Stop any current playback
-            _videoPlaybackService?.Stop();
-            _slideshowController?.Stop();
-
-            if (Folders.Count == 0)
+            // Prevent concurrent calls - if already loading, skip this call
+            if (!await _loadFoldersSemaphore.WaitAsync(0))
             {
-                StatusText = "No folders selected.";
-                UpdateState();
-                // Clear display when no folders
-                CurrentMedia = null;
-                RequestShowMedia?.Invoke(this, EventArgs.Empty);
+                // Another load is in progress, skip this call
                 return;
             }
 
             try
             {
-                // Clear current media immediately to prevent showing removed items
-                CurrentMedia = null;
-                
-                // Load files on background thread to avoid blocking UI
-                await Task.Run(() =>
+                StatusText = "Loading...";
+
+                // Stop any current playback
+                _videoPlaybackService?.Stop();
+                _slideshowController?.Stop();
+
+                if (Folders.Count == 0)
                 {
-                    _playlistManager.LoadFiles(Folders, IncludeVideos);
-                });
-                
-                // Apply sort if needed (using saved sort mode) - also on background thread
-                if (_settings.SaveSortMode)
-                {
-                    var sortMode = ParseSortMode(_settings.SortMode);
-                    await Task.Run(() =>
-                    {
-                        _playlistManager.Sort(sortMode);
-                    });
+                    StatusText = "No folders selected.";
+                    UpdateState();
+                    // Clear display when no folders
+                    CurrentMedia = null;
+                    RequestShowMedia?.Invoke(this, EventArgs.Empty);
+                    return;
                 }
 
-                // All UI-bound property updates must happen on UI thread
-                if (Application.Current?.Dispatcher != null)
+                try
                 {
-                    await Application.Current.Dispatcher.InvokeAsync(() =>
+                    // Clear current media immediately to prevent showing removed items
+                    CurrentMedia = null;
+                    
+                    // Load files on background thread to avoid blocking UI
+                    await Task.Run(() =>
                     {
+                        _playlistManager.LoadFiles(Folders, IncludeVideos);
+                    });
+                    
+                    // Apply sort if needed (using saved sort mode) - also on background thread
+                    if (_settings.SaveSortMode)
+                    {
+                        var sortMode = ParseSortMode(_settings.SortMode);
+                        await Task.Run(() =>
+                        {
+                            _playlistManager.Sort(sortMode);
+                        });
+                    }
+
+                    // All UI-bound property updates must happen on UI thread
+                    if (Application.Current?.Dispatcher != null)
+                    {
+                        await Application.Current.Dispatcher.InvokeAsync(() =>
+                        {
+                            UpdateState();
+
+                            if (_playlistManager.HasItems)
+                            {
+                                _playlistManager.SetIndex(0);
+                                CurrentMedia = _playlistManager.CurrentItem;
+                                RequestShowMedia?.Invoke(this, EventArgs.Empty);
+                                StatusText = "";
+                            }
+                            else
+                            {
+                                StatusText = "No media found";
+                                CurrentMedia = null;
+                                // Clear display when no items found
+                                RequestShowMedia?.Invoke(this, EventArgs.Empty);
+                            }
+
+                            // Notify that playlist has been reloaded
+                            PlaylistReloaded?.Invoke(this, EventArgs.Empty);
+                        }, DispatcherPriority.Normal);
+                    }
+                    else
+                    {
+                        // Fallback if dispatcher not available
                         UpdateState();
 
                         if (_playlistManager.HasItems)
@@ -741,37 +781,18 @@ namespace SlideShowBob.ViewModels
 
                         // Notify that playlist has been reloaded
                         PlaylistReloaded?.Invoke(this, EventArgs.Empty);
-                    }, DispatcherPriority.Normal);
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    // Fallback if dispatcher not available
+                    StatusText = "Error: " + ex.Message;
+                    CurrentMedia = null;
                     UpdateState();
-
-                    if (_playlistManager.HasItems)
-                    {
-                        _playlistManager.SetIndex(0);
-                        CurrentMedia = _playlistManager.CurrentItem;
-                        RequestShowMedia?.Invoke(this, EventArgs.Empty);
-                        StatusText = "";
-                    }
-                    else
-                    {
-                        StatusText = "No media found";
-                        CurrentMedia = null;
-                        // Clear display when no items found
-                        RequestShowMedia?.Invoke(this, EventArgs.Empty);
-                    }
-
-                    // Notify that playlist has been reloaded
-                    PlaylistReloaded?.Invoke(this, EventArgs.Empty);
                 }
             }
-            catch (Exception ex)
+            finally
             {
-                StatusText = "Error: " + ex.Message;
-                CurrentMedia = null;
-                UpdateState();
+                _loadFoldersSemaphore.Release();
             }
         }
 
