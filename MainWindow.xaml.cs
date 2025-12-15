@@ -2648,10 +2648,6 @@ namespace SlideShowBob
             _mainContextMenu.Items.Add(new Separator());
 
             // Playback
-            var playPauseMenuItem = new MenuItem { Header = "Play", Command = _viewModel.PlayPauseCommand, Name = "PlayPauseMenuItem" };
-            playPauseMenuItem.Icon = new TextBlock { Text = "\uEDB5", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets"), Name = "PlayPauseIcon" };
-            _mainContextMenu.Items.Add(playPauseMenuItem);
-
             var startMenuItem = new MenuItem { Header = "Start Slideshow", Command = _viewModel.StartSlideshowCommand };
             startMenuItem.Icon = new TextBlock { Text = "\uEDB5", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
             _mainContextMenu.Items.Add(startMenuItem);
@@ -2726,28 +2722,6 @@ namespace SlideShowBob
         {
             // Update menu item states when menu opens
             if (_viewModel == null || _mainContextMenu == null) return;
-
-            // Find menu items by name
-            var playPauseMenuItem = _mainContextMenu.Items.OfType<MenuItem>()
-                .FirstOrDefault(m => m.Name == "PlayPauseMenuItem");
-            
-            if (playPauseMenuItem != null)
-            {
-                if (_viewModel.IsPlaying)
-                {
-                    playPauseMenuItem.Header = "Pause";
-                    var icon = playPauseMenuItem.Icon as TextBlock;
-                    if (icon != null)
-                        icon.Text = "\uE769"; // Pause icon
-                }
-                else
-                {
-                    playPauseMenuItem.Header = "Play";
-                    var icon = playPauseMenuItem.Icon as TextBlock;
-                    if (icon != null)
-                        icon.Text = "\uEDB5"; // Play icon
-                }
-            }
 
             // Find mute menu item and update icon
             var muteMenuItem = _mainContextMenu.Items.OfType<MenuItem>()
