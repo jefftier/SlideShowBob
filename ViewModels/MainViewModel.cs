@@ -132,6 +132,8 @@ namespace SlideShowBob.ViewModels
             RemoveFolderCommand = new RelayCommand<string>(RemoveFolder);
             RemoveFileCommand = new RelayCommand<string>(RemoveFile);
             NavigateToFileCommand = new RelayCommand<string>(NavigateToFile);
+            DeleteFileFromSlideshowCommand = new RelayCommand(DeleteFileFromSlideshow, () => _playlistManager.HasItems && _currentMedia != null);
+            DeleteFileFromDiskCommand = new RelayCommand(DeleteFileFromDisk, () => _playlistManager.HasItems && _currentMedia != null);
 
             // Subscribe to service events
             _playlistManager.PlaylistChanged += OnPlaylistChanged;
@@ -356,6 +358,8 @@ namespace SlideShowBob.ViewModels
         public ICommand RemoveFolderCommand { get; }
         public ICommand RemoveFileCommand { get; }
         public ICommand NavigateToFileCommand { get; }
+        public ICommand DeleteFileFromSlideshowCommand { get; }
+        public ICommand DeleteFileFromDiskCommand { get; }
 
         #endregion
 
@@ -618,6 +622,58 @@ namespace SlideShowBob.ViewModels
             return _playlistManager.GetAllItems().Select(i => i.FilePath).ToList();
         }
 
+        /// <summary>
+        /// Deletes the current file from the slideshow (removes from playlist only).
+        /// </summary>
+        private void DeleteFileFromSlideshow()
+        {
+            if (_currentMedia == null)
+                return;
+
+            string filePath = _currentMedia.FilePath;
+            RemoveFile(filePath);
+        }
+
+        /// <summary>
+        /// Deletes the current file from both the slideshow and the disk.
+        /// </summary>
+        private void DeleteFileFromDisk()
+        {
+            if (_currentMedia == null)
+                return;
+
+            string filePath = _currentMedia.FilePath;
+            
+            // Confirm deletion
+            var result = MessageBox.Show(
+                $"Are you sure you want to permanently delete this file?\n\n{Path.GetFileName(filePath)}\n\nThis action cannot be undone.",
+                "Delete File",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning,
+                MessageBoxResult.No);
+
+            if (result != MessageBoxResult.Yes)
+                return;
+
+            try
+            {
+                // Delete from disk first
+                if (File.Exists(filePath))
+                {
+                    File.Delete(filePath);
+                }
+
+                // Remove from playlist
+                RemoveFile(filePath);
+                
+                RequestShowMessage?.Invoke(this, $"File deleted: {Path.GetFileName(filePath)}");
+            }
+            catch (Exception ex)
+            {
+                RequestShowMessage?.Invoke(this, $"Error deleting file: {ex.Message}");
+            }
+        }
+
         #endregion
 
         #region Helper Methods
@@ -734,6 +790,12 @@ namespace SlideShowBob.ViewModels
             TotalCount = _playlistManager.Count;
             HasMediaItems = _playlistManager.HasItems;
             UpdateCommandStates();
+            
+            // Update delete command states
+            if (DeleteFileFromSlideshowCommand is RelayCommand deleteSlideshow)
+                deleteSlideshow.RaiseCanExecuteChanged();
+            if (DeleteFileFromDiskCommand is RelayCommand deleteDisk)
+                deleteDisk.RaiseCanExecuteChanged();
         }
 
         private void UpdateCommandStates()

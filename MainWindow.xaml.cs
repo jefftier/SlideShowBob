@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -74,6 +74,7 @@ namespace SlideShowBob
         private CancellationTokenSource? _loadingOverlayDelayCts;
         private CancellationTokenSource? _showMediaCancellation;
         private readonly object _showMediaLock = new object();
+        private ContextMenu? _mainContextMenu;
 
         protected override void OnClosed(EventArgs e)
         {
@@ -209,6 +210,9 @@ namespace SlideShowBob
             // Hook up scrollbar visibility tracking after Loaded event
             Loaded += (s, e) =>
             {
+                // Create context menu programmatically after window is loaded
+                CreateContextMenu();
+                
                 if (ScrollHost != null)
                 {
                     ScrollHost.LayoutUpdated += ScrollHost_LayoutUpdated;
@@ -2622,6 +2626,203 @@ namespace SlideShowBob
             _videoService?.Replay();
         }
 
+        #region Context Menu Creation and Event Handlers
+
+        private void CreateContextMenu()
+        {
+            if (_viewModel == null) return; // Don't create if ViewModel isn't ready
+            
+            _mainContextMenu = new ContextMenu();
+            _mainContextMenu.Opened += MainContextMenu_Opened;
+            _mainContextMenu.Closed += MainContextMenu_Closed;
+
+            // Navigation
+            var prevMenuItem = new MenuItem { Header = "Previous", Command = _viewModel.PreviousCommand };
+            prevMenuItem.Icon = new TextBlock { Text = "\uE892", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
+            _mainContextMenu.Items.Add(prevMenuItem);
+
+            var nextMenuItem = new MenuItem { Header = "Next", Command = _viewModel.NextCommand };
+            nextMenuItem.Icon = new TextBlock { Text = "\uE893", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
+            _mainContextMenu.Items.Add(nextMenuItem);
+
+            _mainContextMenu.Items.Add(new Separator());
+
+            // Playback
+            var playPauseMenuItem = new MenuItem { Header = "Play", Command = _viewModel.PlayPauseCommand, Name = "PlayPauseMenuItem" };
+            playPauseMenuItem.Icon = new TextBlock { Text = "\uEDB5", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets"), Name = "PlayPauseIcon" };
+            _mainContextMenu.Items.Add(playPauseMenuItem);
+
+            var startMenuItem = new MenuItem { Header = "Start Slideshow", Command = _viewModel.StartSlideshowCommand };
+            startMenuItem.Icon = new TextBlock { Text = "\uEDB5", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
+            _mainContextMenu.Items.Add(startMenuItem);
+
+            var stopMenuItem = new MenuItem { Header = "Stop Slideshow", Command = _viewModel.StopSlideshowCommand };
+            stopMenuItem.Icon = new TextBlock { Text = "\uE769", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
+            _mainContextMenu.Items.Add(stopMenuItem);
+
+            _mainContextMenu.Items.Add(new Separator());
+
+            // View Controls
+            var fullscreenMenuItem = new MenuItem { Header = "Toggle Fullscreen" };
+            fullscreenMenuItem.Click += ContextMenu_ToggleFullscreen;
+            fullscreenMenuItem.Icon = new TextBlock { Text = "⛶", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
+            _mainContextMenu.Items.Add(fullscreenMenuItem);
+
+            var fitMenuItem = new MenuItem { Header = "Fit to Window", IsCheckable = true };
+            fitMenuItem.Click += ContextMenu_ToggleFit;
+            if (FitToggle != null)
+            {
+                fitMenuItem.IsChecked = FitToggle.IsChecked ?? false;
+            }
+            _mainContextMenu.Items.Add(fitMenuItem);
+
+            var resetZoomMenuItem = new MenuItem { Header = "Reset Zoom" };
+            resetZoomMenuItem.Click += ContextMenu_ResetZoom;
+            _mainContextMenu.Items.Add(resetZoomMenuItem);
+
+            _mainContextMenu.Items.Add(new Separator());
+
+            // Media Controls
+            var replayMenuItem = new MenuItem { Header = "Replay Video" };
+            replayMenuItem.Click += ContextMenu_ReplayVideo;
+            replayMenuItem.Icon = new TextBlock { Text = "\uE72C", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
+            _mainContextMenu.Items.Add(replayMenuItem);
+
+            var muteMenuItem = new MenuItem { Header = "Mute/Unmute", Name = "MuteMenuItem" };
+            muteMenuItem.Click += ContextMenu_ToggleMute;
+            muteMenuItem.Icon = new TextBlock { Text = "\uE74F", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets"), Name = "MuteIcon" };
+            _mainContextMenu.Items.Add(muteMenuItem);
+
+            _mainContextMenu.Items.Add(new Separator());
+
+            // File Management
+            var addFolderMenuItem = new MenuItem { Header = "Add Folder...", Command = _viewModel.AddFolderCommand };
+            addFolderMenuItem.Icon = new TextBlock { Text = "\uED25", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
+            _mainContextMenu.Items.Add(addFolderMenuItem);
+
+            var playlistMenuItem = new MenuItem { Header = "Open Playlist", Command = _viewModel.OpenPlaylistCommand };
+            playlistMenuItem.Icon = new TextBlock { Text = "\uE700", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
+            _mainContextMenu.Items.Add(playlistMenuItem);
+
+            var settingsMenuItem = new MenuItem { Header = "Settings", Command = _viewModel.OpenSettingsCommand };
+            settingsMenuItem.Icon = new TextBlock { Text = "\uE713", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
+            _mainContextMenu.Items.Add(settingsMenuItem);
+
+            _mainContextMenu.Items.Add(new Separator());
+
+            // Delete Options
+            var deleteFromSlideshowMenuItem = new MenuItem { Header = "Delete from Slideshow", Name = "DeleteFromSlideshowMenuItem" };
+            deleteFromSlideshowMenuItem.Click += ContextMenu_DeleteFromSlideshow;
+            deleteFromSlideshowMenuItem.Icon = new TextBlock { Text = "\uE74D", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
+            _mainContextMenu.Items.Add(deleteFromSlideshowMenuItem);
+
+            var deleteFromDiskMenuItem = new MenuItem { Header = "Delete from Disk...", Name = "DeleteFromDiskMenuItem" };
+            deleteFromDiskMenuItem.Click += ContextMenu_DeleteFromDisk;
+            deleteFromDiskMenuItem.Icon = new TextBlock { Text = "\uE74D", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
+            _mainContextMenu.Items.Add(deleteFromDiskMenuItem);
+        }
+
+        private void MainContextMenu_Opened(object sender, RoutedEventArgs e)
+        {
+            // Update menu item states when menu opens
+            if (_viewModel == null || _mainContextMenu == null) return;
+
+            // Find menu items by name
+            var playPauseMenuItem = _mainContextMenu.Items.OfType<MenuItem>()
+                .FirstOrDefault(m => m.Name == "PlayPauseMenuItem");
+            
+            if (playPauseMenuItem != null)
+            {
+                if (_viewModel.IsPlaying)
+                {
+                    playPauseMenuItem.Header = "Pause";
+                    var icon = playPauseMenuItem.Icon as TextBlock;
+                    if (icon != null)
+                        icon.Text = "\uE769"; // Pause icon
+                }
+                else
+                {
+                    playPauseMenuItem.Header = "Play";
+                    var icon = playPauseMenuItem.Icon as TextBlock;
+                    if (icon != null)
+                        icon.Text = "\uEDB5"; // Play icon
+                }
+            }
+
+            // Find mute menu item and update icon
+            var muteMenuItem = _mainContextMenu.Items.OfType<MenuItem>()
+                .FirstOrDefault(m => m.Name == "MuteMenuItem");
+            if (muteMenuItem != null)
+            {
+                var muteIcon = muteMenuItem.Icon as TextBlock;
+                if (muteIcon != null)
+                    muteIcon.Text = _isMuted ? "\uE74F" : "\uE767"; // Mute/Unmute icon
+            }
+
+            // Enable/disable delete menu items based on whether media is loaded
+            bool hasMedia = _viewModel.HasMediaItems && _viewModel.CurrentMedia != null;
+            var deleteFromSlideshow = _mainContextMenu.Items.OfType<MenuItem>()
+                .FirstOrDefault(m => m.Name == "DeleteFromSlideshowMenuItem");
+            var deleteFromDisk = _mainContextMenu.Items.OfType<MenuItem>()
+                .FirstOrDefault(m => m.Name == "DeleteFromDiskMenuItem");
+            
+            if (deleteFromSlideshow != null)
+                deleteFromSlideshow.IsEnabled = hasMedia;
+            if (deleteFromDisk != null)
+                deleteFromDisk.IsEnabled = hasMedia;
+        }
+
+        private void MainContextMenu_Closed(object sender, RoutedEventArgs e)
+        {
+            // Cleanup if needed
+        }
+
+        private void ContextMenu_ToggleFullscreen(object sender, RoutedEventArgs e)
+        {
+            ToggleFullscreen();
+        }
+
+        private void ContextMenu_ToggleFit(object sender, RoutedEventArgs e)
+        {
+            if (FitToggle != null)
+            {
+                FitToggle.IsChecked = !FitToggle.IsChecked;
+            }
+        }
+
+        private void ContextMenu_ResetZoom(object sender, RoutedEventArgs e)
+        {
+            ZoomResetButton_Click(sender, e);
+        }
+
+        private void ContextMenu_ReplayVideo(object sender, RoutedEventArgs e)
+        {
+            ReplayButton_Click(sender, e);
+        }
+
+        private void ContextMenu_ToggleMute(object sender, RoutedEventArgs e)
+        {
+            MuteButton_Click(sender, e);
+        }
+
+        private void ContextMenu_DeleteFromSlideshow(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel?.DeleteFileFromSlideshowCommand?.CanExecute(null) == true)
+            {
+                _viewModel.DeleteFileFromSlideshowCommand.Execute(null);
+            }
+        }
+
+        private void ContextMenu_DeleteFromDisk(object sender, RoutedEventArgs e)
+        {
+            if (_viewModel?.DeleteFileFromDiskCommand?.CanExecute(null) == true)
+            {
+                _viewModel.DeleteFileFromDiskCommand.Execute(null);
+            }
+        }
+
+        #endregion
+
         private void MonitorButton_Click(object sender, RoutedEventArgs e)
         {
             // Create context menu with available monitors
@@ -2821,14 +3022,19 @@ namespace SlideShowBob
 
         private void Media_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
-            ShowPrevious();
+            // Show context menu instead of just going to previous
+            if (_mainContextMenu != null)
+            {
+                _mainContextMenu.PlacementTarget = sender as UIElement ?? this;
+                _mainContextMenu.IsOpen = true;
+            }
             e.Handled = true; // Prevent bubbling to window handler
         }
 
         private void MainGrid_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             // Don't handle if we're clicking on media elements (they have their own handlers)
-            if (e.OriginalSource == ImageElement || e.OriginalSource == VideoElement)
+            if (e.OriginalSource == ImageElement || e.OriginalSource == VideoElement || e.OriginalSource == VideoFrameImage)
             {
                 return; // Let the media element handlers deal with it
             }
@@ -2867,6 +3073,12 @@ namespace SlideShowBob
                         return; // Click is on scrollbar, don't handle
                     }
                     
+                    // Exclude context menu
+                    if (current is ContextMenu)
+                    {
+                        return; // Click is on context menu, don't handle
+                    }
+                    
                     // Exclude ScrollViewer (but allow clicks on its background)
                     if (current == ScrollHost)
                     {
@@ -2891,8 +3103,12 @@ namespace SlideShowBob
                 }
             }
             
-            // Right-click anywhere else in the window advances to previous
-            ShowPrevious();
+            // Right-click anywhere else in the window shows context menu
+            if (_mainContextMenu != null)
+            {
+                _mainContextMenu.PlacementTarget = this;
+                _mainContextMenu.IsOpen = true;
+            }
             e.Handled = true;
         }
 
@@ -3077,12 +3293,12 @@ namespace SlideShowBob
         private void ScrollHost_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             // Don't handle if clicking directly on the image or video (they have their own handlers)
-            if (e.OriginalSource == ImageElement || e.OriginalSource == VideoElement)
+            if (e.OriginalSource == ImageElement || e.OriginalSource == VideoElement || e.OriginalSource == VideoFrameImage)
             {
                 return;
             }
             
-            // Check if clicking on UI elements - don't advance image
+            // Check if clicking on UI elements - don't show menu
             var source = e.OriginalSource as DependencyObject;
             if (source != null)
             {
@@ -3092,7 +3308,8 @@ namespace SlideShowBob
                     if (current == ToolbarExpandedPanel || current == ToolbarNotchPanel ||
                         current == StatusBar || current == TitleCountText ||
                         current == EmptyStatePanel ||
-                        current == ImageElement || current == VideoElement)
+                        current == ImageElement || current == VideoElement ||
+                        current == VideoFrameImage)
                     {
                         return; // Click is on UI element, don't handle
                     }
@@ -3102,6 +3319,12 @@ namespace SlideShowBob
                         current is System.Windows.Controls.Primitives.Track)
                     {
                         return; // Click is on scrollbar, don't handle
+                    }
+                    
+                    // Exclude context menu
+                    if (current is ContextMenu)
+                    {
+                        return; // Click is on context menu, don't handle
                     }
                     
                     // Get parent - handle both Visual and TextElement (like Run)
@@ -3122,8 +3345,12 @@ namespace SlideShowBob
                 }
             }
             
-            // Right-click on empty space in ScrollViewer advances to previous
-            ShowPrevious();
+            // Right-click on empty space in ScrollViewer shows context menu
+            if (_mainContextMenu != null)
+            {
+                _mainContextMenu.PlacementTarget = ScrollHost;
+                _mainContextMenu.IsOpen = true;
+            }
             e.Handled = true;
         }
         public async Task ChooseFoldersFromDialogAsync()

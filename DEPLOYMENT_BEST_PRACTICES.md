@@ -294,3 +294,4 @@ Microsoft's `PublishSingleFile` and `IncludeNativeLibrariesForSelfExtract` are d
 
 **Your current implementation is functional and reasonable for a portable app**, but consider switching to separate files as the primary method for better maintainability and user experience.
 
+
