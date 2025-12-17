@@ -1882,7 +1882,8 @@ namespace SlideShowBob
                     ResetVideoScale();
                     UpdateVideoProgressWidth();
 
-                    Title = $"Slide Show Bob - {currentItem.FileName} (Video)";
+                    string folderName = Path.GetFileName(Path.GetDirectoryName(currentItem.FilePath)) ?? "";
+                    Title = $"Slide Show Bob - {folderName}\\{currentItem.FileName} (Video)";
                     
                     // Notify controller that media is displayed
                     _slideshowController?.OnMediaDisplayed(MediaType.Video);
@@ -1991,7 +1992,8 @@ namespace SlideShowBob
                         }), DispatcherPriority.Render);
                     }
 
-                    Title = $"Slide Show Bob - {currentItem.FileName} (GIF)";
+                    string folderName = Path.GetFileName(Path.GetDirectoryName(currentItem.FilePath)) ?? "";
+                    Title = $"Slide Show Bob - {folderName}\\{currentItem.FileName} (GIF)";
                     
                     // For GIFs, hide overlay after a short delay to allow initial load
                     await Task.Delay(100);
@@ -2131,7 +2133,8 @@ namespace SlideShowBob
                         }), DispatcherPriority.Render);
                     }
 
-                    Title = $"Slide Show Bob - {currentItem.FileName}";
+                    string folderName = Path.GetFileName(Path.GetDirectoryName(currentItem.FilePath)) ?? "";
+                    Title = $"Slide Show Bob - {folderName}\\{currentItem.FileName}";
                     
                     // Hide overlay after image is set
                     HideLoadingOverlay();
