@@ -82,6 +82,10 @@ namespace SlideShowBob
             // Mark window as closed to prevent dispatcher operations after close
             _isWindowClosed = true;
             
+            // Stop slideshow and video playback to prevent timer/event handlers from firing
+            _slideshowController?.Stop();
+            _videoService?.Stop();
+            
             // Clean up cancellation tokens
             lock (_showMediaLock)
             {
@@ -1699,15 +1703,22 @@ namespace SlideShowBob
 
         private async Task ShowCurrentMediaAsync()
         {
+            // Check if window is closed before proceeding
+            if (_isWindowClosed) return;
+
             // Cancel any previous media loading operation to prevent race conditions
             CancellationToken cancellationToken;
             lock (_showMediaLock)
             {
+                if (_isWindowClosed) return; // Check again after acquiring lock
                 _showMediaCancellation?.Cancel();
                 _showMediaCancellation?.Dispose();
                 _showMediaCancellation = new CancellationTokenSource();
                 cancellationToken = _showMediaCancellation.Token;
             }
+
+            // Check again before showing overlay
+            if (_isWindowClosed) return;
 
             ShowLoadingOverlayDelayed();
             
@@ -1764,8 +1775,8 @@ namespace SlideShowBob
                 return;
             }
 
-            // Check if operation was cancelled
-            if (cancellationToken.IsCancellationRequested)
+            // Check if operation was cancelled or window is closed
+            if (cancellationToken.IsCancellationRequested || _isWindowClosed)
             {
                 HideLoadingOverlay();
                 return;
@@ -1774,27 +1785,47 @@ namespace SlideShowBob
             // Stop video playback cleanly (don't capture frame when switching)
             _videoService?.Stop(captureLastFrame: false);
 
+            // Check again after stopping video
+            if (_isWindowClosed || cancellationToken.IsCancellationRequested)
+            {
+                HideLoadingOverlay();
+                return;
+            }
+
             // Clear image display when switching media - this must happen first
             ClearImageDisplay();
 
-            // Make sure image is visible by default
-            ImageElement.Visibility = Visibility.Visible;
+            // Make sure image is visible by default (check element exists)
+            if (ImageElement != null && !_isWindowClosed)
+            {
+                ImageElement.Visibility = Visibility.Visible;
+            }
 
             UpdateItemCount();
+
+            // Check window state before accessing UI elements
+            if (_isWindowClosed || cancellationToken.IsCancellationRequested)
+            {
+                HideLoadingOverlay();
+                return;
+            }
 
             // Zoom controls behavior
             if (currentItem.Type == MediaType.Video)
             {
-                ZoomResetButton.IsEnabled = false;
-                ZoomLabel.Text = "Auto";
+                if (ZoomResetButton != null) ZoomResetButton.IsEnabled = false;
+                if (ZoomLabel != null) ZoomLabel.Text = "Auto";
             }
             else
             {
-                ZoomResetButton.IsEnabled = true;
+                if (ZoomResetButton != null) ZoomResetButton.IsEnabled = true;
             }
 
             // Replay only makes sense when slideshow NOT running and current is video
-            ReplayButton.IsEnabled = _slideshowController != null && !_slideshowController.IsRunning && currentItem?.Type == MediaType.Video;
+            if (ReplayButton != null)
+            {
+                ReplayButton.IsEnabled = _slideshowController != null && !_slideshowController.IsRunning && currentItem?.Type == MediaType.Video;
+            }
 
             try
             {
@@ -2710,7 +2741,7 @@ namespace SlideShowBob
             fullscreenMenuItem.Icon = new TextBlock { Text = "⛶", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
             _mainContextMenu.Items.Add(fullscreenMenuItem);
 
-            var fitMenuItem = new MenuItem { Header = "Fit to Window", IsCheckable = true };
+            var fitMenuItem = new MenuItem { Header = "Fit to Window", IsCheckable = true, Name = "FitMenuItem" };
             fitMenuItem.Click += ContextMenu_ToggleFit;
             if (FitToggle != null)
             {
@@ -2777,6 +2808,14 @@ namespace SlideShowBob
                 var muteIcon = muteMenuItem.Icon as TextBlock;
                 if (muteIcon != null)
                     muteIcon.Text = _isMuted ? "\uE74F" : "\uE767"; // Mute/Unmute icon
+            }
+
+            // Update fit menu item checkbox state to match current FitToggle state
+            var fitMenuItem = _mainContextMenu.Items.OfType<MenuItem>()
+                .FirstOrDefault(m => m.Name == "FitMenuItem");
+            if (fitMenuItem != null && FitToggle != null)
+            {
+                fitMenuItem.IsChecked = FitToggle.IsChecked ?? false;
             }
 
             // Enable/disable delete menu items based on whether media is loaded

@@ -174,11 +174,18 @@ namespace SlideShowBob
             {
                 // Small delay to let video fully stop
                 // Fire-and-forget: Safe because NavigateNext() is thread-safe and handles its own state
-                _slideTimer.Dispatcher.BeginInvoke(new Action(() =>
+                try
                 {
-                    if (_isSlideshowRunning && _videoEnded)
-                        NavigateNext();
-                }), DispatcherPriority.Normal);
+                    _slideTimer.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (_isSlideshowRunning && _videoEnded)
+                            NavigateNext();
+                    }), DispatcherPriority.Normal);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Dispatcher is shutting down (window closing) - ignore
+                }
             }
         }
 
@@ -195,20 +202,42 @@ namespace SlideShowBob
 
         private void SlideTimer_Tick(object? sender, EventArgs e)
         {
-            if (!_isSlideshowRunning) return;
-            if (_playlist.Count == 0) return;
+            try
+            {
+                if (!_isSlideshowRunning) return;
+                
+                // Check playlist state safely
+                int count;
+                try
+                {
+                    count = _playlist.Count;
+                }
+                catch
+                {
+                    // Playlist is being modified - stop slideshow to prevent crash
+                    Stop();
+                    return;
+                }
+                
+                if (count == 0) return;
 
-            // Check if enough time has passed
-            var elapsedMs = (DateTime.UtcNow - _mediaStartTime).TotalMilliseconds;
-            if (elapsedMs < _slideDelayMs)
-                return;
+                // Check if enough time has passed
+                var elapsedMs = (DateTime.UtcNow - _mediaStartTime).TotalMilliseconds;
+                if (elapsedMs < _slideDelayMs)
+                    return;
 
-            // Don't advance if video is still playing
-            if (_currentMediaType == MediaType.Video && !_videoEnded)
-                return;
+                // Don't advance if video is still playing
+                if (_currentMediaType == MediaType.Video && !_videoEnded)
+                    return;
 
-            // Advance to next
-            NavigateNext();
+                // Advance to next
+                NavigateNext();
+            }
+            catch (Exception)
+            {
+                // If any error occurs (e.g., playlist modified during access), stop slideshow to prevent crashes
+                Stop();
+            }
         }
 
         private void ResetMediaStartTime()

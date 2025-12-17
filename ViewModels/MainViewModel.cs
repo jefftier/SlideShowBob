@@ -881,9 +881,17 @@ namespace SlideShowBob.ViewModels
 
         private void OnNavigateToIndex(object? sender, int index)
         {
-            _playlistManager.SetIndex(index);
-            CurrentMedia = _playlistManager.CurrentItem;
-            RequestShowMedia?.Invoke(this, EventArgs.Empty);
+            try
+            {
+                _playlistManager.SetIndex(index);
+                CurrentMedia = _playlistManager.CurrentItem;
+                RequestShowMedia?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception)
+            {
+                // If playlist was modified during navigation, ignore to prevent crash
+                // The slideshow will stop naturally if playlist becomes empty
+            }
         }
 
         private void OnSlideshowStarted(object? sender, EventArgs e)
