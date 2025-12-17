@@ -22,6 +22,8 @@ namespace SlideShowBob
         private RoutedEventHandler? _mediaOpenedHandler;
         private RoutedEventHandler? _mediaEndedHandler;
         private readonly object _loadLock = new object();
+        private DispatcherOperation? _pendingPlayOperation = null;
+        private bool _isDisposed = false;
 
         public event EventHandler? MediaOpened;
         public event EventHandler? MediaEnded;
@@ -60,13 +62,22 @@ namespace SlideShowBob
         /// </summary>
         public void LoadVideo(Uri source, Action? onMediaOpened = null, Action? onMediaEnded = null)
         {
-            if (source == null) return;
+            if (source == null || _isDisposed) return;
 
             // Prevent concurrent loads - only one load operation at a time
             lock (_loadLock)
             {
+                if (_isDisposed) return;
+
+                // Cancel any pending BeginInvoke operations to prevent race conditions
+                if (_pendingPlayOperation != null && _pendingPlayOperation.Status == DispatcherOperationStatus.Pending)
+                {
+                    _pendingPlayOperation.Abort();
+                    _pendingPlayOperation = null;
+                }
+
                 // Stop current playback cleanly
-                Stop();
+                StopInternal();
 
                 // Remove old handlers
                 if (_mediaOpenedHandler != null)
@@ -78,30 +89,36 @@ namespace SlideShowBob
                 Uri handlerSource = source; // Capture source for handler
                 _mediaOpenedHandler = (s, e) =>
                 {
-                    // Verify source hasn't changed (prevent handler from firing for wrong video)
-                    if (_mediaElement.Source != handlerSource || _currentSource != handlerSource)
+                    // Check if disposed or source changed
+                    if (_isDisposed || _mediaElement == null || _mediaElement.Source != handlerSource || _currentSource != handlerSource)
                         return;
 
                     // Ensure playback is started (in case the immediate Play() call didn't work)
                     try
                     {
-                        if (_mediaElement.Source == handlerSource)
+                        if (!_isDisposed && _mediaElement.Source == handlerSource && _currentSource == handlerSource)
                         {
                             _mediaElement.Play();
                         }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Dispatcher shutting down or MediaElement disposed - ignore
                     }
                     catch
                     {
                         // If play fails, ignore - it might already be playing
                     }
+                    
                     // Ensure progress timer is running
-                    if (!_progressTimer.IsEnabled && _mediaElement.Source == handlerSource)
+                    if (!_isDisposed && !_progressTimer.IsEnabled && _mediaElement.Source == handlerSource && _currentSource == handlerSource)
                     {
                         _progressTimer.Start();
                         _progressBar.Visibility = Visibility.Visible;
                         _progressBar.Value = 0;
                     }
-                    if (_mediaElement.Source == handlerSource)
+                    
+                    if (!_isDisposed && _mediaElement.Source == handlerSource && _currentSource == handlerSource)
                     {
                         _isPlaying = true;
                         MediaOpened?.Invoke(this, EventArgs.Empty);
@@ -111,19 +128,51 @@ namespace SlideShowBob
 
                 _mediaEndedHandler = (s, e) =>
                 {
-                    // Verify source hasn't changed
-                    if (_mediaElement.Source != handlerSource || _currentSource != handlerSource)
+                    // Check if disposed or source changed
+                    if (_isDisposed || _mediaElement == null || _mediaElement.Source != handlerSource || _currentSource != handlerSource)
                         return;
 
                     _isPlaying = false;
+                    
                     // Capture last frame BEFORE stopping (while video is still visible)
-                    var lastFrame = CaptureCurrentFrame();
+                    BitmapSource? lastFrame = null;
+                    try
+                    {
+                        if (!_isDisposed && _mediaElement.Source == handlerSource)
+                        {
+                            lastFrame = CaptureCurrentFrame();
+                        }
+                    }
+                    catch
+                    {
+                        // If capture fails, continue without frame
+                    }
+                    
                     if (lastFrame != null)
                     {
                         FrameCaptured?.Invoke(this, lastFrame);
                     }
-                    // Now stop the video
-                    Stop(captureLastFrame: false);
+                    
+                    // Clear source and state without calling Stop() to avoid lock re-entry
+                    // Stop() will be called by the next LoadVideo() or explicit Stop() call
+                    try
+                    {
+                        if (!_isDisposed && _mediaElement.Source == handlerSource)
+                        {
+                            _mediaElement.Stop();
+                            _mediaElement.Source = null;
+                            _currentSource = null;
+                            _isPlaying = false;
+                            _progressTimer.Stop();
+                            _progressBar.Visibility = Visibility.Collapsed;
+                            _progressBar.Value = 0;
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Dispatcher shutting down - ignore
+                    }
+                    
                     MediaEnded?.Invoke(this, EventArgs.Empty);
                     onMediaEnded?.Invoke();
                 };
@@ -138,28 +187,43 @@ namespace SlideShowBob
 
                 // Try to start playing immediately - MediaElement will queue it if not ready yet
                 // This reduces delay compared to waiting for MediaOpened
-                // Fire-and-forget: Safe because MediaOpened handler will retry if this fails, and we verify source hasn't changed
-                _mediaElement.Dispatcher.BeginInvoke(new Action(() =>
+                // Store the operation so we can cancel it if needed
+                try
                 {
-                    // Double-check source hasn't changed before playing
-                    if (_mediaElement.Source == source && _currentSource == source)
+                    _pendingPlayOperation = _mediaElement.Dispatcher.BeginInvoke(new Action(() =>
                     {
-                        try
+                        // Double-check source hasn't changed and not disposed before playing
+                        if (_isDisposed || _mediaElement == null)
+                            return;
+                            
+                        if (_mediaElement.Source == source && _currentSource == source)
                         {
-                            _mediaElement.Play();
-                            if (_mediaElement.Source == source) // Verify again after play
+                            try
                             {
-                                _progressTimer.Start();
-                                _progressBar.Visibility = Visibility.Visible;
-                                _progressBar.Value = 0;
+                                _mediaElement.Play();
+                                if (!_isDisposed && _mediaElement.Source == source) // Verify again after play
+                                {
+                                    _progressTimer.Start();
+                                    _progressBar.Visibility = Visibility.Visible;
+                                    _progressBar.Value = 0;
+                                }
+                            }
+                            catch (InvalidOperationException)
+                            {
+                                // Dispatcher shutting down or MediaElement disposed - ignore
+                            }
+                            catch
+                            {
+                                // If play fails (media not ready), MediaOpened handler will retry
                             }
                         }
-                        catch
-                        {
-                            // If play fails (media not ready), MediaOpened handler will retry
-                        }
-                    }
-                }), DispatcherPriority.Normal);
+                    }), DispatcherPriority.Normal);
+                }
+                catch (InvalidOperationException)
+                {
+                    // Dispatcher is shutting down - ignore
+                    _pendingPlayOperation = null;
+                }
             }
         }
 
@@ -169,7 +233,7 @@ namespace SlideShowBob
         /// </summary>
         public BitmapSource? CaptureCurrentFrame()
         {
-            if (_mediaElement == null || _mediaElement.Source == null)
+            if (_isDisposed || _mediaElement == null || _mediaElement.Source == null)
                 return null;
 
             if (_mediaElement.NaturalVideoWidth <= 0 || _mediaElement.NaturalVideoHeight <= 0)
@@ -204,6 +268,11 @@ namespace SlideShowBob
 
                 return renderTarget;
             }
+            catch (InvalidOperationException)
+            {
+                // Dispatcher shutting down - ignore
+                return null;
+            }
             catch
             {
                 return null;
@@ -219,8 +288,28 @@ namespace SlideShowBob
         {
             lock (_loadLock)
             {
-                // Capture last frame before stopping if requested
-                if (captureLastFrame && _isPlaying)
+                StopInternal(captureLastFrame);
+            }
+        }
+
+        /// <summary>
+        /// Internal stop method that assumes lock is already held.
+        /// </summary>
+        private void StopInternal(bool captureLastFrame = false)
+        {
+            if (_isDisposed) return;
+
+            // Cancel any pending BeginInvoke operations to prevent race conditions
+            if (_pendingPlayOperation != null && _pendingPlayOperation.Status == DispatcherOperationStatus.Pending)
+            {
+                _pendingPlayOperation.Abort();
+                _pendingPlayOperation = null;
+            }
+
+            // Capture last frame before stopping if requested
+            if (captureLastFrame && _isPlaying)
+            {
+                try
                 {
                     var lastFrame = CaptureCurrentFrame();
                     if (lastFrame != null)
@@ -228,21 +317,39 @@ namespace SlideShowBob
                         FrameCaptured?.Invoke(this, lastFrame);
                     }
                 }
+                catch
+                {
+                    // If capture fails, continue with stop
+                }
+            }
 
-                _isPlaying = false;
-                _progressTimer.Stop();
+            _isPlaying = false;
+            _progressTimer.Stop();
 
-                if (_mediaElement != null)
+            if (_mediaElement != null)
+            {
+                try
                 {
                     _mediaElement.Stop();
                     _mediaElement.Source = null;
+                    // CRITICAL FIX: Call Close() to properly release MediaElement resources
+                    // This prevents memory leaks and crashes during rapid transitions
+                    _mediaElement.Close();
                     _mediaElement.Visibility = Visibility.Collapsed;
                 }
-
-                _progressBar.Visibility = Visibility.Collapsed;
-                _progressBar.Value = 0;
-                _currentSource = null;
+                catch (InvalidOperationException)
+                {
+                    // Dispatcher shutting down or MediaElement disposed - ignore
+                }
+                catch
+                {
+                    // If stop fails, continue with cleanup
+                }
             }
+
+            _progressBar.Visibility = Visibility.Collapsed;
+            _progressBar.Value = 0;
+            _currentSource = null;
         }
 
         /// <summary>
@@ -250,14 +357,25 @@ namespace SlideShowBob
         /// </summary>
         public void Replay()
         {
-            if (_currentSource == null || _mediaElement.Source == null)
+            if (_isDisposed || _currentSource == null || _mediaElement == null || _mediaElement.Source == null)
                 return;
 
-            _mediaElement.Stop();
-            _mediaElement.Position = TimeSpan.Zero;
-            _mediaElement.Play();
-            _isPlaying = true;
-            _progressBar.Value = 0;
+            try
+            {
+                _mediaElement.Stop();
+                _mediaElement.Position = TimeSpan.Zero;
+                _mediaElement.Play();
+                _isPlaying = true;
+                _progressBar.Value = 0;
+            }
+            catch (InvalidOperationException)
+            {
+                // Dispatcher shutting down - ignore
+            }
+            catch
+            {
+                // If replay fails, ignore
+            }
         }
 
         /// <summary>
@@ -265,16 +383,27 @@ namespace SlideShowBob
         /// </summary>
         public void SeekTo(double ratio)
         {
-            if (_mediaElement.Source == null || !_mediaElement.NaturalDuration.HasTimeSpan)
+            if (_isDisposed || _mediaElement == null || _mediaElement.Source == null || !_mediaElement.NaturalDuration.HasTimeSpan)
                 return;
 
-            var duration = _mediaElement.NaturalDuration.TimeSpan;
-            if (duration.TotalMilliseconds <= 0)
-                return;
+            try
+            {
+                var duration = _mediaElement.NaturalDuration.TimeSpan;
+                if (duration.TotalMilliseconds <= 0)
+                    return;
 
-            ratio = Math.Clamp(ratio, 0.0, 1.0);
-            _mediaElement.Position = TimeSpan.FromMilliseconds(duration.TotalMilliseconds * ratio);
-            _progressBar.Value = ratio * 100.0;
+                ratio = Math.Clamp(ratio, 0.0, 1.0);
+                _mediaElement.Position = TimeSpan.FromMilliseconds(duration.TotalMilliseconds * ratio);
+                _progressBar.Value = ratio * 100.0;
+            }
+            catch (InvalidOperationException)
+            {
+                // Dispatcher shutting down - ignore
+            }
+            catch
+            {
+                // If seek fails, ignore
+            }
         }
 
         /// <summary>
@@ -282,28 +411,44 @@ namespace SlideShowBob
         /// </summary>
         public double GetProgress()
         {
-            if (_mediaElement.Source == null || !_mediaElement.NaturalDuration.HasTimeSpan)
+            if (_isDisposed || _mediaElement == null || _mediaElement.Source == null || !_mediaElement.NaturalDuration.HasTimeSpan)
                 return 0.0;
 
-            var duration = _mediaElement.NaturalDuration.TimeSpan;
-            if (duration.TotalMilliseconds <= 0)
-                return 0.0;
+            try
+            {
+                var duration = _mediaElement.NaturalDuration.TimeSpan;
+                if (duration.TotalMilliseconds <= 0)
+                    return 0.0;
 
-            var position = _mediaElement.Position;
-            return Math.Clamp(position.TotalMilliseconds / duration.TotalMilliseconds, 0.0, 1.0);
+                var position = _mediaElement.Position;
+                return Math.Clamp(position.TotalMilliseconds / duration.TotalMilliseconds, 0.0, 1.0);
+            }
+            catch
+            {
+                return 0.0;
+            }
         }
 
         private void ProgressTimer_Tick(object? sender, EventArgs e)
         {
-            if (_mediaElement.Source == null || !_isPlaying)
+            if (_isDisposed || _mediaElement == null || _mediaElement.Source == null || !_isPlaying)
             {
                 _progressBar.Visibility = Visibility.Collapsed;
                 return;
             }
 
-            double progress = GetProgress();
-            _progressBar.Value = progress * 100.0;
-            ProgressUpdated?.Invoke(this, progress);
+            try
+            {
+                double progress = GetProgress();
+                _progressBar.Value = progress * 100.0;
+                ProgressUpdated?.Invoke(this, progress);
+            }
+            catch
+            {
+                // If progress calculation fails, stop timer
+                _progressTimer.Stop();
+                _progressBar.Visibility = Visibility.Collapsed;
+            }
         }
 
         /// <summary>
@@ -322,20 +467,50 @@ namespace SlideShowBob
         /// </summary>
         public void Dispose()
         {
-            _progressTimer.Tick -= ProgressTimer_Tick;
-            _progressTimer.Stop();
-
-            // Unsubscribe from media element events
-            if (_mediaOpenedHandler != null)
+            lock (_loadLock)
             {
-                _mediaElement.MediaOpened -= _mediaOpenedHandler;
-                _mediaOpenedHandler = null;
-            }
+                if (_isDisposed) return;
+                _isDisposed = true;
 
-            if (_mediaEndedHandler != null)
-            {
-                _mediaElement.MediaEnded -= _mediaEndedHandler;
-                _mediaEndedHandler = null;
+                // Cancel any pending operations
+                if (_pendingPlayOperation != null && _pendingPlayOperation.Status == DispatcherOperationStatus.Pending)
+                {
+                    _pendingPlayOperation.Abort();
+                    _pendingPlayOperation = null;
+                }
+
+                _progressTimer.Tick -= ProgressTimer_Tick;
+                _progressTimer.Stop();
+
+                // Stop and close media element properly
+                if (_mediaElement != null)
+                {
+                    try
+                    {
+                        _mediaElement.Stop();
+                        _mediaElement.Source = null;
+                        _mediaElement.Close();
+                    }
+                    catch
+                    {
+                        // Ignore errors during disposal
+                    }
+
+                    // Unsubscribe from media element events
+                    if (_mediaOpenedHandler != null)
+                    {
+                        _mediaElement.MediaOpened -= _mediaOpenedHandler;
+                        _mediaOpenedHandler = null;
+                    }
+
+                    if (_mediaEndedHandler != null)
+                    {
+                        _mediaElement.MediaEnded -= _mediaEndedHandler;
+                        _mediaEndedHandler = null;
+                    }
+                }
+
+                _currentSource = null;
             }
         }
     }
