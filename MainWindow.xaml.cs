@@ -530,11 +530,11 @@ namespace SlideShowBob
             if (!blurEnabled)
                 return;
 
-            // Check if image is portrait
-            if (image == null || !IsPortraitImage(image, filePath))
+            // Check if image is valid
+            if (image == null)
                 return;
 
-            // Apply effect for portrait images - use the SAME source as the main image
+            // Apply effect for images - use the SAME source as the main image
             // This ensures they're always in sync
             BlurredBackgroundImage.Source = image;
             BlurredBackgroundImage.Visibility = Visibility.Visible;
@@ -565,10 +565,6 @@ namespace SlideShowBob
             if (!blurEnabled)
                 return;
 
-            // Check if video is portrait
-            if (!IsPortraitVideo())
-                return;
-
             // Store the current video source to tie the blur to this specific video
             if (VideoElement.Source != null)
             {
@@ -582,7 +578,11 @@ namespace SlideShowBob
             // For videos, we need to wait for the first frame to actually render
             // This is especially important for larger videos which take longer to decode
             // Use a retry mechanism to wait for the video to be ready
-            TryCaptureVideoFrameForBlur(0);
+            // Delay slightly to ensure video has started rendering
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                TryCaptureVideoFrameForBlur(0);
+            }), DispatcherPriority.Loaded);
         }
 
         private void TryCaptureVideoFrameForBlur(int attempt)
