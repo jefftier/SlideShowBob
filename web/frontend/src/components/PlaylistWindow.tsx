@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { MediaItem } from '../types/media';
 import './PlaylistWindow.css';
 
@@ -11,14 +11,9 @@ interface PlaylistWindowProps {
   onRemoveFile: (filePath: string) => void;
   onRemoveFolder: (folderName: string) => void;
   onAddFolder: () => void;
+  onPlayFromFile?: (filePath: string) => void;
 }
 
-interface FolderNode {
-  name: string;
-  type: 'folder';
-  children: Map<string, FolderNode | MediaItem>;
-  path: string;
-}
 
 const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
   playlist,
@@ -28,296 +23,321 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
   onNavigateToFile,
   onRemoveFile,
   onRemoveFolder,
-  onAddFolder
+  onAddFolder,
+  onPlayFromFile
 }) => {
-  const [viewMode, setViewMode] = useState<'list' | 'tree'>('tree');
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(250);
+  const [isResizing, setIsResizing] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<{type: 'file' | 'folder', path: string, name: string} | null>(null);
+  const contentRef = React.useRef<HTMLDivElement>(null);
+  const currentItemRef = React.useRef<HTMLDivElement>(null);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+  const sidebarRef = React.useRef<HTMLDivElement>(null);
   
-  // Auto-expand root folders when they change
+  // Auto-select first folder if none selected
   React.useEffect(() => {
-    setExpandedFolders(prev => {
-      const newSet = new Set(prev);
-      folders.forEach(folder => newSet.add(folder));
-      return newSet;
-    });
-  }, [folders]);
-
-  const filteredPlaylist = playlist.filter(item =>
-    item.fileName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (item.relativePath && item.relativePath.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
-
-  // Build tree structure from playlist
-  const folderTree = useMemo(() => {
-    const tree = new Map<string, FolderNode>();
-    
-    folders.forEach(folderName => {
-      const rootNode: FolderNode = {
-        name: folderName,
-        type: 'folder',
-        children: new Map(),
-        path: folderName
-      };
-      tree.set(folderName, rootNode);
-    });
-
-    filteredPlaylist.forEach(item => {
-      const folderName = item.folderName || 'Unknown';
-      let currentNode = tree.get(folderName);
-      
-      if (!currentNode) {
-        currentNode = {
-          name: folderName,
-          type: 'folder',
-          children: new Map(),
-          path: folderName
-        };
-        tree.set(folderName, currentNode);
-      }
-
-      if (item.relativePath) {
-        const pathParts = item.relativePath.split('/');
-        const fileName = pathParts[pathParts.length - 1];
-        
-        // Navigate/create folder structure
-        for (let i = 0; i < pathParts.length - 1; i++) {
-          const part = pathParts[i];
-          if (!currentNode.children.has(part)) {
-            const folderNode: FolderNode = {
-              name: part,
-              type: 'folder',
-              children: new Map(),
-              path: `${folderName}/${pathParts.slice(0, i + 1).join('/')}`
-            };
-            currentNode.children.set(part, folderNode);
-          }
-          currentNode = currentNode.children.get(part) as FolderNode;
-        }
-        
-        // Add file to current node
-        currentNode.children.set(fileName, item);
-      } else {
-        // File is in root folder
-        currentNode.children.set(item.fileName, item);
-      }
-    });
-
-    return tree;
-  }, [filteredPlaylist, folders]);
-
-  const toggleFolder = (path: string) => {
-    const newExpanded = new Set(expandedFolders);
-    if (newExpanded.has(path)) {
-      newExpanded.delete(path);
-    } else {
-      newExpanded.add(path);
+    if (!selectedFolder && folders.length > 0) {
+      setSelectedFolder(folders[0]);
     }
-    setExpandedFolders(newExpanded);
+  }, [folders, selectedFolder]);
+
+  // Handle sidebar resizing
+  React.useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (sidebarRef.current) {
+        const newWidth = e.clientX - sidebarRef.current.getBoundingClientRect().left;
+        setSidebarWidth(Math.max(200, Math.min(400, newWidth)));
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
+
+  // Auto-scroll to current item when playlist opens
+  React.useEffect(() => {
+    if (currentItemRef.current && contentRef.current) {
+      currentItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [currentIndex]);
+
+  const handleConfirmRemove = useCallback(() => {
+    if (!pendingRemove) return;
+    
+    if (pendingRemove.type === 'file') {
+      onRemoveFile(pendingRemove.path);
+    } else {
+      onRemoveFolder(pendingRemove.name);
+    }
+    setPendingRemove(null);
+  }, [pendingRemove, onRemoveFile, onRemoveFolder]);
+
+  // Keyboard shortcuts
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (pendingRemove) {
+          setPendingRemove(null);
+        } else {
+          onClose();
+        }
+      } else if (e.key === 'Enter' && pendingRemove) {
+        handleConfirmRemove();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [pendingRemove, onClose, handleConfirmRemove]);
+
+  const handleRemoveFile = (filePath: string, fileName: string) => {
+    setPendingRemove({ type: 'file', path: filePath, name: fileName });
   };
 
-  const renderTreeNode = (node: FolderNode | MediaItem, depth: number = 0): React.ReactNode => {
-    if ('type' in node && node.type === 'folder') {
-      const folderNode = node as FolderNode;
-      const isExpanded = expandedFolders.has(folderNode.path);
-      const hasChildren = folderNode.children.size > 0;
-      
-      return (
-        <div key={folderNode.path} className="playlist-tree-folder">
-          <div 
-            className="playlist-tree-folder-header"
-            style={{ paddingLeft: `${depth * 20 + 8}px` }}
-            onClick={() => hasChildren && toggleFolder(folderNode.path)}
-          >
-            <span className="playlist-tree-icon">
-              {hasChildren ? (isExpanded ? '📂' : '📁') : '📁'}
-            </span>
-            <span className="playlist-tree-name">{folderNode.name}</span>
-            <span className="playlist-tree-count">({folderNode.children.size})</span>
-          </div>
-          {isExpanded && (
-            <div className="playlist-tree-children">
-              {Array.from(folderNode.children.values()).map(child => 
-                renderTreeNode(child, depth + 1)
-              )}
-            </div>
-          )}
-        </div>
-      );
-    } else {
-      const mediaItem = node as MediaItem;
-      const isCurrent = playlist.findIndex(p => p.filePath === mediaItem.filePath) === currentIndex;
-      
-      return (
-        <div
-          key={mediaItem.filePath}
-          className={`playlist-tree-item ${isCurrent ? 'current' : ''}`}
-          style={{ paddingLeft: `${depth * 20 + 28}px` }}
-          onClick={() => onNavigateToFile(mediaItem.filePath)}
-        >
-          <span className="playlist-tree-icon">
-            {mediaItem.type === 'Video' ? '🎥' : mediaItem.type === 'Gif' ? '🎬' : '🖼️'}
-          </span>
-          <span className="playlist-tree-name">{mediaItem.fileName}</span>
-          <button
-            className="playlist-tree-remove"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemoveFile(mediaItem.filePath);
-            }}
-            title="Remove from playlist"
-          >
-            ×
-          </button>
-        </div>
+  const handleRemoveFolder = (folderName: string) => {
+    setPendingRemove({ type: 'folder', path: folderName, name: folderName });
+  };
+
+  // Filter playlist based on search and selected folder
+  const filteredPlaylist = useMemo(() => {
+    let filtered = playlist;
+    
+    // Filter by selected folder
+    if (selectedFolder) {
+      filtered = filtered.filter(item => item.folderName === selectedFolder);
+    }
+    
+    // Filter by search query
+    if (searchQuery) {
+      filtered = filtered.filter(item =>
+        item.fileName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (item.relativePath && item.relativePath.toLowerCase().includes(searchQuery.toLowerCase()))
       );
     }
+    
+    return filtered;
+  }, [playlist, selectedFolder, searchQuery]);
+
+
+  const highlightSearchMatch = (text: string, query: string): React.ReactNode => {
+    if (!query) return text;
+    const parts = text.split(new RegExp(`(${query})`, 'gi'));
+    return parts.map((part, i) => 
+      part.toLowerCase() === query.toLowerCase() ? (
+        <mark key={i} className="search-highlight">{part}</mark>
+      ) : part
+    );
   };
 
   return (
-    <div className="playlist-window-overlay" onClick={onClose}>
-      <div className="playlist-window" onClick={(e) => e.stopPropagation()}>
-        <div className="playlist-header">
-          <h2>Playlist ({playlist.length} items)</h2>
-          <div className="playlist-controls">
-            <input
-              type="text"
-              placeholder="Search..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="playlist-search"
-            />
-            <button
-              className={`view-toggle ${viewMode === 'tree' ? 'active' : ''}`}
-              onClick={() => setViewMode('tree')}
-              title="Tree view"
-            >
-              🌳
-            </button>
-            <button
-              className={`view-toggle ${viewMode === 'list' ? 'active' : ''}`}
-              onClick={() => setViewMode('list')}
-              title="List view"
-            >
-              ☰
-            </button>
-            <button
-              className="add-folder-btn"
-              onClick={onAddFolder}
-              title="Add folder"
-            >
-              +📁
-            </button>
-            <button className="close-btn" onClick={onClose} title="Close">×</button>
-          </div>
-        </div>
-        
-        <div className={`playlist-content ${viewMode}`}>
-          {filteredPlaylist.length === 0 ? (
-            <div className="playlist-empty">
-              {searchQuery ? 'No items match your search' : 'Playlist is empty'}
-            </div>
-          ) : viewMode === 'tree' ? (
-            <div className="playlist-tree">
-              {Array.from(folderTree.values()).map(folder => (
-                <div key={folder.path} className="playlist-tree-root">
-                  <div 
-                    className="playlist-tree-folder-header playlist-tree-root-header"
-                    onClick={() => toggleFolder(folder.path)}
+    <>
+      <div className="playlist-window-overlay" onClick={onClose}>
+        <div className="playlist-window" onClick={(e) => e.stopPropagation()}>
+          <div className="playlist-header">
+            <h2>Playlist ({playlist.length} items)</h2>
+            <div className="playlist-controls">
+              <div className="playlist-search-container">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Search... (Ctrl+F)"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="playlist-search"
+                />
+                {searchQuery && (
+                  <button
+                    className="playlist-search-clear"
+                    onClick={() => setSearchQuery('')}
+                    title="Clear search"
                   >
-                    <span className="playlist-tree-icon">
-                      {expandedFolders.has(folder.path) ? '📂' : '📁'}
-                    </span>
-                    <span className="playlist-tree-name">{folder.name}</span>
-                    <span className="playlist-tree-count">({folder.children.size})</span>
-                    <button
-                      className="playlist-tree-remove"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRemoveFolder(folder.name);
-                      }}
-                      title="Remove folder"
-                    >
-                      ×
-                    </button>
+                    ×
+                  </button>
+                )}
+              </div>
+              {selectedFolder && (
+                <button
+                  className="playlist-btn-secondary"
+                  onClick={() => setSelectedFolder(null)}
+                  title="Show all files"
+                >
+                  Show All
+                </button>
+              )}
+              <button
+                className="add-folder-btn"
+                onClick={onAddFolder}
+                title="Add folder"
+              >
+                <span className="add-folder-icon">+</span>
+                <span className="add-folder-label">Add Folder</span>
+              </button>
+              <button className="close-btn" onClick={onClose} title="Close (Esc)">×</button>
+            </div>
+          </div>
+          
+          <div className="playlist-body">
+            {/* Left Sidebar - Folder Tree */}
+            <div 
+              ref={sidebarRef}
+              className="playlist-sidebar"
+              style={{ width: `${sidebarWidth}px` }}
+            >
+              <div className="playlist-sidebar-header">
+                <h3>Folders</h3>
+                <button
+                  className="playlist-btn-icon"
+                  onClick={onAddFolder}
+                  title="Add folder"
+                >
+                  +
+                </button>
+              </div>
+              <div className="playlist-sidebar-content">
+                {folders.length === 0 ? (
+                  <div className="playlist-empty-small">
+                    No folders added
                   </div>
-                  {expandedFolders.has(folder.path) && (
-                    <div className="playlist-tree-children">
-                      {Array.from(folder.children.values()).map(child => 
-                        renderTreeNode(child, 1)
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {folderTree.size === 0 && (
+                ) : (
+                  folders.map(folderName => {
+                    const folderItems = playlist.filter(item => item.folderName === folderName);
+                    const isSelected = selectedFolder === folderName;
+                    return (
+                      <div
+                        key={folderName}
+                        className={`playlist-sidebar-item ${isSelected ? 'selected' : ''}`}
+                        onClick={() => setSelectedFolder(folderName)}
+                      >
+                        <span className="playlist-sidebar-icon">📁</span>
+                        <span className="playlist-sidebar-name">{folderName}</span>
+                        <span className="playlist-sidebar-count">({folderItems.length})</span>
+                        <button
+                          className="playlist-sidebar-remove"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveFolder(folderName);
+                          }}
+                          title="Remove folder"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Resize Handle */}
+            <div
+              className="playlist-resize-handle"
+              onMouseDown={() => setIsResizing(true)}
+            />
+
+            {/* Right Panel - File List */}
+            <div ref={contentRef} className="playlist-content">
+              {filteredPlaylist.length === 0 ? (
                 <div className="playlist-empty">
-                  No folders added. Click +📁 to add a folder.
+                  {searchQuery 
+                    ? 'No items match your search' 
+                    : selectedFolder 
+                      ? 'No files in this folder' 
+                      : 'Select a folder to view files'}
                 </div>
+              ) : (
+                <ul className="playlist-list">
+                  {filteredPlaylist.map((item, index) => {
+                    const originalIndex = playlist.findIndex(p => p.filePath === item.filePath);
+                    const isCurrent = originalIndex === currentIndex;
+                    return (
+                      <li
+                        key={item.filePath}
+                        ref={isCurrent ? currentItemRef : null}
+                        className={`playlist-item ${isCurrent ? 'current' : ''}`}
+                        onClick={() => onNavigateToFile(item.filePath)}
+                        title="Click to jump to this file"
+                      >
+                        <span className="playlist-item-index">{originalIndex + 1}</span>
+                        <span className="playlist-item-name">
+                          {highlightSearchMatch(item.fileName, searchQuery)}
+                        </span>
+                        <span className="playlist-item-type">{item.type}</span>
+                        <div className="playlist-item-actions">
+                          {onPlayFromFile && (
+                            <button
+                              className="playlist-item-play"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onPlayFromFile(item.filePath);
+                                onClose();
+                              }}
+                              title="Play slideshow from here"
+                            >
+                              ▶
+                            </button>
+                          )}
+                          <button
+                            className="playlist-item-remove"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveFile(item.filePath, item.fileName);
+                            }}
+                            title="Remove from playlist"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </div>
-          ) : viewMode === 'list' ? (
-            <ul className="playlist-list">
-              {filteredPlaylist.map((item, index) => {
-                const originalIndex = playlist.findIndex(p => p.filePath === item.filePath);
-                const isCurrent = originalIndex === currentIndex;
-                return (
-                  <li
-                    key={item.filePath}
-                    className={`playlist-item ${isCurrent ? 'current' : ''}`}
-                    onClick={() => onNavigateToFile(item.filePath)}
-                  >
-                    <span className="playlist-item-index">{originalIndex + 1}</span>
-                    <span className="playlist-item-name">{item.fileName}</span>
-                    <span className="playlist-item-type">{item.type}</span>
-                    <button
-                      className="playlist-item-remove"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRemoveFile(item.filePath);
-                      }}
-                      title="Remove from playlist"
-                    >
-                      ×
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <div className="playlist-grid">
-              {filteredPlaylist.map((item, index) => {
-                const originalIndex = playlist.findIndex(p => p.filePath === item.filePath);
-                const isCurrent = originalIndex === currentIndex;
-                return (
-                  <div
-                    key={item.filePath}
-                    className={`playlist-grid-item ${isCurrent ? 'current' : ''}`}
-                    onClick={() => onNavigateToFile(item.filePath)}
-                  >
-                    <div className="playlist-grid-thumbnail">
-                      {/* Thumbnail would go here */}
-                      <span className="playlist-grid-type">{item.type}</span>
-                    </div>
-                    <div className="playlist-grid-name">{item.fileName}</div>
-                    <button
-                      className="playlist-grid-remove"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRemoveFile(item.filePath);
-                      }}
-                      title="Remove"
-                    >
-                      ×
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Confirmation Dialog */}
+      {pendingRemove && (
+        <div className="playlist-confirm-overlay" onClick={() => setPendingRemove(null)}>
+          <div className="playlist-confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Confirm Removal</h3>
+            <p>
+              Are you sure you want to remove <strong>{pendingRemove.name}</strong>?
+              {pendingRemove.type === 'folder' && ' This will remove all files in this folder from the playlist.'}
+            </p>
+            <div className="playlist-confirm-buttons">
+              <button className="playlist-btn-danger" onClick={handleConfirmRemove}>
+                Remove
+              </button>
+              <button className="playlist-btn-secondary" onClick={() => setPendingRemove(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

@@ -259,6 +259,22 @@ function App() {
     }
   };
 
+  const handlePlayFromFile = useCallback((filePath: string) => {
+    const index = playlist.findIndex(item => item.filePath === filePath);
+    if (index >= 0) {
+      const item = playlist[index];
+      if (!includeVideos && (item.type === MediaType.Video || item.type === MediaType.Gif)) {
+        return;
+      }
+      setCurrentIndex(index);
+      setCurrentMedia(item);
+      // Start slideshow if not already playing
+      if (!isPlaying) {
+        setIsPlaying(true);
+      }
+    }
+  }, [playlist, includeVideos, isPlaying]);
+
   const handleRemoveFile = (filePath: string) => {
     const newPlaylist = playlist.filter(item => item.filePath !== filePath);
     setPlaylist(newPlaylist);
@@ -498,6 +514,7 @@ function App() {
           onClose={() => setShowPlaylist(false)}
           onNavigateToFile={handleNavigateToFile}
           onRemoveFile={handleRemoveFile}
+          onPlayFromFile={handlePlayFromFile}
           onRemoveFolder={(folderName) => {
             // Remove folder from folders list
             const newFolders = folders.filter(f => f !== folderName);
