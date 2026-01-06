@@ -149,3 +149,5 @@ From web search on WPF MediaElement crash patterns:
 3. Closing window during video playback
 4. Navigating during video playback
 5. Multiple rapid navigations (stress test)
+
+

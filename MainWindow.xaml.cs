@@ -37,17 +37,6 @@ namespace SlideShowBob
             set => SetValue(HasScrollBarsProperty, value);
         }
 
-        // Dependency property to track fullscreen state for UI binding
-        public static readonly DependencyProperty IsFullscreenProperty =
-            DependencyProperty.Register(nameof(IsFullscreen), typeof(bool), typeof(MainWindow),
-                new PropertyMetadata(false));
-
-        public bool IsFullscreen
-        {
-            get => (bool)GetValue(IsFullscreenProperty);
-            set => SetValue(IsFullscreenProperty, value);
-        }
-
         // ViewModel (injected from App.xaml.cs)
         private MainViewModel? _viewModel;
         private Uri? _currentVideoSource = null; // Track current video source to tie blur to video
@@ -74,18 +63,9 @@ namespace SlideShowBob
         private CancellationTokenSource? _loadingOverlayDelayCts;
         private CancellationTokenSource? _showMediaCancellation;
         private readonly object _showMediaLock = new object();
-        private ContextMenu? _mainContextMenu;
-        private bool _isWindowClosed = false;
 
         protected override void OnClosed(EventArgs e)
         {
-            // Mark window as closed to prevent dispatcher operations after close
-            _isWindowClosed = true;
-            
-            // Stop slideshow and video playback to prevent timer/event handlers from firing
-            _slideshowController?.Stop();
-            _videoService?.Stop();
-            
             // Clean up cancellation tokens
             lock (_showMediaLock)
             {
@@ -101,29 +81,6 @@ namespace SlideShowBob
             _chromeTimer?.Stop();
             
             base.OnClosed(e);
-        }
-
-        /// <summary>
-        /// Safely invokes an action on the dispatcher, checking if window is still open.
-        /// Prevents crashes from dispatcher operations after window is closed.
-        /// </summary>
-        private void SafeDispatcherInvoke(Action action, DispatcherPriority priority = DispatcherPriority.Normal)
-        {
-            if (_isWindowClosed || Dispatcher == null || !Dispatcher.CheckAccess())
-            {
-                try
-                {
-                    Dispatcher?.BeginInvoke(action, priority);
-                }
-                catch (InvalidOperationException)
-                {
-                    // Window is closing or dispatcher is shutting down - ignore
-                }
-            }
-            else
-            {
-                action();
-            }
         }
 
         // Sort mode (still needed for UI)
@@ -241,9 +198,6 @@ namespace SlideShowBob
             // Hook up scrollbar visibility tracking after Loaded event
             Loaded += (s, e) =>
             {
-                // Create context menu programmatically after window is loaded
-                CreateContextMenu();
-                
                 if (ScrollHost != null)
                 {
                     ScrollHost.LayoutUpdated += ScrollHost_LayoutUpdated;
@@ -264,7 +218,7 @@ namespace SlideShowBob
             SetSlideshowState(false);
 
             VideoElement.IsMuted = true; // Default muted
-            MuteButton.Content = "\uE74F"; // Muted icon
+            MuteButton.Content = "🔇";
             ReplayButton.IsEnabled = false;
 
             // Empty state panel visibility is now handled via data binding
@@ -305,25 +259,12 @@ namespace SlideShowBob
         private void SlideshowController_NavigateToIndex(object? sender, int index)
         {
             // Fire-and-forget: intentionally not awaited
-            // Check if window is still open before dispatching
-            if (_isWindowClosed) return;
-            
-            try
-            {
 #pragma warning disable CS4014 // Fire-and-forget async call
-                _ = Dispatcher.InvokeAsync(async () =>
-                {
-                    if (!_isWindowClosed)
-                    {
-                        await ShowCurrentMediaAsync();
-                    }
-                }, DispatcherPriority.Normal);
-#pragma warning restore CS4014
-            }
-            catch (InvalidOperationException)
+            _ = Dispatcher.InvokeAsync(async () =>
             {
-                // Window is closing or dispatcher is shutting down - ignore
-            }
+                await ShowCurrentMediaAsync();
+            }, DispatcherPriority.Normal);
+#pragma warning restore CS4014
         }
 
         private void VideoService_MediaOpened(object? sender, EventArgs e)
@@ -350,25 +291,19 @@ namespace SlideShowBob
             
             if (FitToggle.IsChecked == true)
             {
-                SafeDispatcherInvoke(() =>
+                Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    if (!_isWindowClosed)
-                    {
-                        SetVideoFit();
-                        ApplyPortraitBlurEffectForVideo();
-                    }
-                }, DispatcherPriority.Background);
+                    SetVideoFit();
+                    ApplyPortraitBlurEffectForVideo();
+                }), DispatcherPriority.Background);
             }
             else
             {
                 ResetVideoScale();
-                SafeDispatcherInvoke(() =>
+                Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    if (!_isWindowClosed)
-                    {
-                        ApplyPortraitBlurEffectForVideo();
-                    }
-                }, DispatcherPriority.Loaded);
+                    ApplyPortraitBlurEffectForVideo();
+                }), DispatcherPriority.Loaded);
             }
 
             var currentItem = _viewModel?.PlaylistManager?.CurrentItem;
@@ -525,16 +460,15 @@ namespace SlideShowBob
             BlurredBackgroundImage.Source = null;
             ImageElement.Effect = null;
 
-            // Check if setting is enabled (default to true if Settings is null, matching AppSettings default)
-            bool blurEnabled = _viewModel?.Settings?.PortraitBlurEffect ?? true;
-            if (!blurEnabled)
+            // Check if setting is enabled
+            if (_viewModel?.Settings != null && !_viewModel.Settings.PortraitBlurEffect)
                 return;
 
-            // Check if image is valid
-            if (image == null)
+            // Check if image is portrait
+            if (image == null || !IsPortraitImage(image, filePath))
                 return;
 
-            // Apply effect for images - use the SAME source as the main image
+            // Apply effect for portrait images - use the SAME source as the main image
             // This ensures they're always in sync
             BlurredBackgroundImage.Source = image;
             BlurredBackgroundImage.Visibility = Visibility.Visible;
@@ -560,9 +494,12 @@ namespace SlideShowBob
             BlurredBackgroundImage.Source = null;
             VideoElement.Effect = null;
 
-            // Check if setting is enabled (default to true if Settings is null, matching AppSettings default)
-            bool blurEnabled = _viewModel?.Settings?.PortraitBlurEffect ?? true;
-            if (!blurEnabled)
+            // Check if setting is enabled
+            if (_viewModel?.Settings != null && !_viewModel.Settings.PortraitBlurEffect)
+                return;
+
+            // Check if video is portrait
+            if (!IsPortraitVideo())
                 return;
 
             // Store the current video source to tie the blur to this specific video
@@ -578,11 +515,7 @@ namespace SlideShowBob
             // For videos, we need to wait for the first frame to actually render
             // This is especially important for larger videos which take longer to decode
             // Use a retry mechanism to wait for the video to be ready
-            // Delay slightly to ensure video has started rendering
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                TryCaptureVideoFrameForBlur(0);
-            }), DispatcherPriority.Loaded);
+            TryCaptureVideoFrameForBlur(0);
         }
 
         private void TryCaptureVideoFrameForBlur(int attempt)
@@ -1446,7 +1379,7 @@ namespace SlideShowBob
                 Title = Title.Replace(" [Running]", "");
             }
 
-            NotchPlayPauseButton.Content = running ? "\uE769" : "\uEDB5"; // E769 = Pause, EDB5 = Play
+            NotchPlayPauseButton.Content = running ? "⏸" : "⏵";
             ReplayButton.IsEnabled = !running && CurrentMediaType == MediaType.Video;
         }
 
@@ -1703,22 +1636,15 @@ namespace SlideShowBob
 
         private async Task ShowCurrentMediaAsync()
         {
-            // Check if window is closed before proceeding
-            if (_isWindowClosed) return;
-
             // Cancel any previous media loading operation to prevent race conditions
             CancellationToken cancellationToken;
             lock (_showMediaLock)
             {
-                if (_isWindowClosed) return; // Check again after acquiring lock
                 _showMediaCancellation?.Cancel();
                 _showMediaCancellation?.Dispose();
                 _showMediaCancellation = new CancellationTokenSource();
                 cancellationToken = _showMediaCancellation.Token;
             }
-
-            // Check again before showing overlay
-            if (_isWindowClosed) return;
 
             ShowLoadingOverlayDelayed();
             
@@ -1775,8 +1701,8 @@ namespace SlideShowBob
                 return;
             }
 
-            // Check if operation was cancelled or window is closed
-            if (cancellationToken.IsCancellationRequested || _isWindowClosed)
+            // Check if operation was cancelled
+            if (cancellationToken.IsCancellationRequested)
             {
                 HideLoadingOverlay();
                 return;
@@ -1785,47 +1711,27 @@ namespace SlideShowBob
             // Stop video playback cleanly (don't capture frame when switching)
             _videoService?.Stop(captureLastFrame: false);
 
-            // Check again after stopping video
-            if (_isWindowClosed || cancellationToken.IsCancellationRequested)
-            {
-                HideLoadingOverlay();
-                return;
-            }
-
             // Clear image display when switching media - this must happen first
             ClearImageDisplay();
 
-            // Make sure image is visible by default (check element exists)
-            if (ImageElement != null && !_isWindowClosed)
-            {
-                ImageElement.Visibility = Visibility.Visible;
-            }
+            // Make sure image is visible by default
+            ImageElement.Visibility = Visibility.Visible;
 
             UpdateItemCount();
-
-            // Check window state before accessing UI elements
-            if (_isWindowClosed || cancellationToken.IsCancellationRequested)
-            {
-                HideLoadingOverlay();
-                return;
-            }
 
             // Zoom controls behavior
             if (currentItem.Type == MediaType.Video)
             {
-                if (ZoomResetButton != null) ZoomResetButton.IsEnabled = false;
-                if (ZoomLabel != null) ZoomLabel.Text = "Auto";
+                ZoomResetButton.IsEnabled = false;
+                ZoomLabel.Text = "Auto";
             }
             else
             {
-                if (ZoomResetButton != null) ZoomResetButton.IsEnabled = true;
+                ZoomResetButton.IsEnabled = true;
             }
 
             // Replay only makes sense when slideshow NOT running and current is video
-            if (ReplayButton != null)
-            {
-                ReplayButton.IsEnabled = _slideshowController != null && !_slideshowController.IsRunning && currentItem?.Type == MediaType.Video;
-            }
+            ReplayButton.IsEnabled = _slideshowController != null && !_slideshowController.IsRunning && currentItem?.Type == MediaType.Video;
 
             try
             {
@@ -1851,10 +1757,7 @@ namespace SlideShowBob
                     BitmapSource? firstFrame = null;
                     try
                     {
-                        if (_viewModel != null)
-                        {
-                            firstFrame = await _viewModel.ExtractFirstFrameAsync(currentItem.FilePath);
-                        }
+                        firstFrame = await VideoFrameService.ExtractFirstFrameAsync(currentItem.FilePath);
                     }
                     catch (OperationCanceledException)
                     {
@@ -1882,8 +1785,7 @@ namespace SlideShowBob
                     ResetVideoScale();
                     UpdateVideoProgressWidth();
 
-                    string folderName = Path.GetFileName(Path.GetDirectoryName(currentItem.FilePath)) ?? "";
-                    Title = $"Slide Show Bob - {folderName}\\{currentItem.FileName} (Video)";
+                    Title = $"Slide Show Bob - {currentItem.FileName} (Video)";
                     
                     // Notify controller that media is displayed
                     _slideshowController?.OnMediaDisplayed(MediaType.Video);
@@ -1932,16 +1834,6 @@ namespace SlideShowBob
 
                     // Apply portrait blur effect immediately - directly tied to the GIF source
                     ApplyPortraitBlurEffectForImage(gifImage, currentItem.FilePath);
-
-                    // Re-apply blur effect after layout completes to ensure it's visible
-                    Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        UpdateLayout();
-                        if (ImageElement.Source is BitmapSource bmp)
-                        {
-                            ApplyPortraitBlurEffectForImage(bmp, currentItem.FilePath);
-                        }
-                    }), DispatcherPriority.Loaded);
 
                     // Wait for GIF to load and layout to complete before fitting
                     if (FitToggle.IsChecked == true)
@@ -1992,8 +1884,7 @@ namespace SlideShowBob
                         }), DispatcherPriority.Render);
                     }
 
-                    string folderName = Path.GetFileName(Path.GetDirectoryName(currentItem.FilePath)) ?? "";
-                    Title = $"Slide Show Bob - {folderName}\\{currentItem.FileName} (GIF)";
+                    Title = $"Slide Show Bob - {currentItem.FileName} (GIF)";
                     
                     // For GIFs, hide overlay after a short delay to allow initial load
                     await Task.Delay(100);
@@ -2037,16 +1928,6 @@ namespace SlideShowBob
                     
                     // Apply portrait blur effect immediately - directly tied to the image source
                     ApplyPortraitBlurEffectForImage(img, currentItem.FilePath);
-                    
-                    // Re-apply blur effect after layout completes to ensure it's visible
-                    Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        UpdateLayout();
-                        if (ImageElement.Source is BitmapSource bmp)
-                        {
-                            ApplyPortraitBlurEffectForImage(bmp, currentItem.FilePath);
-                        }
-                    }), DispatcherPriority.Loaded);
                     
                     // Apply EXIF rotation if needed
                     var orientation = _mediaLoader?.GetOrientation(currentItem.FilePath);
@@ -2117,13 +1998,6 @@ namespace SlideShowBob
                             ScrollHost.UpdateLayout();
                             ImageElement.UpdateLayout();
                             UpdateLayout();
-                            
-                            // Re-apply portrait blur effect after layout
-                            if (ImageElement.Source is BitmapSource bmp)
-                            {
-                                string? currentFile = _viewModel?.PlaylistManager?.CurrentItem?.FilePath;
-                                ApplyPortraitBlurEffect(bmp, currentFile);
-                            }
                         }), DispatcherPriority.Loaded);
                         
                         Dispatcher.BeginInvoke(new Action(() =>
@@ -2133,8 +2007,7 @@ namespace SlideShowBob
                         }), DispatcherPriority.Render);
                     }
 
-                    string folderName = Path.GetFileName(Path.GetDirectoryName(currentItem.FilePath)) ?? "";
-                    Title = $"Slide Show Bob - {folderName}\\{currentItem.FileName}";
+                    Title = $"Slide Show Bob - {currentItem.FileName}";
                     
                     // Hide overlay after image is set
                     HideLoadingOverlay();
@@ -2461,69 +2334,11 @@ namespace SlideShowBob
             ToggleFullscreen();
         }
 
-        private void ApplyFullscreenPosition()
-        {
-            // Get the target screen (preferred monitor or current screen)
-            var windowInteropHelper = new WindowInteropHelper(this);
-            WinForms.Screen targetScreen = WinForms.Screen.FromHandle(windowInteropHelper.Handle);
-            
-            // Check if there's a preferred monitor setting
-            string? preferredDeviceName = _viewModel?.Settings?.PreferredFullscreenMonitorDeviceName;
-            if (!string.IsNullOrEmpty(preferredDeviceName))
-            {
-                var preferredScreen = WinForms.Screen.AllScreens
-                    .FirstOrDefault(s => s.DeviceName == preferredDeviceName);
-                if (preferredScreen != null)
-                {
-                    targetScreen = preferredScreen;
-                }
-            }
-            
-            var screenBounds = targetScreen.Bounds;
-
-            // Get DPI scaling factor for WPF
-            // WPF uses device-independent units (1/96 inch), so we need to account for DPI scaling
-            var source = PresentationSource.FromVisual(this);
-            double dpiScaleX = 1.0;
-            double dpiScaleY = 1.0;
-            
-            if (source?.CompositionTarget != null)
-            {
-                var transform = source.CompositionTarget.TransformToDevice;
-                dpiScaleX = transform.M11;
-                dpiScaleY = transform.M22;
-            }
-            
-            // For per-monitor DPI, we need to get the DPI of the target monitor
-            // Use Win32 API to get the actual DPI of the target screen
-            IntPtr monitorHandle = Win32.MonitorFromPoint(
-                new Win32.POINT { X = screenBounds.Left + screenBounds.Width / 2, Y = screenBounds.Top + screenBounds.Height / 2 },
-                Win32.MONITOR_DEFAULTTONEAREST);
-            
-            uint dpiX = 96, dpiY = 96;
-            int result = Win32.GetDpiForMonitor(monitorHandle, Win32.MONITOR_DPI_TYPE.MDT_EFFECTIVE_DPI, out dpiX, out dpiY);
-            if (result == 0) // Success
-            {
-                dpiScaleX = dpiX / 96.0;
-                dpiScaleY = dpiY / 96.0;
-            }
-            // If GetDpiForMonitor fails (e.g., on Windows 7), fall back to current window DPI scale
-            
-            // True fullscreen: cover entire screen, including over taskbar
-            // Convert physical pixel bounds to WPF logical coordinates
-            WindowState = WindowState.Normal;  // so manual bounds apply
-            Left = screenBounds.Left / dpiScaleX;
-            Top = screenBounds.Top / dpiScaleY;
-            Width = screenBounds.Width / dpiScaleX;
-            Height = screenBounds.Height / dpiScaleY;
-        }
-
         private void ToggleFullscreen()
         {
             if (!_isFullscreen)
             {
                 _isFullscreen = true;
-                IsFullscreen = true;
 
                 // Save current window state and bounds
                 _prevState = WindowState;
@@ -2539,8 +2354,17 @@ namespace SlideShowBob
                 ResizeMode = ResizeMode.NoResize;
                 Topmost = true;
 
-                // Apply fullscreen positioning
-                ApplyFullscreenPosition();
+                // Get the screen that the window is currently on
+                var windowInteropHelper = new WindowInteropHelper(this);
+                var screen = WinForms.Screen.FromHandle(windowInteropHelper.Handle);
+                var screenBounds = screen.Bounds;
+
+                // True fullscreen: cover entire screen the window is on, including over taskbar
+                WindowState = WindowState.Normal;  // so manual bounds apply
+                Left = screenBounds.Left;
+                Top = screenBounds.Top;
+                Width = screenBounds.Width;
+                Height = screenBounds.Height;
 
                 // In fullscreen, always use minimized notch toolbar
                 MinimizeToolbar();
@@ -2557,7 +2381,6 @@ namespace SlideShowBob
             else
             {
                 _isFullscreen = false;
-                IsFullscreen = false;
                 
                 // Hide fullscreen top overlay when exiting fullscreen
                 if (FullscreenTopOverlay != null)
@@ -2584,104 +2407,16 @@ namespace SlideShowBob
                 }
 
                 ShowChrome();
-
-                // Wait for window layout to complete before recalculating media fit
-                // This ensures the ScrollHost viewport has the correct size when exiting fullscreen
-                Dispatcher.BeginInvoke(new Action(() =>
-                {
-                    UpdateLayout();
-                    if (ScrollHost != null)
-                    {
-                        ScrollHost.UpdateLayout();
-                        MediaGrid?.UpdateLayout();
-                    }
-
-                    // Re-apply fit so media matches new size after layout is complete
-                    if (CurrentMediaType == MediaType.Video && VideoElement.Source != null && FitToggle.IsChecked == true)
-                    {
-                        SetVideoFit();
-                        // Re-apply portrait blur effect after resize
-                        Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            ApplyPortraitBlurEffectForVideo();
-                        }), System.Windows.Threading.DispatcherPriority.Loaded);
-                    }
-                    else if (ImageElement.Source != null && FitToggle.IsChecked == true)
-                    {
-                        SetZoomFit(CurrentMediaType == MediaType.Gif);
-                        // Re-apply portrait blur effect after resize
-                        Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            if (ImageElement.Source is BitmapSource bmp)
-                            {
-                                string? currentFile = _viewModel?.PlaylistManager?.CurrentItem?.FilePath;
-                                ApplyPortraitBlurEffect(bmp, currentFile);
-                            }
-                        }), System.Windows.Threading.DispatcherPriority.Loaded);
-                    }
-                    else if (ImageElement.Source != null)
-                    {
-                        // Even if not in fit mode, reset scroll position and re-apply blur when exiting fullscreen
-                        if (ScrollHost != null)
-                        {
-                            ScrollHost.UpdateLayout();
-                            MediaGrid?.UpdateLayout();
-                            Dispatcher.BeginInvoke(new Action(() =>
-                            {
-                                ScrollHost.ScrollToHorizontalOffset(0);
-                                ScrollHost.ScrollToVerticalOffset(0);
-                            }), DispatcherPriority.Render);
-                        }
-                        // Re-apply portrait blur effect after resize (even when not in fit mode)
-                        Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            if (ImageElement.Source is BitmapSource bmp)
-                            {
-                                string? currentFile = _viewModel?.PlaylistManager?.CurrentItem?.FilePath;
-                                ApplyPortraitBlurEffect(bmp, currentFile);
-                            }
-                        }), System.Windows.Threading.DispatcherPriority.Loaded);
-                    }
-                }), DispatcherPriority.Loaded);
             }
 
-            // Re-apply fit so media matches new size (for entering fullscreen)
-            if (_isFullscreen)
+            // Re-apply fit so media matches new size
+            if (CurrentMediaType == MediaType.Video && VideoElement.Source != null && FitToggle.IsChecked == true)
             {
-                if (CurrentMediaType == MediaType.Video && VideoElement.Source != null && FitToggle.IsChecked == true)
-                {
-                    SetVideoFit();
-                    // Re-apply portrait blur effect after entering fullscreen
-                    Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        ApplyPortraitBlurEffectForVideo();
-                    }), System.Windows.Threading.DispatcherPriority.Loaded);
-                }
-                else if (ImageElement.Source != null && FitToggle.IsChecked == true)
-                {
-                    SetZoomFit(CurrentMediaType == MediaType.Gif);
-                    // Re-apply portrait blur effect after entering fullscreen
-                    Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        if (ImageElement.Source is BitmapSource bmp)
-                        {
-                            string? currentFile = _viewModel?.PlaylistManager?.CurrentItem?.FilePath;
-                            ApplyPortraitBlurEffect(bmp, currentFile);
-                        }
-                    }), System.Windows.Threading.DispatcherPriority.Loaded);
-                }
-                else if (ImageElement.Source != null)
-                {
-                    // Re-apply portrait blur effect even when not in fit mode
-                    Dispatcher.BeginInvoke(new Action(() =>
-                    {
-                        if (ImageElement.Source is BitmapSource bmp)
-                        {
-                            string? currentFile = _viewModel?.PlaylistManager?.CurrentItem?.FilePath;
-                            ApplyPortraitBlurEffect(bmp, currentFile);
-                        }
-                    }), System.Windows.Threading.DispatcherPriority.Loaded);
-                }
+                SetVideoFit();
+            }
+            else if (ImageElement.Source != null && FitToggle.IsChecked == true)
+            {
+                SetZoomFit(CurrentMediaType == MediaType.Gif);
             }
         }
 
@@ -2690,7 +2425,7 @@ namespace SlideShowBob
         {
             _isMuted = !_isMuted;
             VideoElement.IsMuted = _isMuted;
-            MuteButton.Content = _isMuted ? "\uE74F" : "\uE767"; // E74F = Mute, E767 = Unmute
+            MuteButton.Content = _isMuted ? "🔇" : "🔊";
 
             if (_viewModel?.Settings != null && _viewModel.Settings.SaveIsMuted)
             {
@@ -2704,247 +2439,6 @@ namespace SlideShowBob
             if (CurrentMediaType != MediaType.Video) return;
             if (_slideshowController == null || _slideshowController.IsRunning) return;
             _videoService?.Replay();
-        }
-
-        #region Context Menu Creation and Event Handlers
-
-        private void CreateContextMenu()
-        {
-            if (_viewModel == null) return; // Don't create if ViewModel isn't ready
-            
-            _mainContextMenu = new ContextMenu();
-            _mainContextMenu.Opened += MainContextMenu_Opened;
-            _mainContextMenu.Closed += MainContextMenu_Closed;
-
-            // Navigation
-            var prevMenuItem = new MenuItem { Header = "Previous", Command = _viewModel.PreviousCommand };
-            prevMenuItem.Icon = new TextBlock { Text = "\uE892", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
-            _mainContextMenu.Items.Add(prevMenuItem);
-
-            var nextMenuItem = new MenuItem { Header = "Next", Command = _viewModel.NextCommand };
-            nextMenuItem.Icon = new TextBlock { Text = "\uE893", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
-            _mainContextMenu.Items.Add(nextMenuItem);
-
-            _mainContextMenu.Items.Add(new Separator());
-
-            // Playback
-            var startMenuItem = new MenuItem { Header = "Start Slideshow", Command = _viewModel.StartSlideshowCommand };
-            startMenuItem.Icon = new TextBlock { Text = "\uEDB5", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
-            _mainContextMenu.Items.Add(startMenuItem);
-
-            var stopMenuItem = new MenuItem { Header = "Stop Slideshow", Command = _viewModel.StopSlideshowCommand };
-            stopMenuItem.Icon = new TextBlock { Text = "\uE769", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
-            _mainContextMenu.Items.Add(stopMenuItem);
-
-            _mainContextMenu.Items.Add(new Separator());
-
-            // View Controls
-            var fullscreenMenuItem = new MenuItem { Header = "Toggle Fullscreen" };
-            fullscreenMenuItem.Click += ContextMenu_ToggleFullscreen;
-            fullscreenMenuItem.Icon = new TextBlock { Text = "⛶", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
-            _mainContextMenu.Items.Add(fullscreenMenuItem);
-
-            var fitMenuItem = new MenuItem { Header = "Fit to Window", IsCheckable = true, Name = "FitMenuItem" };
-            fitMenuItem.Click += ContextMenu_ToggleFit;
-            if (FitToggle != null)
-            {
-                fitMenuItem.IsChecked = FitToggle.IsChecked ?? false;
-            }
-            _mainContextMenu.Items.Add(fitMenuItem);
-
-            var resetZoomMenuItem = new MenuItem { Header = "Reset Zoom" };
-            resetZoomMenuItem.Click += ContextMenu_ResetZoom;
-            _mainContextMenu.Items.Add(resetZoomMenuItem);
-
-            _mainContextMenu.Items.Add(new Separator());
-
-            // Media Controls
-            var replayMenuItem = new MenuItem { Header = "Replay Video" };
-            replayMenuItem.Click += ContextMenu_ReplayVideo;
-            replayMenuItem.Icon = new TextBlock { Text = "\uE72C", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
-            _mainContextMenu.Items.Add(replayMenuItem);
-
-            var muteMenuItem = new MenuItem { Header = "Mute/Unmute", Name = "MuteMenuItem" };
-            muteMenuItem.Click += ContextMenu_ToggleMute;
-            muteMenuItem.Icon = new TextBlock { Text = "\uE74F", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets"), Name = "MuteIcon" };
-            _mainContextMenu.Items.Add(muteMenuItem);
-
-            _mainContextMenu.Items.Add(new Separator());
-
-            // File Management
-            var addFolderMenuItem = new MenuItem { Header = "Add Folder...", Command = _viewModel.AddFolderCommand };
-            addFolderMenuItem.Icon = new TextBlock { Text = "\uED25", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
-            _mainContextMenu.Items.Add(addFolderMenuItem);
-
-            var playlistMenuItem = new MenuItem { Header = "Open Playlist", Command = _viewModel.OpenPlaylistCommand };
-            playlistMenuItem.Icon = new TextBlock { Text = "\uE700", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
-            _mainContextMenu.Items.Add(playlistMenuItem);
-
-            var settingsMenuItem = new MenuItem { Header = "Settings", Command = _viewModel.OpenSettingsCommand };
-            settingsMenuItem.Icon = new TextBlock { Text = "\uE713", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
-            _mainContextMenu.Items.Add(settingsMenuItem);
-
-            _mainContextMenu.Items.Add(new Separator());
-
-            // Delete Options
-            var deleteFromSlideshowMenuItem = new MenuItem { Header = "Delete from Slideshow", Name = "DeleteFromSlideshowMenuItem" };
-            deleteFromSlideshowMenuItem.Click += ContextMenu_DeleteFromSlideshow;
-            deleteFromSlideshowMenuItem.Icon = new TextBlock { Text = "\uE74D", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
-            _mainContextMenu.Items.Add(deleteFromSlideshowMenuItem);
-
-            var deleteFromDiskMenuItem = new MenuItem { Header = "Delete from Disk...", Name = "DeleteFromDiskMenuItem" };
-            deleteFromDiskMenuItem.Click += ContextMenu_DeleteFromDisk;
-            deleteFromDiskMenuItem.Icon = new TextBlock { Text = "\uE74D", FontSize = 14, FontFamily = new FontFamily("Segoe MDL2 Assets") };
-            _mainContextMenu.Items.Add(deleteFromDiskMenuItem);
-        }
-
-        private void MainContextMenu_Opened(object sender, RoutedEventArgs e)
-        {
-            // Update menu item states when menu opens
-            if (_viewModel == null || _mainContextMenu == null) return;
-
-            // Find mute menu item and update icon
-            var muteMenuItem = _mainContextMenu.Items.OfType<MenuItem>()
-                .FirstOrDefault(m => m.Name == "MuteMenuItem");
-            if (muteMenuItem != null)
-            {
-                var muteIcon = muteMenuItem.Icon as TextBlock;
-                if (muteIcon != null)
-                    muteIcon.Text = _isMuted ? "\uE74F" : "\uE767"; // Mute/Unmute icon
-            }
-
-            // Update fit menu item checkbox state to match current FitToggle state
-            var fitMenuItem = _mainContextMenu.Items.OfType<MenuItem>()
-                .FirstOrDefault(m => m.Name == "FitMenuItem");
-            if (fitMenuItem != null && FitToggle != null)
-            {
-                fitMenuItem.IsChecked = FitToggle.IsChecked ?? false;
-            }
-
-            // Enable/disable delete menu items based on whether media is loaded
-            bool hasMedia = _viewModel.HasMediaItems && _viewModel.CurrentMedia != null;
-            var deleteFromSlideshow = _mainContextMenu.Items.OfType<MenuItem>()
-                .FirstOrDefault(m => m.Name == "DeleteFromSlideshowMenuItem");
-            var deleteFromDisk = _mainContextMenu.Items.OfType<MenuItem>()
-                .FirstOrDefault(m => m.Name == "DeleteFromDiskMenuItem");
-            
-            if (deleteFromSlideshow != null)
-                deleteFromSlideshow.IsEnabled = hasMedia;
-            if (deleteFromDisk != null)
-                deleteFromDisk.IsEnabled = hasMedia;
-        }
-
-        private void MainContextMenu_Closed(object sender, RoutedEventArgs e)
-        {
-            // Cleanup if needed
-        }
-
-        private void ContextMenu_ToggleFullscreen(object sender, RoutedEventArgs e)
-        {
-            ToggleFullscreen();
-        }
-
-        private void ContextMenu_ToggleFit(object sender, RoutedEventArgs e)
-        {
-            if (FitToggle != null)
-            {
-                FitToggle.IsChecked = !FitToggle.IsChecked;
-            }
-        }
-
-        private void ContextMenu_ResetZoom(object sender, RoutedEventArgs e)
-        {
-            ZoomResetButton_Click(sender, e);
-        }
-
-        private void ContextMenu_ReplayVideo(object sender, RoutedEventArgs e)
-        {
-            ReplayButton_Click(sender, e);
-        }
-
-        private void ContextMenu_ToggleMute(object sender, RoutedEventArgs e)
-        {
-            MuteButton_Click(sender, e);
-        }
-
-        private void ContextMenu_DeleteFromSlideshow(object sender, RoutedEventArgs e)
-        {
-            if (_viewModel?.DeleteFileFromSlideshowCommand?.CanExecute(null) == true)
-            {
-                _viewModel.DeleteFileFromSlideshowCommand.Execute(null);
-            }
-        }
-
-        private void ContextMenu_DeleteFromDisk(object sender, RoutedEventArgs e)
-        {
-            if (_viewModel?.DeleteFileFromDiskCommand?.CanExecute(null) == true)
-            {
-                _viewModel.DeleteFileFromDiskCommand.Execute(null);
-            }
-        }
-
-        #endregion
-
-        private void MonitorButton_Click(object sender, RoutedEventArgs e)
-        {
-            // Create context menu with available monitors
-            var menu = new ContextMenu();
-            var screens = WinForms.Screen.AllScreens;
-            
-            for (int i = 0; i < screens.Length; i++)
-            {
-                var screen = screens[i];
-                var menuItem = new MenuItem
-                {
-                    Header = $"Monitor {i + 1}{(screen.Primary ? " (Primary)" : "")}",
-                    Tag = screen.DeviceName
-                };
-                
-                // Check if this is the current preferred monitor
-                string? preferredDeviceName = _viewModel?.Settings?.PreferredFullscreenMonitorDeviceName;
-                if (screen.DeviceName == preferredDeviceName)
-                {
-                    menuItem.IsChecked = true;
-                }
-                
-                menuItem.Click += (s, args) =>
-                {
-                    if (_viewModel?.Settings != null)
-                    {
-                        _viewModel.Settings.PreferredFullscreenMonitorDeviceName = screen.DeviceName;
-                        if (_viewModel.Settings.SavePreferredFullscreenMonitorDeviceName)
-                        {
-                            _viewModel.SettingsService?.Save(_viewModel.Settings);
-                        }
-                        
-                        // If currently in fullscreen mode, immediately switch to the new monitor
-                        if (_isFullscreen)
-                        {
-                            ApplyFullscreenPosition();
-                            
-                            // Re-apply fit so media matches new size
-                            if (CurrentMediaType == MediaType.Video && VideoElement.Source != null && FitToggle.IsChecked == true)
-                            {
-                                SetVideoFit();
-                            }
-                            else if (ImageElement.Source != null && FitToggle.IsChecked == true)
-                            {
-                                SetZoomFit(CurrentMediaType == MediaType.Gif);
-                            }
-                        }
-                    }
-                };
-                
-                menu.Items.Add(menuItem);
-            }
-            
-            // Show menu at button position
-            if (sender is Button button)
-            {
-                menu.PlacementTarget = button;
-                menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
-                menu.IsOpen = true;
-            }
         }
 
         private void PrevButton_Click(object sender, RoutedEventArgs e) => ShowPrevious();
@@ -3084,19 +2578,14 @@ namespace SlideShowBob
 
         private void Media_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
-            // Show context menu instead of just going to previous
-            if (_mainContextMenu != null)
-            {
-                _mainContextMenu.PlacementTarget = sender as UIElement ?? this;
-                _mainContextMenu.IsOpen = true;
-            }
+            ShowPrevious();
             e.Handled = true; // Prevent bubbling to window handler
         }
 
         private void MainGrid_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             // Don't handle if we're clicking on media elements (they have their own handlers)
-            if (e.OriginalSource == ImageElement || e.OriginalSource == VideoElement || e.OriginalSource == VideoFrameImage)
+            if (e.OriginalSource == ImageElement || e.OriginalSource == VideoElement)
             {
                 return; // Let the media element handlers deal with it
             }
@@ -3135,12 +2624,6 @@ namespace SlideShowBob
                         return; // Click is on scrollbar, don't handle
                     }
                     
-                    // Exclude context menu
-                    if (current is ContextMenu)
-                    {
-                        return; // Click is on context menu, don't handle
-                    }
-                    
                     // Exclude ScrollViewer (but allow clicks on its background)
                     if (current == ScrollHost)
                     {
@@ -3165,12 +2648,8 @@ namespace SlideShowBob
                 }
             }
             
-            // Right-click anywhere else in the window shows context menu
-            if (_mainContextMenu != null)
-            {
-                _mainContextMenu.PlacementTarget = this;
-                _mainContextMenu.IsOpen = true;
-            }
+            // Right-click anywhere else in the window advances to previous
+            ShowPrevious();
             e.Handled = true;
         }
 
@@ -3355,12 +2834,12 @@ namespace SlideShowBob
         private void ScrollHost_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
         {
             // Don't handle if clicking directly on the image or video (they have their own handlers)
-            if (e.OriginalSource == ImageElement || e.OriginalSource == VideoElement || e.OriginalSource == VideoFrameImage)
+            if (e.OriginalSource == ImageElement || e.OriginalSource == VideoElement)
             {
                 return;
             }
             
-            // Check if clicking on UI elements - don't show menu
+            // Check if clicking on UI elements - don't advance image
             var source = e.OriginalSource as DependencyObject;
             if (source != null)
             {
@@ -3370,8 +2849,7 @@ namespace SlideShowBob
                     if (current == ToolbarExpandedPanel || current == ToolbarNotchPanel ||
                         current == StatusBar || current == TitleCountText ||
                         current == EmptyStatePanel ||
-                        current == ImageElement || current == VideoElement ||
-                        current == VideoFrameImage)
+                        current == ImageElement || current == VideoElement)
                     {
                         return; // Click is on UI element, don't handle
                     }
@@ -3381,12 +2859,6 @@ namespace SlideShowBob
                         current is System.Windows.Controls.Primitives.Track)
                     {
                         return; // Click is on scrollbar, don't handle
-                    }
-                    
-                    // Exclude context menu
-                    if (current is ContextMenu)
-                    {
-                        return; // Click is on context menu, don't handle
                     }
                     
                     // Get parent - handle both Visual and TextElement (like Run)
@@ -3407,12 +2879,8 @@ namespace SlideShowBob
                 }
             }
             
-            // Right-click on empty space in ScrollViewer shows context menu
-            if (_mainContextMenu != null)
-            {
-                _mainContextMenu.PlacementTarget = ScrollHost;
-                _mainContextMenu.IsOpen = true;
-            }
+            // Right-click on empty space in ScrollViewer advances to previous
+            ShowPrevious();
             e.Handled = true;
         }
         public async Task ChooseFoldersFromDialogAsync()
@@ -3756,31 +3224,5 @@ namespace SlideShowBob
         #endregion
 
     }
-
-    #region Win32 API for DPI detection
-    internal static class Win32
-    {
-        [DllImport("user32.dll")]
-        public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
-
-        [DllImport("shcore.dll")]
-        public static extern int GetDpiForMonitor(IntPtr hmonitor, MONITOR_DPI_TYPE dpiType, out uint dpiX, out uint dpiY);
-
-        public const uint MONITOR_DEFAULTTONEAREST = 2;
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct POINT
-        {
-            public int X;
-            public int Y;
-        }
-
-        public enum MONITOR_DPI_TYPE
-        {
-            MDT_EFFECTIVE_DPI = 0,
-            MDT_ANGULAR_DPI = 1,
-            MDT_RAW_DPI = 2
-        }
-    }
-    #endregion
 }
+
