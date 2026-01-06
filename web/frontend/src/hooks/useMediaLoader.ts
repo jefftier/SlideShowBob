@@ -24,6 +24,7 @@ interface FileSystemFileHandle {
 async function scanDirectory(
   dirHandle: FileSystemDirectoryHandle,
   includeVideos: boolean,
+  rootFolderName: string,
   path: string = ''
 ): Promise<MediaItem[]> {
   const mediaItems: MediaItem[] = [];
@@ -34,13 +35,17 @@ async function scanDirectory(
         const fileHandle = handle as FileSystemFileHandle;
         const ext = '.' + name.split('.').pop()?.toLowerCase();
         
-        const isImage = IMAGE_EXTENSIONS.includes(ext);
+        // Separate GIF from other images - GIF should be controlled by includeVideos
+        const isGif = ext === '.gif';
+        const isImage = IMAGE_EXTENSIONS.includes(ext) && !isGif;
         const isVideo = includeVideos && VIDEO_EXTENSIONS.includes(ext);
+        const isGifIncluded = includeVideos && isGif;
         
-        if (isImage || isVideo) {
+        if (isImage || isVideo || isGifIncluded) {
           try {
             const file = await fileHandle.getFile();
             const filePath = path ? `${path}/${name}` : name;
+            const relativePath = path ? `${path}/${name}` : name;
             const objectUrl = URL.createObjectURL(file);
             
             mediaItems.push({
@@ -49,7 +54,9 @@ async function scanDirectory(
               type: determineMediaType(name),
               dateModified: file.lastModified,
               file: file,
-              objectUrl: objectUrl
+              objectUrl: objectUrl,
+              folderName: rootFolderName,
+              relativePath: relativePath
             });
           } catch (error) {
             console.warn(`Error reading file ${name}:`, error);
@@ -59,7 +66,7 @@ async function scanDirectory(
         // Recursively scan subdirectories
         const subDirHandle = handle as FileSystemDirectoryHandle;
         const subPath = path ? `${path}/${name}` : name;
-        const subItems = await scanDirectory(subDirHandle, includeVideos, subPath);
+        const subItems = await scanDirectory(subDirHandle, includeVideos, rootFolderName, subPath);
         mediaItems.push(...subItems);
       }
     }
@@ -112,7 +119,8 @@ export function useMediaLoader() {
     dirHandle: FileSystemDirectoryHandle,
     includeVideos: boolean
   ): Promise<MediaItem[]> => {
-    return scanDirectory(dirHandle, includeVideos);
+    const rootFolderName = dirHandle.name;
+    return scanDirectory(dirHandle, includeVideos, rootFolderName);
   }, []);
 
   return {

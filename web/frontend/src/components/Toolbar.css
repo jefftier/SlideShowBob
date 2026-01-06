@@ -10,14 +10,20 @@
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
   z-index: 100;
   backdrop-filter: blur(10px);
+  max-width: 100vw;
+  overflow: visible;
 }
 
 .toolbar-content {
   display: flex;
   align-items: center;
   gap: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: center;
+  overflow-x: auto;
+  overflow-y: visible;
+  min-width: 0;
+  max-width: 100vw;
 }
 
 .toolbar-btn {
@@ -53,6 +59,8 @@
   border-radius: 2px;
   font-size: 12px;
   transition: all 0.2s;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .toolbar-btn-toggle.active {
@@ -121,19 +129,23 @@
 
 .toolbar-sort-container {
   position: relative;
+  z-index: 1001;
 }
 
 .sort-menu {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  margin-bottom: 8px;
+  position: fixed;
   background: rgba(30, 30, 30, 0.98);
   border-radius: 4px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   padding: 4px;
   min-width: 180px;
-  z-index: 200;
+  z-index: 10000;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .sort-menu button {
@@ -151,6 +163,12 @@
 
 .sort-menu button:hover {
   background: rgba(255, 255, 255, 0.1);
+}
+
+.sort-menu-item-active {
+  background: rgba(0, 120, 212, 0.2) !important;
+  color: #0078d4 !important;
+  font-weight: 500;
 }
 
 .toolbar-minimized {

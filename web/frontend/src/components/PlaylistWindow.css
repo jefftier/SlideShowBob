@@ -274,3 +274,136 @@
   background: rgba(255, 0, 0, 0.8);
 }
 
+.add-folder-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  border-radius: 2px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.add-folder-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e0e0e0;
+}
+
+.playlist-tree {
+  user-select: none;
+}
+
+.playlist-tree-root {
+  margin-bottom: 8px;
+}
+
+.playlist-tree-root-header {
+  font-weight: bold;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.playlist-tree-root-header:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.playlist-tree-folder {
+  margin: 2px 0;
+}
+
+.playlist-tree-folder-header {
+  padding: 6px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.playlist-tree-folder-header:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.playlist-tree-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 4px;
+  transition: background 0.2s;
+  position: relative;
+}
+
+.playlist-tree-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.playlist-tree-item.current {
+  background: rgba(0, 120, 212, 0.2);
+  border-left: 3px solid #0078d4;
+}
+
+.playlist-tree-icon {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+}
+
+.playlist-tree-name {
+  flex: 1;
+  color: #e0e0e0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-tree-count {
+  color: #888;
+  font-size: 11px;
+}
+
+.playlist-tree-remove {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  border-radius: 2px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  margin-left: auto;
+}
+
+.playlist-tree-folder-header:hover .playlist-tree-remove,
+.playlist-tree-item:hover .playlist-tree-remove {
+  opacity: 1;
+}
+
+.playlist-tree-remove:hover {
+  background: rgba(255, 0, 0, 0.2);
+  color: #ff4444;
+}
+
+.playlist-tree-children {
+  margin-left: 0;
+}
+

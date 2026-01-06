@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import MediaDisplay from './components/MediaDisplay';
 import Toolbar from './components/Toolbar';
 import PlaylistWindow from './components/PlaylistWindow';
@@ -13,9 +13,11 @@ function App() {
   const [currentMedia, setCurrentMedia] = useState<MediaItem | null>(null);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [includeVideos, setIncludeVideos] = useState(false);
+  const [includeVideos, setIncludeVideos] = useState(true);
+  const [directoryHandles, setDirectoryHandles] = useState<Map<string, any>>(new Map());
   const [slideDelayMs, setSlideDelayMs] = useState(2000);
   const [zoomFactor, setZoomFactor] = useState(1.0);
+  const [effectiveZoom, setEffectiveZoom] = useState(1.0);
   const [isFitToWindow, setIsFitToWindow] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -25,15 +27,36 @@ function App() {
   const [playlist, setPlaylist] = useState<MediaItem[]>([]);
   const [statusText, setStatusText] = useState<string>('');
 
-  const { navigateNext, navigatePrevious, startSlideshow, stopSlideshow } = useSlideshow({
-    playlist,
-    currentIndex,
+  // Get filtered playlist based on includeVideos (excludes both Video and Gif when false)
+  const filteredPlaylist = useMemo(() => {
+    return includeVideos 
+      ? playlist 
+      : playlist.filter(item => item.type !== MediaType.Video && item.type !== MediaType.Gif);
+  }, [playlist, includeVideos]);
+
+  // Find the current index in the filtered playlist
+  const filteredCurrentIndex = useMemo(() => {
+    if (currentIndex < 0 || !currentMedia) return -1;
+    return filteredPlaylist.findIndex(item => item.filePath === currentMedia.filePath);
+  }, [currentIndex, currentMedia, filteredPlaylist]);
+
+  // Stable navigate callback to prevent unnecessary re-renders
+  const handleNavigate = useCallback((index: number) => {
+    if (index >= 0 && index < filteredPlaylist.length) {
+      const item = filteredPlaylist[index];
+      // Find the actual index in the full playlist
+      const actualIndex = playlist.findIndex(p => p.filePath === item.filePath);
+      setCurrentIndex(actualIndex);
+      setCurrentMedia(item);
+    }
+  }, [filteredPlaylist, playlist]);
+
+  const { navigateNext, navigatePrevious, startSlideshow, stopSlideshow, onVideoEnded } = useSlideshow({
+    playlist: filteredPlaylist,
+    currentIndex: filteredCurrentIndex,
     slideDelayMs,
     isPlaying,
-    onNavigate: (index) => {
-      setCurrentIndex(index);
-      setCurrentMedia(playlist[index] || null);
-    }
+    onNavigate: handleNavigate
   });
 
   const { loadMediaFromFolders, loadMediaFromDirectory } = useMediaLoader();
@@ -49,21 +72,32 @@ function App() {
   // In production, you'd implement a system to store and restore directory handles
 
   const sortMediaItems = (items: MediaItem[], mode: string): MediaItem[] => {
+    // Create a deep copy to ensure React detects the change
     const sorted = [...items];
     switch (mode) {
       case 'NameAZ':
-        return sorted.sort((a, b) => a.fileName.localeCompare(b.fileName));
+        sorted.sort((a, b) => a.fileName.localeCompare(b.fileName));
+        break;
       case 'NameZA':
-        return sorted.sort((a, b) => b.fileName.localeCompare(a.fileName));
+        sorted.sort((a, b) => b.fileName.localeCompare(a.fileName));
+        break;
       case 'DateOldest':
-        return sorted.sort((a, b) => (a.dateModified || 0) - (b.dateModified || 0));
+        sorted.sort((a, b) => (a.dateModified || 0) - (b.dateModified || 0));
+        break;
       case 'DateNewest':
-        return sorted.sort((a, b) => (b.dateModified || 0) - (a.dateModified || 0));
+        sorted.sort((a, b) => (b.dateModified || 0) - (a.dateModified || 0));
+        break;
       case 'Random':
-        return sorted.sort(() => Math.random() - 0.5);
+        // For random, use a better shuffle algorithm
+        for (let i = sorted.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [sorted[i], sorted[j]] = [sorted[j], sorted[i]];
+        }
+        break;
       default:
-        return sorted;
+        break;
     }
+    return sorted;
   };
 
   const handleAddFolder = async () => {
@@ -72,6 +106,11 @@ function App() {
       if ('showDirectoryPicker' in window) {
         const dirHandle = await (window as any).showDirectoryPicker();
         const folderName = dirHandle.name;
+        
+        // Store directory handle for later use
+        const newHandles = new Map(directoryHandles);
+        newHandles.set(folderName, dirHandle);
+        setDirectoryHandles(newHandles);
         
         // Load media from the selected directory
         setStatusText('Loading...');
@@ -136,24 +175,87 @@ function App() {
     navigatePrevious();
   }, [navigatePrevious]);
 
-  const handleSort = (mode: 'NameAZ' | 'NameZA' | 'DateOldest' | 'DateNewest' | 'Random') => {
-    setSortMode(mode);
-    const sorted = sortMediaItems(playlist, mode);
-    setPlaylist(sorted);
-    // Update current index if needed
-    if (currentMedia) {
-      const newIndex = sorted.findIndex(item => item.filePath === currentMedia.filePath);
-      if (newIndex >= 0) {
-        setCurrentIndex(newIndex);
+  const handleRestart = useCallback(() => {
+    // Navigate to first item in the filtered playlist
+    if (filteredPlaylist.length > 0) {
+      const firstItem = filteredPlaylist[0];
+      const actualIndex = playlist.findIndex(p => p.filePath === firstItem.filePath);
+      if (actualIndex >= 0) {
+        setCurrentIndex(actualIndex);
+        setCurrentMedia(firstItem);
+        // If playing, restart from beginning
+        if (isPlaying) {
+          stopSlideshow();
+          setIsPlaying(false);
+          // Optionally auto-start again, but for now just pause
+        }
       }
+    }
+  }, [filteredPlaylist, playlist, isPlaying, stopSlideshow]);
+
+  const handleSort = useCallback((mode: 'NameAZ' | 'NameZA' | 'DateOldest' | 'DateNewest' | 'Random') => {
+    // Use functional update to ensure we have the latest playlist state
+    setPlaylist(prevPlaylist => {
+      const sorted = sortMediaItems([...prevPlaylist], mode);
+      
+      // Update current index and media - maintain position if possible
+      setCurrentMedia(prevMedia => {
+        if (prevMedia) {
+          const newIndex = sorted.findIndex(item => item.filePath === prevMedia.filePath);
+          
+          if (newIndex >= 0) {
+            // Current item found in sorted list - maintain position
+            setCurrentIndex(newIndex);
+            // Show brief feedback that sorting occurred
+            setStatusText(`Sorted: ${getSortModeLabel(mode)}`);
+            setTimeout(() => setStatusText(''), 2000);
+            return sorted[newIndex];
+          } else if (sorted.length > 0) {
+            // Current item not found - go to first item
+            setCurrentIndex(0);
+            setStatusText(`Sorted: ${getSortModeLabel(mode)}`);
+            setTimeout(() => setStatusText(''), 2000);
+            return sorted[0];
+          }
+          return prevMedia;
+        } else if (sorted.length > 0) {
+          // No current media - start from first
+          setCurrentIndex(0);
+          setStatusText(`Sorted: ${getSortModeLabel(mode)}`);
+          setTimeout(() => setStatusText(''), 2000);
+          return sorted[0];
+        }
+        return null;
+      });
+      
+      return sorted;
+    });
+    
+    setSortMode(mode);
+  }, []);
+
+  const getSortModeLabel = (mode: 'NameAZ' | 'NameZA' | 'DateOldest' | 'DateNewest' | 'Random'): string => {
+    switch (mode) {
+      case 'NameAZ': return 'Name (A-Z)';
+      case 'NameZA': return 'Name (Z-A)';
+      case 'DateOldest': return 'Date (Oldest First)';
+      case 'DateNewest': return 'Date (Newest First)';
+      case 'Random': return 'Random';
+      default: return 'Sorted';
     }
   };
 
   const handleNavigateToFile = (filePath: string) => {
     const index = playlist.findIndex(item => item.filePath === filePath);
     if (index >= 0) {
+      // Check if the file should be shown based on includeVideos
+      const item = playlist[index];
+      if (!includeVideos && (item.type === MediaType.Video || item.type === MediaType.Gif)) {
+        // Skip videos and GIFs when includeVideos is false
+        return;
+      }
       setCurrentIndex(index);
-      setCurrentMedia(playlist[index]);
+      setCurrentMedia(item);
     }
   };
 
@@ -266,11 +368,9 @@ function App() {
         zoomFactor={zoomFactor}
         isFitToWindow={isFitToWindow}
         isMuted={isMuted}
-        onVideoEnded={() => {
-          if (isPlaying) {
-            setTimeout(() => navigateNext(), 100);
-          }
-        }}
+        onVideoEnded={onVideoEnded}
+        onImageClick={handleNext}
+        onEffectiveZoomChange={setEffectiveZoom}
       />
       
       {playlist.length === 0 && (
@@ -285,10 +385,89 @@ function App() {
       <Toolbar
         isPlaying={isPlaying}
         includeVideos={includeVideos}
-        onIncludeVideosChange={setIncludeVideos}
+        onIncludeVideosChange={async (value) => {
+          const wasIncludingVideos = includeVideos;
+          setIncludeVideos(value);
+          
+          // If toggle state changed and we have folders loaded, reload them
+          if (value !== wasIncludingVideos && directoryHandles.size > 0) {
+            setStatusText(value ? 'Reloading folders to include GIF/MP4...' : 'Reloading folders to exclude GIF/MP4...');
+            try {
+              const allMediaItems: MediaItem[] = [];
+              
+              // Reload all folders with the new includeVideos setting
+              for (const [folderName, dirHandle] of directoryHandles.entries()) {
+                const mediaItems = await loadMediaFromDirectory(dirHandle, value);
+                allMediaItems.push(...mediaItems);
+              }
+              
+              // Apply sorting
+              let sortedItems = sortMediaItems(allMediaItems, sortMode);
+              
+              // Remove duplicates
+              const uniqueItems = Array.from(
+                new Map(sortedItems.map(item => [item.filePath, item])).values()
+              );
+              
+              setPlaylist(uniqueItems);
+              
+              // Update current index if needed
+              if (uniqueItems.length > 0) {
+                if (currentMedia) {
+                  const newIndex = uniqueItems.findIndex(item => item.filePath === currentMedia.filePath);
+                  if (newIndex >= 0) {
+                    setCurrentIndex(newIndex);
+                    setCurrentMedia(uniqueItems[newIndex]);
+                  } else {
+                    // Current item was filtered out, find next valid item
+                    const filtered = value 
+                      ? uniqueItems 
+                      : uniqueItems.filter(item => item.type !== MediaType.Video && item.type !== MediaType.Gif);
+                    if (filtered.length > 0) {
+                      const targetIndex = uniqueItems.findIndex(item => item.filePath === filtered[0].filePath);
+                      setCurrentIndex(targetIndex >= 0 ? targetIndex : 0);
+                      setCurrentMedia(uniqueItems[targetIndex >= 0 ? targetIndex : 0]);
+                    } else {
+                      setCurrentIndex(0);
+                      setCurrentMedia(uniqueItems[0]);
+                    }
+                  }
+                } else {
+                  setCurrentIndex(0);
+                  setCurrentMedia(uniqueItems[0]);
+                }
+              } else {
+                setCurrentIndex(-1);
+                setCurrentMedia(null);
+              }
+              
+              setStatusText('');
+            } catch (error) {
+              setStatusText(`Error reloading folders: ${error instanceof Error ? error.message : 'Unknown error'}`);
+              console.error('Error reloading folders:', error);
+            }
+          } else if (!value && currentMedia && (currentMedia.type === MediaType.Video || currentMedia.type === MediaType.Gif)) {
+            // If disabling and current item is a video or gif, navigate to next valid item
+            const filtered = playlist.filter(item => item.type !== MediaType.Video && item.type !== MediaType.Gif);
+            if (filtered.length > 0) {
+              const currentIndexInFiltered = filtered.findIndex(item => 
+                playlist.indexOf(item) >= currentIndex
+              );
+              const targetIndex = currentIndexInFiltered >= 0 
+                ? playlist.indexOf(filtered[currentIndexInFiltered])
+                : playlist.indexOf(filtered[0]);
+              setCurrentIndex(targetIndex);
+              setCurrentMedia(playlist[targetIndex]);
+            } else {
+              setCurrentIndex(-1);
+              setCurrentMedia(null);
+            }
+          }
+        }}
         slideDelayMs={slideDelayMs}
         onSlideDelayChange={setSlideDelayMs}
         zoomFactor={zoomFactor}
+        effectiveZoom={effectiveZoom}
         onZoomChange={setZoomFactor}
         onZoomReset={handleZoomReset}
         isFitToWindow={isFitToWindow}
@@ -300,10 +479,12 @@ function App() {
         onPlayPause={handlePlayPause}
         onNext={handleNext}
         onPrevious={handlePrevious}
+        onRestart={handleRestart}
         onAddFolder={handleAddFolder}
         onOpenPlaylist={() => setShowPlaylist(true)}
         onOpenSettings={() => setShowSettings(true)}
         onSort={handleSort}
+        currentSortMode={sortMode}
         currentIndex={currentIndex}
         totalCount={playlist.length}
         statusText={statusText}
@@ -313,9 +494,37 @@ function App() {
         <PlaylistWindow
           playlist={playlist}
           currentIndex={currentIndex}
+          folders={folders}
           onClose={() => setShowPlaylist(false)}
           onNavigateToFile={handleNavigateToFile}
           onRemoveFile={handleRemoveFile}
+          onRemoveFolder={(folderName) => {
+            // Remove folder from folders list
+            const newFolders = folders.filter(f => f !== folderName);
+            setFolders(newFolders);
+            
+            // Remove directory handle
+            const newHandles = new Map(directoryHandles);
+            newHandles.delete(folderName);
+            setDirectoryHandles(newHandles);
+            
+            // Remove all files from that folder
+            const newPlaylist = playlist.filter(item => item.folderName !== folderName);
+            setPlaylist(newPlaylist);
+            
+            // Update current index if needed
+            if (newPlaylist.length === 0) {
+              setCurrentIndex(-1);
+              setCurrentMedia(null);
+            } else if (currentIndex >= newPlaylist.length) {
+              const newIndex = newPlaylist.length - 1;
+              setCurrentIndex(newIndex >= 0 ? newIndex : -1);
+              setCurrentMedia(newIndex >= 0 ? newPlaylist[newIndex] : null);
+            } else {
+              setCurrentMedia(newPlaylist[currentIndex]);
+            }
+          }}
+          onAddFolder={handleAddFolder}
         />
       )}
 

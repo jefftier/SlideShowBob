@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import './Toolbar.css';
 
 interface ToolbarProps {
@@ -8,6 +9,7 @@ interface ToolbarProps {
   slideDelayMs: number;
   onSlideDelayChange: (value: number) => void;
   zoomFactor: number;
+  effectiveZoom?: number;
   onZoomChange: (value: number) => void;
   onZoomReset: () => void;
   isFitToWindow: boolean;
@@ -19,10 +21,12 @@ interface ToolbarProps {
   onPlayPause: () => void;
   onNext: () => void;
   onPrevious: () => void;
+  onRestart: () => void;
   onAddFolder: () => void;
   onOpenPlaylist: () => void;
   onOpenSettings: () => void;
   onSort: (mode: 'NameAZ' | 'NameZA' | 'DateOldest' | 'DateNewest' | 'Random') => void;
+  currentSortMode?: 'NameAZ' | 'NameZA' | 'DateOldest' | 'DateNewest' | 'Random';
   currentIndex: number;
   totalCount: number;
   statusText: string;
@@ -35,6 +39,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   slideDelayMs,
   onSlideDelayChange,
   zoomFactor,
+  effectiveZoom,
   onZoomChange,
   onZoomReset,
   isFitToWindow,
@@ -46,16 +51,60 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onPlayPause,
   onNext,
   onPrevious,
+  onRestart,
   onAddFolder,
   onOpenPlaylist,
   onOpenSettings,
   onSort,
+  currentSortMode,
   currentIndex,
   totalCount,
   statusText
 }) => {
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+  const sortButtonRef = useRef<HTMLButtonElement>(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+
+  // Calculate menu position when it opens
+  useEffect(() => {
+    if (showSortMenu && sortButtonRef.current) {
+      const rect = sortButtonRef.current.getBoundingClientRect();
+      // Position menu above the button
+      const menuHeight = 200; // Approximate menu height
+      setMenuPosition({
+        top: rect.top - menuHeight - 8, // Position above button with 8px gap
+        left: rect.left
+      });
+    }
+  }, [showSortMenu]);
+
+  // Close sort menu when clicking outside
+  useEffect(() => {
+    if (!showSortMenu) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      // Check if click is on the menu or button
+      const menuElement = document.querySelector('.sort-menu');
+      if (menuElement && (menuElement.contains(target) || sortButtonRef.current?.contains(target))) {
+        return; // Don't close if clicking on menu or button
+      }
+      // Close menu if clicking outside
+      setShowSortMenu(false);
+    };
+
+    // Use click instead of mousedown to allow onClick handlers to fire first
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside, true); // Use capture phase
+    }, 0);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('click', handleClickOutside, true);
+    };
+  }, [showSortMenu]);
 
   const displayIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
 
@@ -109,10 +158,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
             
             <button
               className="toolbar-btn"
-              title="Replay video"
-              aria-label="Replay video"
+              onClick={onRestart}
+              title="Restart slideshow from beginning"
+              aria-label="Restart slideshow from beginning"
             >
-              ↻
+              ↺
             </button>
             
             <div className="toolbar-separator"></div>
@@ -128,13 +178,20 @@ const Toolbar: React.FC<ToolbarProps> = ({
             <div className="toolbar-separator"></div>
             
             <span className="toolbar-label">Zoom</span>
-            <span className="toolbar-value">{Math.round(zoomFactor * 100)}%</span>
             <button
               className="toolbar-btn-small"
-              onClick={onZoomReset}
-              title="Reset zoom to 100%"
+              onClick={() => onZoomChange(Math.max(zoomFactor - 0.1, 0.1))}
+              title="Zoom out"
             >
-              100%
+              −
+            </button>
+            <span className="toolbar-value">{Math.round((effectiveZoom !== undefined ? effectiveZoom : zoomFactor) * 100)}%</span>
+            <button
+              className="toolbar-btn-small"
+              onClick={() => onZoomChange(Math.min(zoomFactor + 0.1, 5))}
+              title="Zoom in"
+            >
+              +
             </button>
             
             <div className="toolbar-separator"></div>
@@ -204,33 +261,123 @@ const Toolbar: React.FC<ToolbarProps> = ({
             
             <div className="toolbar-separator"></div>
             
-            <div className="toolbar-sort-container">
+            <div className="toolbar-sort-container" ref={sortMenuRef}>
               <button
+                ref={sortButtonRef}
                 className="toolbar-btn"
-                onClick={() => setShowSortMenu(!showSortMenu)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  console.log('Sort button clicked, current state:', showSortMenu);
+                  setShowSortMenu(!showSortMenu);
+                }}
                 title="Sort options"
                 aria-label="Sort options"
               >
                 ⇅
               </button>
-              {showSortMenu && (
-                <div className="sort-menu">
-                  <button onClick={() => { onSort('NameAZ'); setShowSortMenu(false); }}>
-                    Name (A-Z)
+              {showSortMenu && createPortal(
+                <div 
+                  className="sort-menu" 
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    position: 'fixed',
+                    top: `${menuPosition.top}px`,
+                    left: `${menuPosition.left}px`
+                  }}
+                >
+                  <button 
+                    className={currentSortMode === 'NameAZ' ? 'sort-menu-item-active' : ''}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => { 
+                      e.preventDefault();
+                      e.stopPropagation();
+                      console.log('Sort button clicked: NameAZ, onSort type:', typeof onSort);
+                      if (onSort) {
+                        onSort('NameAZ');
+                      }
+                      setShowSortMenu(false); 
+                    }}
+                  >
+                    Name (A-Z) {currentSortMode === 'NameAZ' && '✓'}
                   </button>
-                  <button onClick={() => { onSort('NameZA'); setShowSortMenu(false); }}>
-                    Name (Z-A)
+                  <button 
+                    className={currentSortMode === 'NameZA' ? 'sort-menu-item-active' : ''}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => { 
+                      e.preventDefault();
+                      e.stopPropagation();
+                      console.log('Sort button clicked: NameZA');
+                      if (onSort) {
+                        onSort('NameZA');
+                      }
+                      setShowSortMenu(false); 
+                    }}
+                  >
+                    Name (Z-A) {currentSortMode === 'NameZA' && '✓'}
                   </button>
-                  <button onClick={() => { onSort('DateOldest'); setShowSortMenu(false); }}>
-                    Date (Oldest First)
+                  <button 
+                    className={currentSortMode === 'DateOldest' ? 'sort-menu-item-active' : ''}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => { 
+                      e.preventDefault();
+                      e.stopPropagation();
+                      console.log('Sort button clicked: DateOldest');
+                      if (onSort) {
+                        onSort('DateOldest');
+                      }
+                      setShowSortMenu(false); 
+                    }}
+                  >
+                    Date (Oldest First) {currentSortMode === 'DateOldest' && '✓'}
                   </button>
-                  <button onClick={() => { onSort('DateNewest'); setShowSortMenu(false); }}>
-                    Date (Newest First)
+                  <button 
+                    className={currentSortMode === 'DateNewest' ? 'sort-menu-item-active' : ''}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => { 
+                      e.preventDefault();
+                      e.stopPropagation();
+                      console.log('Sort button clicked: DateNewest');
+                      if (onSort) {
+                        onSort('DateNewest');
+                      }
+                      setShowSortMenu(false); 
+                    }}
+                  >
+                    Date (Newest First) {currentSortMode === 'DateNewest' && '✓'}
                   </button>
-                  <button onClick={() => { onSort('Random'); setShowSortMenu(false); }}>
-                    Random
+                  <button 
+                    className={currentSortMode === 'Random' ? 'sort-menu-item-active' : ''}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => { 
+                      e.preventDefault();
+                      e.stopPropagation();
+                      console.log('Sort button clicked: Random');
+                      if (onSort) {
+                        onSort('Random');
+                      }
+                      setShowSortMenu(false); 
+                    }}
+                  >
+                    Random {currentSortMode === 'Random' && '✓'}
                   </button>
-                </div>
+                </div>,
+                document.body
               )}
             </div>
             

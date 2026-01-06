@@ -11,6 +11,8 @@ export type MediaItem = {
   dateModified?: number;
   file?: File; // File object for web File System Access API
   objectUrl?: string; // Object URL created from file
+  folderName?: string; // Name of the root folder this item belongs to
+  relativePath?: string; // Path relative to the root folder
 }
 
 export function determineMediaType(filePath: string): MediaType {
