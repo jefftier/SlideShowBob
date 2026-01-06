@@ -487,7 +487,6 @@ namespace SlideShowBob
             if (_viewModel.CurrentViewMode != PlaylistViewMode.Thumbnail || _viewModel.MediaItems.Count == 0)
                 return;
 
-            // Debounce rapid scroll events - reload thumbnails after scrolling stops
             // Cancel any pending load operation
             lock (_thumbnailLoadLock)
             {
@@ -496,10 +495,12 @@ namespace SlideShowBob
                 _thumbnailLoadCancellation = new CancellationTokenSource();
             }
 
-            // Delay loading to avoid loading during rapid scrolling
             var cancellationToken = _thumbnailLoadCancellation.Token;
+            
+            // Load thumbnails immediately for responsive scrolling, but with minimal debounce
+            // to avoid excessive work during rapid scrolling
 #pragma warning disable CS4014 // Fire-and-forget: intentionally not awaited
-            _ = Task.Delay(150, cancellationToken).ContinueWith(async _ =>
+            _ = Task.Delay(30, cancellationToken).ContinueWith(async _ =>
             {
                 if (cancellationToken.IsCancellationRequested)
                     return;
@@ -550,10 +551,12 @@ namespace SlideShowBob
             double topVisibleY = verticalOffset;
             double bottomVisibleY = verticalOffset + viewportHeight;
 
-            // Add buffer: 1 viewport height above and below
-            double bufferHeight = viewportHeight;
-            double topBufferY = Math.Max(0, topVisibleY - bufferHeight);
-            double bottomBufferY = bottomVisibleY + bufferHeight;
+            // Add larger buffer for pre-loading: 2.5 viewport heights above and 3 viewport heights below
+            // This ensures thumbnails are ready before user scrolls to them
+            double bufferAbove = viewportHeight * 2.5;
+            double bufferBelow = viewportHeight * 3.0; // More aggressive pre-loading ahead
+            double topBufferY = Math.Max(0, topVisibleY - bufferAbove);
+            double bottomBufferY = bottomVisibleY + bufferBelow;
 
             // Calculate row indices (0-based)
             int topRow = (int)Math.Floor(topBufferY / TotalItemHeight);
@@ -568,7 +571,7 @@ namespace SlideShowBob
 
         /// <summary>
         /// Loads thumbnails only for visible items plus buffer zones.
-        /// Releases thumbnails that are outside the buffer zone.
+        /// Releases thumbnails that are far outside the buffer zone to manage memory.
         /// </summary>
         private async Task LoadVisibleThumbnailsAsync(CancellationToken cancellationToken)
         {
@@ -579,7 +582,12 @@ namespace SlideShowBob
 
             System.Diagnostics.Debug.WriteLine($"LoadVisibleThumbnailsAsync: Loading thumbnails for indices {startIndex} to {endIndex} (total: {_viewModel.MediaItems.Count})");
 
-            // Release thumbnails outside the buffer zone
+            // Release thumbnails that are far outside the buffer zone (more aggressive release zone)
+            // Keep a larger buffer in memory but release items that are very far away
+            const int releaseMargin = 50; // Release items that are 50+ items outside the buffer
+            int releaseStartIndex = Math.Max(0, startIndex - releaseMargin);
+            int releaseEndIndex = Math.Min(_viewModel.MediaItems.Count - 1, endIndex + releaseMargin);
+            
             try
             {
                 await Dispatcher.InvokeAsync(() =>
@@ -588,9 +596,10 @@ namespace SlideShowBob
                     
                     for (int i = 0; i < _viewModel.MediaItems.Count; i++)
                     {
-                        if (i < startIndex || i > endIndex)
+                        // Only release thumbnails that are well outside the buffer zone
+                        if (i < releaseStartIndex || i > releaseEndIndex)
                         {
-                            // Item is outside buffer zone - release thumbnail
+                            // Item is far outside buffer zone - release thumbnail to free memory
                             if (_viewModel.MediaItems[i].Thumbnail != null)
                             {
                                 _viewModel.MediaItems[i].Thumbnail = null;
@@ -611,10 +620,123 @@ namespace SlideShowBob
             }
 
             // Load thumbnails for visible range
-            const int batchSize = 5;
+            // Prioritize loading items in the scroll direction (items ahead of viewport)
+            // Use larger batch size for faster loading
+            const int batchSize = 8;
             int loadedCount = 0;
+            
+            // Determine scroll direction to prioritize loading
+            // Load items ahead of current viewport first for smoother scrolling
+            int priorityStart = startIndex;
+            int priorityEnd = Math.Min(endIndex, startIndex + (int)((endIndex - startIndex) * 0.6)); // First 60% of range
+            
+            // Load priority items first (items ahead of viewport)
+            for (int i = priorityStart; i <= priorityEnd && !cancellationToken.IsCancellationRequested; i += batchSize)
+            {
+                var priorityBatchEnd = Math.Min(i + batchSize - 1, priorityEnd);
+                var batch = new System.Collections.Generic.List<PlaylistMediaItem>();
+                
+                try
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        if (_isClosed) return;
+                        
+                        for (int j = i; j <= priorityBatchEnd; j++)
+                        {
+                            if (j < _viewModel.MediaItems.Count)
+                            {
+                                batch.Add(_viewModel.MediaItems[j]);
+                            }
+                        }
+                    }, System.Windows.Threading.DispatcherPriority.Normal, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (InvalidOperationException)
+                {
+                    break;
+                }
 
-            for (int i = startIndex; i <= endIndex && !cancellationToken.IsCancellationRequested; i += batchSize)
+                if (batch.Count == 0)
+                    break;
+
+                // Process batch in parallel
+                var tasks = batch.Select(async item =>
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        return;
+
+                    if (item.Thumbnail != null)
+                        return;
+
+                    try
+                    {
+                        var thumbnail = await _viewModel.ThumbnailService.LoadThumbnailAsync(item.FullPath);
+                        if (thumbnail != null && !cancellationToken.IsCancellationRequested)
+                        {
+                            try
+                            {
+                                await Dispatcher.InvokeAsync(() =>
+                                {
+                                    if (!cancellationToken.IsCancellationRequested && 
+                                        !_isClosed && 
+                                        item.Thumbnail == null)
+                                    {
+                                        item.Thumbnail = thumbnail;
+                                        loadedCount++;
+                                    }
+                                }, System.Windows.Threading.DispatcherPriority.Normal, cancellationToken);
+                            }
+                            catch (OperationCanceledException) { }
+                            catch (InvalidOperationException) { }
+                        }
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex)
+                    {
+                        if (!cancellationToken.IsCancellationRequested)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Failed to load thumbnail for {item.FullPath}: {ex.Message}");
+                        }
+                    }
+                }).ToArray();
+
+                try
+                {
+                    await Task.WhenAll(tasks);
+                }
+                catch (OperationCanceledException) { }
+                catch (AggregateException aggEx)
+                {
+                    var nonCancellationExceptions = aggEx.Flatten().InnerExceptions
+                        .Where(ex => !(ex is OperationCanceledException))
+                        .ToList();
+                    
+                    if (nonCancellationExceptions.Any())
+                    {
+                        foreach (var ex in nonCancellationExceptions)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Unexpected error in thumbnail loading: {ex.Message}");
+                        }
+                    }
+                }
+
+                // Smaller delay for priority items
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await Task.Delay(30, cancellationToken);
+                    }
+                    catch (OperationCanceledException) { }
+                }
+            }
+
+            // Then load remaining items in the buffer
+            for (int i = priorityEnd + 1; i <= endIndex && !cancellationToken.IsCancellationRequested; i += batchSize)
             {
                 var batchEnd = Math.Min(i + batchSize - 1, endIndex);
                 var batch = new System.Collections.Generic.List<PlaylistMediaItem>();
@@ -733,7 +855,7 @@ namespace SlideShowBob
                 {
                     try
                     {
-                        await Task.Delay(50, cancellationToken);
+                        await Task.Delay(40, cancellationToken);
                     }
                     catch (OperationCanceledException)
                     {

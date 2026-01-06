@@ -13,9 +13,9 @@ namespace SlideShowBob
     /// </summary>
     public static class SmoothScrollHelper
     {
-        private const double ScrollSpeedMultiplier = 0.4; // Adjust for scroll sensitivity (lower = smoother)
-        private const int AnimationSteps = 8; // Number of steps for smooth scrolling
-        private const int AnimationIntervalMs = 16; // ~60fps animation steps
+        private const double ScrollSpeedMultiplier = 1.2; // Natural scrolling speed (increased from 0.4 for more responsive feel)
+        private const int AnimationSteps = 6; // Reduced steps for snappier scrolling
+        private const int AnimationIntervalMs = 12; // ~83fps for smoother animation
 
         // Track active animations per ScrollViewer to cancel previous ones
         private static readonly Dictionary<ScrollViewer, DispatcherTimer> _activeTimers = new Dictionary<ScrollViewer, DispatcherTimer>();
