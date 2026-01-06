@@ -6,10 +6,12 @@
   bottom: 0;
   background: rgba(0, 0, 0, 0.7);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 1000;
   backdrop-filter: blur(4px);
+  padding-top: 60px;
+  overflow-y: auto;
 }
 
 .playlist-window {
@@ -17,10 +19,11 @@
   border-radius: 8px;
   width: 90%;
   max-width: 800px;
-  max-height: 80vh;
+  max-height: calc(100vh - 120px);
   display: flex;
   flex-direction: column;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  margin-bottom: 20px;
 }
 
 .playlist-header {
@@ -217,34 +220,85 @@
   padding: 8px;
 }
 
-.playlist-sidebar-item {
-  padding: 8px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.2s;
-  margin-bottom: 2px;
-  position: relative;
+/* Folder Tree Styles - Windows Explorer-like */
+.folder-tree {
+  padding: 4px 0;
 }
 
-.playlist-sidebar-item:hover {
+.folder-tree-empty {
+  padding: 16px;
+  text-align: center;
+  color: #888;
+  font-size: 13px;
+}
+
+.folder-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  position: relative;
+  user-select: none;
+}
+
+.folder-tree-expand {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
+  flex-shrink: 0;
+}
+
+.folder-tree-expand:hover {
+  color: #e0e0e0;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+}
+
+.folder-tree-spacer {
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.folder-tree-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+  min-width: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.folder-tree-content:hover {
   background: rgba(255, 255, 255, 0.05);
 }
 
-.playlist-sidebar-item.selected {
-  background: rgba(0, 120, 212, 0.2);
-  border-left: 3px solid #0078d4;
+.folder-tree-item.selected .folder-tree-content {
+  background: rgba(0, 120, 212, 0.15);
+  color: #fff;
 }
 
-.playlist-sidebar-icon {
-  font-size: 16px;
-  width: 20px;
+.folder-tree-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 16px;
   text-align: center;
 }
 
-.playlist-sidebar-name {
+.folder-tree-name {
   flex: 1;
   color: #e0e0e0;
   font-size: 13px;
@@ -253,23 +307,29 @@
   white-space: nowrap;
 }
 
-.playlist-sidebar-item.selected .playlist-sidebar-name {
+.folder-tree-item.selected .folder-tree-name {
   color: #fff;
   font-weight: 500;
 }
 
-.playlist-sidebar-count {
-  color: #888;
+.folder-tree-count {
+  color: #666;
   font-size: 11px;
+  flex-shrink: 0;
+  margin-left: 4px;
 }
 
-.playlist-sidebar-remove {
+.folder-tree-item.selected .folder-tree-count {
+  color: #aaa;
+}
+
+.folder-tree-remove {
   width: 18px;
   height: 18px;
   padding: 0;
   background: transparent;
   border: none;
-  color: #888;
+  color: #666;
   cursor: pointer;
   border-radius: 2px;
   font-size: 14px;
@@ -278,15 +338,21 @@
   justify-content: center;
   opacity: 0;
   transition: all 0.2s;
+  flex-shrink: 0;
+  margin-left: 4px;
 }
 
-.playlist-sidebar-item:hover .playlist-sidebar-remove {
+.folder-tree-item:hover .folder-tree-remove {
   opacity: 1;
 }
 
-.playlist-sidebar-remove:hover {
+.folder-tree-remove:hover {
   background: rgba(255, 0, 0, 0.2);
   color: #ff4444;
+}
+
+.folder-tree-children {
+  margin-left: 0;
 }
 
 .playlist-resize-handle {
@@ -307,9 +373,13 @@
 
 .playlist-content {
   flex: 1;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .playlist-empty-small {
@@ -323,12 +393,16 @@
   text-align: center;
   color: #888;
   padding: 40px;
+  width: 100%;
+  align-self: flex-start;
 }
 
 .playlist-list {
   list-style: none;
   padding: 0;
   margin: 0;
+  width: 100%;
+  align-self: flex-start;
 }
 
 .playlist-item {

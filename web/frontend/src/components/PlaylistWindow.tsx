@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { MediaItem } from '../types/media';
+import { buildFolderTree, toggleFolder, setFolderExpanded, FolderNode } from '../utils/folderTree';
+import FolderTree from './FolderTree';
 import './PlaylistWindow.css';
 
 interface PlaylistWindowProps {
@@ -27,21 +29,81 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
   onPlayFromFile
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [selectedRootFolder, setSelectedRootFolder] = useState<string | null>(null);
+  const [selectedFolderPath, setSelectedFolderPath] = useState<string>(''); // Path within the root folder
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [isResizing, setIsResizing] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<{type: 'file' | 'folder', path: string, name: string} | null>(null);
+  const [folderTree, setFolderTree] = useState<FolderNode[]>([]);
   const contentRef = React.useRef<HTMLDivElement>(null);
   const currentItemRef = React.useRef<HTMLDivElement>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const sidebarRef = React.useRef<HTMLDivElement>(null);
   
-  // Auto-select first folder if none selected
-  React.useEffect(() => {
-    if (!selectedFolder && folders.length > 0) {
-      setSelectedFolder(folders[0]);
+  // Build folder tree from playlist
+  useEffect(() => {
+    const tree = buildFolderTree(playlist);
+    
+    // Preserve expansion state when rebuilding
+    setFolderTree(prev => {
+      if (prev.length === 0) {
+        // First time - expand first folder
+        if (tree.length > 0) {
+          return setFolderExpanded(tree, tree[0].name, '', true);
+        }
+        return tree;
+      }
+      
+      // Merge expansion states from previous tree
+      const preserveExpansion = (oldNode: FolderNode, newNode: FolderNode): FolderNode => {
+        const preserved: FolderNode = {
+          ...newNode,
+          isExpanded: oldNode.isExpanded ?? false,
+          children: newNode.children.map(child => {
+            const oldChild = oldNode.children.find(c => c.fullPath === child.fullPath);
+            return oldChild ? preserveExpansion(oldChild, child) : child;
+          })
+        };
+        return preserved;
+      };
+      
+      return tree.map(newRoot => {
+        const oldRoot = prev.find(r => r.name === newRoot.name);
+        return oldRoot ? preserveExpansion(oldRoot, newRoot) : newRoot;
+      });
+    });
+    
+    // Auto-select first folder if none selected
+    if (!selectedRootFolder && tree.length > 0) {
+      setSelectedRootFolder(tree[0].name);
+      setSelectedFolderPath('');
     }
-  }, [folders, selectedFolder]);
+  }, [playlist]);
+  
+  // Auto-expand path to selected folder when it changes (only expand, never collapse)
+  useEffect(() => {
+    if (selectedRootFolder && selectedFolderPath) {
+      const pathParts = selectedFolderPath.split('/').filter(p => p);
+      if (pathParts.length > 0) {
+        let currentPath = '';
+        
+        // Expand all parent folders in a single update
+        setFolderTree(prev => {
+          let updated = prev;
+          pathParts.forEach(part => {
+            currentPath = currentPath ? `${currentPath}/${part}` : part;
+            updated = setFolderExpanded(updated, selectedRootFolder, currentPath, true);
+          });
+          return updated;
+        });
+      }
+      
+      // Reset scroll position to top when folder changes
+      if (contentRef.current) {
+        contentRef.current.scrollTop = 0;
+      }
+    }
+  }, [selectedRootFolder, selectedFolderPath]);
 
   // Handle sidebar resizing
   React.useEffect(() => {
@@ -71,12 +133,18 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
     };
   }, [isResizing]);
 
-  // Auto-scroll to current item when playlist opens
+  // Auto-scroll to current item when playlist opens (only once on mount)
   React.useEffect(() => {
     if (currentItemRef.current && contentRef.current) {
-      currentItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Use a small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        if (currentItemRef.current) {
+          currentItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, 100);
+      return () => clearTimeout(timer);
     }
-  }, [currentIndex]);
+  }, []); // Only run once when component mounts
 
   const handleConfirmRemove = useCallback(() => {
     if (!pendingRemove) return;
@@ -122,21 +190,44 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
   const filteredPlaylist = useMemo(() => {
     let filtered = playlist;
     
-    // Filter by selected folder
-    if (selectedFolder) {
-      filtered = filtered.filter(item => item.folderName === selectedFolder);
+    // Filter by selected root folder and folder path
+    if (selectedRootFolder) {
+      filtered = filtered.filter(item => {
+        // Must match root folder
+        if (item.folderName !== selectedRootFolder) return false;
+        
+        // If no relativePath, it's a root file
+        if (!item.relativePath) {
+          return selectedFolderPath === '';
+        }
+        
+        // Parse the relative path - split by '/' and remove empty parts
+        const pathParts = item.relativePath.split('/').filter(p => p && p.trim() !== '');
+        
+        // If only one part, it's just the filename (file in root of the selected folder)
+        if (pathParts.length === 1) {
+          return selectedFolderPath === '';
+        }
+        
+        // Get the folder path (all parts except the last which is the filename)
+        const fileFolderPath = pathParts.slice(0, -1).join('/');
+        
+        // Match exact folder path
+        return fileFolderPath === selectedFolderPath;
+      });
     }
     
     // Filter by search query
-    if (searchQuery) {
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
       filtered = filtered.filter(item =>
-        item.fileName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.relativePath && item.relativePath.toLowerCase().includes(searchQuery.toLowerCase()))
+        item.fileName.toLowerCase().includes(query) ||
+        (item.relativePath && item.relativePath.toLowerCase().includes(query))
       );
     }
     
     return filtered;
-  }, [playlist, selectedFolder, searchQuery]);
+  }, [playlist, selectedRootFolder, selectedFolderPath, searchQuery]);
 
 
   const highlightSearchMatch = (text: string, query: string): React.ReactNode => {
@@ -175,10 +266,13 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                   </button>
                 )}
               </div>
-              {selectedFolder && (
+              {selectedRootFolder && (
                 <button
                   className="playlist-btn-secondary"
-                  onClick={() => setSelectedFolder(null)}
+                  onClick={() => {
+                    setSelectedRootFolder(null);
+                    setSelectedFolderPath('');
+                  }}
                   title="Show all files"
                 >
                   Show All
@@ -214,37 +308,19 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                 </button>
               </div>
               <div className="playlist-sidebar-content">
-                {folders.length === 0 ? (
-                  <div className="playlist-empty-small">
-                    No folders added
-                  </div>
-                ) : (
-                  folders.map(folderName => {
-                    const folderItems = playlist.filter(item => item.folderName === folderName);
-                    const isSelected = selectedFolder === folderName;
-                    return (
-                      <div
-                        key={folderName}
-                        className={`playlist-sidebar-item ${isSelected ? 'selected' : ''}`}
-                        onClick={() => setSelectedFolder(folderName)}
-                      >
-                        <span className="playlist-sidebar-icon">📁</span>
-                        <span className="playlist-sidebar-name">{folderName}</span>
-                        <span className="playlist-sidebar-count">({folderItems.length})</span>
-                        <button
-                          className="playlist-sidebar-remove"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveFolder(folderName);
-                          }}
-                          title="Remove folder"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
+                <FolderTree
+                  tree={folderTree}
+                  selectedRootFolder={selectedRootFolder}
+                  selectedFolderPath={selectedFolderPath}
+                  onSelectFolder={(rootName, folderPath) => {
+                    setSelectedRootFolder(rootName);
+                    setSelectedFolderPath(folderPath);
+                  }}
+                  onToggleExpand={(rootName, folderPath) => {
+                    setFolderTree(prev => toggleFolder(prev, rootName, folderPath));
+                  }}
+                  onRemoveFolder={handleRemoveFolder}
+                />
               </div>
             </div>
 
@@ -260,7 +336,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                 <div className="playlist-empty">
                   {searchQuery 
                     ? 'No items match your search' 
-                    : selectedFolder 
+                    : selectedRootFolder 
                       ? 'No files in this folder' 
                       : 'Select a folder to view files'}
                 </div>

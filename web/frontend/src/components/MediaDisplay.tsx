@@ -19,7 +19,8 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   isMuted,
   onVideoEnded,
   onImageClick,
-  onEffectiveZoomChange
+  onEffectiveZoomChange,
+  onMediaError
 }) => {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
@@ -184,6 +185,24 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
 
   const handleVideoEnded = () => {
     onVideoEnded();
+  };
+
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    const errorMessage = `Failed to load image: ${currentMedia?.fileName || 'Unknown'}`;
+    console.error('Image load error:', e);
+    setIsLoading(false);
+    if (onMediaError) {
+      onMediaError(errorMessage);
+    }
+  };
+
+  const handleVideoError = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    const errorMessage = `Failed to load video: ${currentMedia?.fileName || 'Unknown'}`;
+    console.error('Video load error:', e);
+    setIsLoading(false);
+    if (onMediaError) {
+      onMediaError(errorMessage);
+    }
   };
 
   // Handle mouse down for drag/pan
@@ -447,10 +466,7 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
                 });
               }
             }}
-            onError={(e) => {
-              console.error('Video error:', e);
-              setIsLoading(false);
-            }}
+            onError={handleVideoError}
           />
         ) : imageSrc ? (
           <img
@@ -459,7 +475,7 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
             alt={currentMedia.fileName}
             style={mediaStyle}
             onLoad={() => setIsLoading(false)}
-            onError={() => setIsLoading(false)}
+            onError={handleImageError}
           />
         ) : null}
       </div>

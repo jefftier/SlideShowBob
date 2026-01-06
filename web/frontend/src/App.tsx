@@ -3,9 +3,13 @@ import MediaDisplay from './components/MediaDisplay';
 import Toolbar from './components/Toolbar';
 import PlaylistWindow from './components/PlaylistWindow';
 import SettingsWindow from './components/SettingsWindow';
+import ToastContainer from './components/ToastContainer';
 import { useSlideshow } from './hooks/useSlideshow';
 import { useMediaLoader } from './hooks/useMediaLoader';
+import { useToast } from './hooks/useToast';
 import { MediaItem, MediaType } from './types/media';
+import { loadSettings, saveSettings, AppSettings } from './utils/settingsStorage';
+import { loadDirectoryHandles, saveDirectoryHandle, removeDirectoryHandle, isIndexedDBSupported } from './utils/directoryStorage';
 import './App.css';
 
 function App() {
@@ -26,6 +30,9 @@ function App() {
   const [sortMode, setSortMode] = useState<'NameAZ' | 'NameZA' | 'DateOldest' | 'DateNewest' | 'Random'>('NameAZ');
   const [playlist, setPlaylist] = useState<MediaItem[]>([]);
   const [statusText, setStatusText] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingFolders, setIsLoadingFolders] = useState(false);
+  const { toasts, showSuccess, showError, showInfo, removeToast } = useToast();
 
   // Get filtered playlist based on includeVideos (excludes both Video and Gif when false)
   const filteredPlaylist = useMemo(() => {
@@ -61,12 +68,81 @@ function App() {
 
   const { loadMediaFromFolders, loadMediaFromDirectory } = useMediaLoader();
 
-  // Note: File System Access API requires user interaction to access directories
-  // We can't automatically load folders on mount - user must select them
-  // In production, you'd store directory handles in IndexedDB for persistence
+  // Load settings and directory handles on mount
+  useEffect(() => {
+    const initializeApp = async () => {
+      setIsLoading(true);
+      
+      try {
+        // Load settings from localStorage
+        const savedSettings = loadSettings();
+        if (savedSettings.saveSlideDelay) {
+          setSlideDelayMs(savedSettings.slideDelayMs);
+        }
+        if (savedSettings.saveIncludeVideos) {
+          setIncludeVideos(savedSettings.includeVideos);
+        }
+        if (savedSettings.saveSortMode) {
+          setSortMode(savedSettings.sortMode);
+        }
+        if (savedSettings.saveIsMuted) {
+          setIsMuted(savedSettings.isMuted);
+        }
+        if (savedSettings.saveIsFitToWindow) {
+          setIsFitToWindow(savedSettings.isFitToWindow);
+        }
+        if (savedSettings.saveZoomFactor) {
+          setZoomFactor(savedSettings.zoomFactor);
+        }
 
-  // Note: In production, directory handles should be stored in IndexedDB
-  // For now, we just store folder names (which are not sufficient to re-access)
+        // Load directory handles from IndexedDB
+        if (isIndexedDBSupported()) {
+          try {
+            const handles = await loadDirectoryHandles();
+            setDirectoryHandles(handles);
+            
+            // Extract folder names
+            const folderNames = Array.from(handles.keys());
+            setFolders(folderNames);
+            
+            // Reload media from persisted folders
+            if (handles.size > 0) {
+              setStatusText('Loading folders...');
+              const allMediaItems: MediaItem[] = [];
+              
+              for (const [folderName, handle] of handles.entries()) {
+                try {
+                  const mediaItems = await loadMediaFromDirectory(handle, savedSettings.includeVideos);
+                  allMediaItems.push(...mediaItems);
+                } catch (error) {
+                  console.error(`Error loading folder ${folderName}:`, error);
+                  // Remove invalid handle
+                  await removeDirectoryHandle(folderName);
+                }
+              }
+              
+              if (allMediaItems.length > 0) {
+                const sortedItems = sortMediaItems(allMediaItems, savedSettings.sortMode);
+                setPlaylist(sortedItems);
+                setCurrentIndex(0);
+                setCurrentMedia(sortedItems[0]);
+              }
+              
+              setStatusText('');
+            }
+          } catch (error) {
+            console.error('Error loading directory handles:', error);
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing app:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeApp();
+  }, []); // Only run on mount
 
   // Removed handleLoadFolders - now handled directly in handleAddFolder
   // In production, you'd implement a system to store and restore directory handles
@@ -107,15 +183,42 @@ function App() {
         const dirHandle = await (window as any).showDirectoryPicker();
         const folderName = dirHandle.name;
         
-        // Store directory handle for later use
-        const newHandles = new Map(directoryHandles);
-        newHandles.set(folderName, dirHandle);
-        setDirectoryHandles(newHandles);
+        // Check if folder already exists
+        if (folders.includes(folderName)) {
+          showWarning(`Folder "${folderName}" is already in your playlist`);
+          return;
+        }
         
-        // Load media from the selected directory
-        setStatusText('Loading...');
+        setIsLoadingFolders(true);
+        setStatusText(`Loading "${folderName}"...`);
+        showInfo(`Scanning folder "${folderName}"...`);
+        
         try {
+          // Load media from the selected directory
           const mediaItems = await loadMediaFromDirectory(dirHandle, includeVideos);
+          
+          if (mediaItems.length === 0) {
+            showWarning(`No media files found in "${folderName}"`);
+            setIsLoadingFolders(false);
+            setStatusText('');
+            return;
+          }
+          
+          // Store directory handle in state
+          const newHandles = new Map(directoryHandles);
+          newHandles.set(folderName, dirHandle);
+          setDirectoryHandles(newHandles);
+          
+          // Persist directory handle to IndexedDB
+          if (isIndexedDBSupported()) {
+            try {
+              await saveDirectoryHandle(folderName, dirHandle);
+            } catch (error) {
+              console.error('Error saving directory handle:', error);
+              showError('Failed to save folder. It may not persist after refresh.');
+            }
+          }
+          
           let sortedItems = [...mediaItems];
           
           // Apply sorting
@@ -124,6 +227,13 @@ function App() {
           // Merge with existing playlist (avoid duplicates)
           const existingPaths = new Set(playlist.map(item => item.filePath));
           const newItems = sortedItems.filter(item => !existingPaths.has(item.filePath));
+          
+          if (newItems.length === 0) {
+            showWarning(`All files from "${folderName}" are already in your playlist`);
+            setIsLoadingFolders(false);
+            setStatusText('');
+            return;
+          }
           
           const mergedPlaylist = [...playlist, ...newItems];
           setPlaylist(mergedPlaylist);
@@ -138,20 +248,28 @@ function App() {
             setFolders([...folders, folderName]);
           }
           
+          showSuccess(`Added ${newItems.length} item${newItems.length !== 1 ? 's' : ''} from "${folderName}"`);
           setStatusText('');
         } catch (error) {
-          setStatusText(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          showError(`Failed to load folder "${folderName}": ${errorMessage}`);
+          setStatusText(`Error: ${errorMessage}`);
           console.error('Error loading directory:', error);
+        } finally {
+          setIsLoadingFolders(false);
         }
       } else {
         // Fallback: use file input for folder selection (limited browser support)
-        alert('File System Access API not supported. Please use Chrome, Edge, or another modern browser.');
+        showError('File System Access API not supported. Please use Chrome, Edge, or another modern browser.');
       }
     } catch (error) {
       if ((error as any).name !== 'AbortError') {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        showError(`Failed to select folder: ${errorMessage}`);
         console.error('Error selecting folder:', error);
         setStatusText('Error selecting folder');
       }
+      setIsLoadingFolders(false);
     }
   };
 
@@ -304,6 +422,8 @@ function App() {
 
   const handleZoomReset = useCallback(() => {
     setZoomFactor(1.0);
+    setIsFitToWindow(true);
+    saveSettings({ zoomFactor: 1.0, isFitToWindow: true });
   }, []);
 
   useEffect(() => {
@@ -357,12 +477,20 @@ function App() {
         case '+':
         case '=':
           e.preventDefault();
-          setZoomFactor(prev => Math.min(prev + 0.1, 5));
+          setZoomFactor(prev => {
+            const newValue = Math.min(prev + 0.1, 5);
+            saveSettings({ zoomFactor: newValue });
+            return newValue;
+          });
           break;
         case '-':
         case '_':
           e.preventDefault();
-          setZoomFactor(prev => Math.max(prev - 0.1, 0.1));
+          setZoomFactor(prev => {
+            const newValue = Math.max(prev - 0.1, 0.1);
+            saveSettings({ zoomFactor: newValue });
+            return newValue;
+          });
           break;
         case '0':
           if (!e.shiftKey) {
@@ -377,6 +505,18 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullscreen, showPlaylist, showSettings, handlePlayPause, handleNext, handlePrevious, handleToggleFullscreen, handleZoomReset]);
 
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="app">
+        <div className="loading-screen">
+          <div className="loading-spinner"></div>
+          <p>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <MediaDisplay
@@ -387,9 +527,21 @@ function App() {
         onVideoEnded={onVideoEnded}
         onImageClick={handleNext}
         onEffectiveZoomChange={setEffectiveZoom}
+        onMediaError={(error) => {
+          showError(`Failed to load media: ${error}`);
+          // Auto-advance to next item on error
+          setTimeout(() => handleNext(), 1000);
+        }}
       />
       
-      {playlist.length === 0 && (
+      {isLoadingFolders && (
+        <div className="loading-overlay-global">
+          <div className="loading-spinner"></div>
+          <p>{statusText || 'Loading folders...'}</p>
+        </div>
+      )}
+
+      {playlist.length === 0 && !isLoadingFolders && (
         <div className="empty-state">
           <p>No media loaded</p>
           <button onClick={handleAddFolder} className="btn-primary">
@@ -481,7 +633,10 @@ function App() {
           }
         }}
         slideDelayMs={slideDelayMs}
-        onSlideDelayChange={setSlideDelayMs}
+        onSlideDelayChange={(value) => {
+          setSlideDelayMs(value);
+          saveSettings({ slideDelayMs: value });
+        }}
         zoomFactor={zoomFactor}
         effectiveZoom={effectiveZoom}
         onZoomChange={setZoomFactor}
@@ -515,17 +670,28 @@ function App() {
           onNavigateToFile={handleNavigateToFile}
           onRemoveFile={handleRemoveFile}
           onPlayFromFile={handlePlayFromFile}
-          onRemoveFolder={(folderName) => {
+          onRemoveFolder={async (folderName) => {
             // Remove folder from folders list
             const newFolders = folders.filter(f => f !== folderName);
             setFolders(newFolders);
             
-            // Remove directory handle
+            // Remove directory handle from state
             const newHandles = new Map(directoryHandles);
             newHandles.delete(folderName);
             setDirectoryHandles(newHandles);
             
+            // Remove directory handle from IndexedDB
+            if (isIndexedDBSupported()) {
+              try {
+                await removeDirectoryHandle(folderName);
+              } catch (error) {
+                console.error('Error removing directory handle:', error);
+                showError('Failed to remove folder from storage');
+              }
+            }
+            
             // Remove all files from that folder
+            const filesInFolder = playlist.filter(item => item.folderName === folderName);
             const newPlaylist = playlist.filter(item => item.folderName !== folderName);
             setPlaylist(newPlaylist);
             
@@ -540,6 +706,8 @@ function App() {
             } else {
               setCurrentMedia(newPlaylist[currentIndex]);
             }
+            
+            showSuccess(`Removed folder "${folderName}" (${filesInFolder.length} items)`);
           }}
           onAddFolder={handleAddFolder}
         />
@@ -548,13 +716,8 @@ function App() {
       {showSettings && (
         <SettingsWindow
           onClose={() => setShowSettings(false)}
-          folders={folders}
-          onRemoveFolder={(folder) => {
-            const newFolders = folders.filter(f => f !== folder);
-            setFolders(newFolders);
-            // Note: Removing a folder name doesn't remove files from playlist
-            // In production, you'd track which files came from which directory handle
-            // and remove only those files
+          onSave={() => {
+            showSuccess('Settings saved successfully');
           }}
         />
       )}
