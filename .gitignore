@@ -33,3 +33,26 @@ _ReSharper*/
 ## FFMPEG (large binaries, should not be in repo)
 ffmpeg/
 FFMPEG/
+# Web App
+web/frontend/node_modules/
+web/frontend/dist/
+web/frontend/build/
+web/frontend/.next/
+web/frontend/.vite/
+web/backend/node_modules/
+web/backend/dist/
+web/backend/build/
+web/shared/node_modules/
+web/shared/dist/
+
+# Environment files
+web/**/.env
+web/**/.env.local
+web/**/.env.*.local
+
+# Logs
+web/**/npm-debug.log*
+web/**/yarn-debug.log*
+web/**/yarn-error.log*
+web/**/pnpm-debug.log*
+

@@ -1,10 +1,28 @@
 {
 	"folders": [
 		{
-			"path": "."
+			"path": ".",
+			"name": "SlideShowBob Root"
+		},
+		{
+			"path": "./desktop",
+			"name": "Desktop App (WPF)"
+		},
+		{
+			"path": "./web/frontend",
+			"name": "Web Frontend (React)"
+		},
+		{
+			"path": "./web/backend",
+			"name": "Web Backend (Node.js)"
 		}
 	],
 	"settings": {
+		"files.exclude": {
+			"**/node_modules": true,
+			"**/bin": true,
+			"**/obj": true
+		},
 		"github-actions.workflows.pinned.workflows": [
 			".github/workflows/release.yml"
 		]
