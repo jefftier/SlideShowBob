@@ -42,6 +42,7 @@ namespace SlideShowBob
         private Uri? _currentVideoSource = null; // Track current video source to tie blur to video
 
         private bool _isFullscreen = false;
+        private int _currentMonitorIndex = 0; // Track which monitor we're fullscreen on
         private WindowState _prevState;
         private WindowStyle _prevStyle;
         private ResizeMode _prevResizeMode;
@@ -1757,7 +1758,10 @@ namespace SlideShowBob
                     BitmapSource? firstFrame = null;
                     try
                     {
-                        firstFrame = await VideoFrameService.ExtractFirstFrameAsync(currentItem.FilePath);
+                        if (_viewModel != null)
+                        {
+                            firstFrame = await _viewModel.ExtractFirstFrameAsync(currentItem.FilePath);
+                        }
                     }
                     catch (OperationCanceledException)
                     {
@@ -2334,6 +2338,38 @@ namespace SlideShowBob
             ToggleFullscreen();
         }
 
+        private void MonitorButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_isFullscreen)
+                return; // Only works in fullscreen mode
+
+            // Cycle to next monitor
+            var allScreens = WinForms.Screen.AllScreens;
+            if (allScreens.Length <= 1)
+                return; // Only one monitor, nothing to do
+
+            _currentMonitorIndex = (_currentMonitorIndex + 1) % allScreens.Length;
+            var targetScreen = allScreens[_currentMonitorIndex];
+            var screenBounds = targetScreen.Bounds;
+
+            // Move window to the new monitor
+            WindowState = WindowState.Normal;  // so manual bounds apply
+            Left = screenBounds.Left;
+            Top = screenBounds.Top;
+            Width = screenBounds.Width;
+            Height = screenBounds.Height;
+
+            // Re-apply fit so media matches new size
+            if (CurrentMediaType == MediaType.Video && VideoElement.Source != null && FitToggle.IsChecked == true)
+            {
+                SetVideoFit();
+            }
+            else if (ImageElement.Source != null && FitToggle.IsChecked == true)
+            {
+                SetZoomFit(CurrentMediaType == MediaType.Gif);
+            }
+        }
+
         private void ToggleFullscreen()
         {
             if (!_isFullscreen)
@@ -2357,6 +2393,19 @@ namespace SlideShowBob
                 // Get the screen that the window is currently on
                 var windowInteropHelper = new WindowInteropHelper(this);
                 var screen = WinForms.Screen.FromHandle(windowInteropHelper.Handle);
+                
+                // Find which monitor index this is
+                var allScreens = WinForms.Screen.AllScreens;
+                _currentMonitorIndex = 0;
+                for (int i = 0; i < allScreens.Length; i++)
+                {
+                    if (allScreens[i].Bounds.Equals(screen.Bounds))
+                    {
+                        _currentMonitorIndex = i;
+                        break;
+                    }
+                }
+                
                 var screenBounds = screen.Bounds;
 
                 // True fullscreen: cover entire screen the window is on, including over taskbar
