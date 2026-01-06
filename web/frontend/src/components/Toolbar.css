@@ -1,0 +1,179 @@
+.toolbar-expanded,
+.toolbar-minimized {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 30, 0.98);
+  border-radius: 4px 4px 0 0;
+  padding: 8px 6px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  backdrop-filter: blur(10px);
+}
+
+.toolbar-content {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.toolbar-btn {
+  width: 32px;
+  height: 32px;
+  padding: 8px;
+  background: transparent;
+  border: none;
+  color: #e0e0e0;
+  cursor: pointer;
+  border-radius: 2px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.toolbar-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.toolbar-btn:active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.toolbar-btn-toggle {
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  border-radius: 2px;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.toolbar-btn-toggle.active {
+  background: #0078d4;
+  color: #fff;
+}
+
+.toolbar-btn-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.toolbar-btn-toggle.active:hover {
+  background: #106ebe;
+}
+
+.toolbar-btn-small {
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  border-radius: 2px;
+  font-size: 11px;
+  min-width: 40px;
+}
+
+.toolbar-btn-small:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.toolbar-separator {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 0;
+}
+
+.toolbar-label {
+  font-size: 12px;
+  color: #888;
+  margin: 0 4px;
+}
+
+.toolbar-value {
+  font-size: 12px;
+  color: #888;
+  margin: 0 4px;
+  min-width: 40px;
+}
+
+.toolbar-input {
+  background: transparent;
+  border: none;
+  color: #e0e0e0;
+  padding: 3px;
+  font-size: 12px;
+  width: 50px;
+  text-align: right;
+  border-radius: 2px;
+}
+
+.toolbar-input:focus {
+  outline: 1px solid #0078d4;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.toolbar-sort-container {
+  position: relative;
+}
+
+.sort-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 8px;
+  background: rgba(30, 30, 30, 0.98);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  padding: 4px;
+  min-width: 180px;
+  z-index: 200;
+}
+
+.sort-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  color: #e0e0e0;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 2px;
+  font-size: 13px;
+}
+
+.sort-menu button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.toolbar-minimized {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.status-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 16px;
+  font-size: 11px;
+  color: #888;
+  z-index: 50;
+}
+
+.title-count {
+  position: fixed;
+  bottom: 24px;
+  right: 16px;
+  font-size: 12px;
+  color: #888;
+  z-index: 50;
+}
+
