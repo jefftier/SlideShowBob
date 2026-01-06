@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { MediaItem } from '../types/media';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { MediaItem, MediaType } from '../types/media';
 import { buildFolderTree, toggleFolder, setFolderExpanded, FolderNode } from '../utils/folderTree';
 import FolderTree from './FolderTree';
+import { generateThumbnail, revokeThumbnail } from '../utils/thumbnailGenerator';
 import './PlaylistWindow.css';
 
 interface PlaylistWindowProps {
@@ -35,10 +36,16 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
   const [isResizing, setIsResizing] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<{type: 'file' | 'folder', path: string, name: string} | null>(null);
   const [folderTree, setFolderTree] = useState<FolderNode[]>([]);
+  const [viewMode, setViewMode] = useState<'list' | 'thumbnail'>('list');
+  const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
+  const [loadingThumbnails, setLoadingThumbnails] = useState<Set<string>>(new Set());
   const contentRef = React.useRef<HTMLDivElement>(null);
   const currentItemRef = React.useRef<HTMLDivElement>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const sidebarRef = React.useRef<HTMLDivElement>(null);
+  const thumbnailObserverRef = useRef<IntersectionObserver | null>(null);
+  const thumbnailItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Build folder tree from playlist
   useEffect(() => {
@@ -133,60 +140,8 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
     };
   }, [isResizing]);
 
-  // Auto-scroll to current item when playlist opens (only once on mount)
-  React.useEffect(() => {
-    if (currentItemRef.current && contentRef.current) {
-      // Use a small delay to ensure DOM is ready
-      const timer = setTimeout(() => {
-        if (currentItemRef.current) {
-          currentItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, []); // Only run once when component mounts
-
-  const handleConfirmRemove = useCallback(() => {
-    if (!pendingRemove) return;
-    
-    if (pendingRemove.type === 'file') {
-      onRemoveFile(pendingRemove.path);
-    } else {
-      onRemoveFolder(pendingRemove.name);
-    }
-    setPendingRemove(null);
-  }, [pendingRemove, onRemoveFile, onRemoveFolder]);
-
-  // Keyboard shortcuts
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (pendingRemove) {
-          setPendingRemove(null);
-        } else {
-          onClose();
-        }
-      } else if (e.key === 'Enter' && pendingRemove) {
-        handleConfirmRemove();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pendingRemove, onClose, handleConfirmRemove]);
-
-  const handleRemoveFile = (filePath: string, fileName: string) => {
-    setPendingRemove({ type: 'file', path: filePath, name: fileName });
-  };
-
-  const handleRemoveFolder = (folderName: string) => {
-    setPendingRemove({ type: 'folder', path: folderName, name: folderName });
-  };
-
   // Filter playlist based on search and selected folder
+  // Must be defined before useEffects that use it
   const filteredPlaylist = useMemo(() => {
     let filtered = playlist;
     
@@ -229,6 +184,232 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
     return filtered;
   }, [playlist, selectedRootFolder, selectedFolderPath, searchQuery]);
 
+  // Auto-scroll to current item when playlist opens (only once on mount)
+  React.useEffect(() => {
+    if (currentItemRef.current && contentRef.current) {
+      // Use a small delay to ensure DOM is ready
+      const timer = setTimeout(() => {
+        if (currentItemRef.current) {
+          currentItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, []); // Only run once when component mounts
+
+  // Load thumbnail for an item
+  // Must be defined before useEffects that use it
+  const loadThumbnail = useCallback(async (item: MediaItem) => {
+    if (!item.file || thumbnails.has(item.filePath) || loadingThumbnails.has(item.filePath)) {
+      return;
+    }
+
+    setLoadingThumbnails(prev => new Set(prev).add(item.filePath));
+
+    try {
+      const thumbnailUrl = await generateThumbnail(item.file, item.filePath, item.type);
+      if (thumbnailUrl) {
+        setThumbnails(prev => new Map(prev).set(item.filePath, thumbnailUrl));
+      }
+    } catch (error) {
+      console.error(`Error loading thumbnail for ${item.filePath}:`, error);
+    } finally {
+      setLoadingThumbnails(prev => {
+        const next = new Set(prev);
+        next.delete(item.filePath);
+        return next;
+      });
+    }
+  }, [thumbnails, loadingThumbnails]);
+
+  // Setup intersection observer for virtual scrolling in thumbnail view
+  useEffect(() => {
+    if (viewMode !== 'thumbnail') {
+      if (thumbnailObserverRef.current) {
+        thumbnailObserverRef.current.disconnect();
+        thumbnailObserverRef.current = null;
+      }
+      return;
+    }
+
+    if (!contentRef.current) return;
+
+    // Create intersection observer with root margin for preloading
+    // Load 3 viewport heights ahead and behind for smoother scrolling
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Batch load requests to avoid overwhelming the system
+        const itemsToLoad: MediaItem[] = [];
+        
+        entries.forEach((entry) => {
+          const filePath = entry.target.getAttribute('data-file-path');
+          if (!filePath) return;
+
+          if (entry.isIntersecting) {
+            // Item is visible or near visible - queue for loading
+            const item = filteredPlaylist.find(i => i.filePath === filePath);
+            if (item && item.file && !thumbnails.has(filePath) && !loadingThumbnails.has(filePath)) {
+              itemsToLoad.push(item);
+            }
+          }
+        });
+        
+        // Load thumbnails in batches, prioritizing images over videos
+        if (itemsToLoad.length > 0) {
+          // Separate images and videos - images load much faster
+          const images = itemsToLoad.filter(item => item.type !== MediaType.Video);
+          const videos = itemsToLoad.filter(item => item.type === MediaType.Video);
+          
+          // Load images first (faster)
+          const imageBatch = images.slice(0, 8); // Load more images in parallel
+          imageBatch.forEach(item => loadThumbnail(item));
+          
+          // Load remaining images in smaller batches
+          if (images.length > 8) {
+            let imageIndex = 8;
+            const loadImageBatch = () => {
+              const batch = images.slice(imageIndex, imageIndex + 5);
+              batch.forEach(item => loadThumbnail(item));
+              imageIndex += 5;
+              if (imageIndex < images.length) {
+                setTimeout(loadImageBatch, 30);
+              }
+            };
+            setTimeout(loadImageBatch, 50);
+          }
+          
+          // Load videos after images (slower, so fewer at a time)
+          if (videos.length > 0) {
+            const videoBatch = videos.slice(0, 2); // Only 2 videos at a time
+            videoBatch.forEach(item => loadThumbnail(item));
+            
+            // Load remaining videos one at a time
+            if (videos.length > 2) {
+              let videoIndex = 2;
+              const loadVideoBatch = () => {
+                const batch = videos.slice(videoIndex, videoIndex + 1);
+                batch.forEach(item => loadThumbnail(item));
+                videoIndex += 1;
+                if (videoIndex < videos.length) {
+                  setTimeout(loadVideoBatch, 100);
+                }
+              };
+              setTimeout(loadVideoBatch, 200);
+            }
+          }
+        }
+      },
+      {
+        root: contentRef.current,
+        rootMargin: '300% 0px 300% 0px', // Load 3 viewport heights ahead/behind
+        threshold: 0
+      }
+    );
+
+    thumbnailObserverRef.current = observer;
+
+    // Use a small delay to ensure DOM is ready
+    const timeoutId = setTimeout(() => {
+      // Observe all thumbnail items
+      thumbnailItemRefs.current.forEach((element) => {
+        if (element && thumbnailObserverRef.current) {
+          thumbnailObserverRef.current.observe(element);
+        }
+      });
+    }, 100);
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (thumbnailObserverRef.current) {
+        thumbnailObserverRef.current.disconnect();
+        thumbnailObserverRef.current = null;
+      }
+    };
+  }, [viewMode, filteredPlaylist, thumbnails, loadingThumbnails, loadThumbnail]);
+
+  // Note: We don't revoke thumbnails during scrolling anymore
+  // The browser handles blob URL memory management automatically
+  // We only revoke when switching views or unmounting
+
+  // Cleanup thumbnails on unmount
+  useEffect(() => {
+    return () => {
+      // Cleanup all thumbnails when component unmounts
+      // Use a small delay to ensure images are no longer being rendered
+      setThumbnails(prev => {
+        setTimeout(() => {
+          prev.forEach((url) => {
+            try {
+              revokeThumbnail(url);
+            } catch (e) {
+              // Ignore errors if URL was already revoked
+            }
+          });
+        }, 100);
+        return new Map(); // Clear immediately
+      });
+    };
+  }, []);
+
+  // Cleanup thumbnails when switching away from thumbnail view
+  useEffect(() => {
+    if (viewMode !== 'thumbnail') {
+      // Release all thumbnails when switching to list view
+      // Use a small delay to ensure images are no longer being rendered
+      setTimeout(() => {
+        thumbnails.forEach((url) => {
+          try {
+            revokeThumbnail(url);
+          } catch (e) {
+            // Ignore errors if URL was already revoked
+          }
+        });
+        setThumbnails(new Map());
+        setLoadingThumbnails(new Set());
+      }, 100);
+    }
+  }, [viewMode, thumbnails]);
+
+  const handleConfirmRemove = useCallback(() => {
+    if (!pendingRemove) return;
+    
+    if (pendingRemove.type === 'file') {
+      onRemoveFile(pendingRemove.path);
+    } else {
+      onRemoveFolder(pendingRemove.name);
+    }
+    setPendingRemove(null);
+  }, [pendingRemove, onRemoveFile, onRemoveFolder]);
+
+  // Keyboard shortcuts
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (pendingRemove) {
+          setPendingRemove(null);
+        } else {
+          onClose();
+        }
+      } else if (e.key === 'Enter' && pendingRemove) {
+        handleConfirmRemove();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [pendingRemove, onClose, handleConfirmRemove]);
+
+  const handleRemoveFile = (filePath: string, fileName: string) => {
+    setPendingRemove({ type: 'file', path: filePath, name: fileName });
+  };
+
+  const handleRemoveFolder = (folderName: string) => {
+    setPendingRemove({ type: 'folder', path: folderName, name: folderName });
+  };
+
 
   const highlightSearchMatch = (text: string, query: string): React.ReactNode => {
     if (!query) return text;
@@ -265,6 +446,22 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                     ×
                   </button>
                 )}
+              </div>
+              <div className="playlist-view-toggle">
+                <button
+                  className={`playlist-view-btn ${viewMode === 'list' ? 'active' : ''}`}
+                  onClick={() => setViewMode('list')}
+                  title="List view"
+                >
+                  ☰
+                </button>
+                <button
+                  className={`playlist-view-btn ${viewMode === 'thumbnail' ? 'active' : ''}`}
+                  onClick={() => setViewMode('thumbnail')}
+                  title="Thumbnail view"
+                >
+                  ⊞
+                </button>
               </div>
               {selectedRootFolder && (
                 <button
@@ -330,7 +527,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
               onMouseDown={() => setIsResizing(true)}
             />
 
-            {/* Right Panel - File List */}
+            {/* Right Panel - File List or Thumbnail Grid */}
             <div ref={contentRef} className="playlist-content">
               {filteredPlaylist.length === 0 ? (
                 <div className="playlist-empty">
@@ -340,7 +537,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                       ? 'No files in this folder' 
                       : 'Select a folder to view files'}
                 </div>
-              ) : (
+              ) : viewMode === 'list' ? (
                 <ul className="playlist-list">
                   {filteredPlaylist.map((item, index) => {
                     const originalIndex = playlist.findIndex(p => p.filePath === item.filePath);
@@ -387,6 +584,92 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                     );
                   })}
                 </ul>
+              ) : (
+                <div className="playlist-grid">
+                  {filteredPlaylist.map((item) => {
+                    const originalIndex = playlist.findIndex(p => p.filePath === item.filePath);
+                    const isCurrent = originalIndex === currentIndex;
+                    const thumbnailUrl = thumbnails.get(item.filePath);
+                    const isLoading = loadingThumbnails.has(item.filePath);
+                    
+                    return (
+                      <div
+                        key={item.filePath}
+                        ref={(el) => {
+                          if (el) {
+                            thumbnailItemRefs.current.set(item.filePath, el);
+                            if (isCurrent) {
+                              currentItemRef.current = el;
+                            }
+                          } else {
+                            thumbnailItemRefs.current.delete(item.filePath);
+                          }
+                        }}
+                        data-file-path={item.filePath}
+                        className={`playlist-grid-item ${isCurrent ? 'current' : ''}`}
+                        onClick={() => onNavigateToFile(item.filePath)}
+                        title={`${item.fileName} - Click to jump to this file`}
+                      >
+                        <div className="playlist-grid-thumbnail">
+                          {thumbnailUrl ? (
+                            <img
+                              src={thumbnailUrl}
+                              alt={item.fileName}
+                              loading="lazy"
+                              onError={(e) => {
+                                // Fallback if thumbnail fails to load (blob URL was revoked)
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                // Remove from thumbnails map if it fails
+                                setThumbnails(prev => {
+                                  const next = new Map(prev);
+                                  next.delete(item.filePath);
+                                  return next;
+                                });
+                              }}
+                            />
+                          ) : isLoading ? (
+                            <div className="playlist-thumbnail-loading">Loading...</div>
+                          ) : (
+                            <div className="playlist-thumbnail-placeholder">
+                              {item.type === MediaType.Video ? '🎬' : '🖼️'}
+                            </div>
+                          )}
+                          <span className="playlist-grid-type">{item.type}</span>
+                        </div>
+                        <div className="playlist-grid-name" title={item.fileName}>
+                          {highlightSearchMatch(item.fileName, searchQuery)}
+                        </div>
+                        <div className="playlist-grid-index">#{originalIndex + 1}</div>
+                        <div className="playlist-grid-actions">
+                          {onPlayFromFile && (
+                            <button
+                              className="playlist-grid-play"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onPlayFromFile(item.filePath);
+                                onClose();
+                              }}
+                              title="Play slideshow from here"
+                            >
+                              ▶
+                            </button>
+                          )}
+                          <button
+                            className="playlist-grid-remove"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveFile(item.filePath, item.fileName);
+                            }}
+                            title="Remove from playlist"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>
