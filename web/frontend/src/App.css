@@ -24,6 +24,12 @@
   margin-bottom: 16px;
 }
 
+.empty-state-hint {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 24px;
+}
+
 .btn-primary {
   padding: 16px 32px;
   font-size: 13px;

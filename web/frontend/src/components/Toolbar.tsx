@@ -129,7 +129,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
               className="toolbar-btn"
               onClick={onPrevious}
               title="Previous"
-              aria-label="Previous"
+              aria-label="Previous slide"
             >
               ⏮
             </button>
@@ -161,7 +161,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
               className="toolbar-btn"
               onClick={onNext}
               title="Next"
-              aria-label="Next"
+              aria-label="Next slide"
             >
               ⏭
             </button>
@@ -183,6 +183,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
               className={`toolbar-btn-toggle ${isFitToWindow ? 'active' : ''}`}
               onClick={() => onFitToWindowChange(!isFitToWindow)}
               title="Fit to window"
+              aria-label="Fit to window"
             >
               Fit
             </button>
@@ -194,6 +195,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
               className="toolbar-btn-small"
               onClick={() => onZoomChange(Math.max(zoomFactor - 0.1, 0.1))}
               title="Zoom out"
+              aria-label="Zoom out"
             >
               −
             </button>
@@ -202,6 +204,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
               className="toolbar-btn-small"
               onClick={() => onZoomChange(Math.min(zoomFactor + 0.1, 5))}
               title="Zoom in"
+              aria-label="Zoom in"
             >
               +
             </button>
@@ -212,6 +215,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
               className={`toolbar-btn-toggle ${includeVideos ? 'active' : ''}`}
               onClick={() => onIncludeVideosChange(!includeVideos)}
               title="Include videos and GIFs"
+              aria-label="Include videos and GIFs"
             >
               GIF / MP4
             </button>
@@ -401,7 +405,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                   className="toolbar-btn"
                   onClick={onEnterKiosk}
                   title="Enter Kiosk Mode (fullscreen + hide UI)"
-                  aria-label="Enter Kiosk Mode"
+                  aria-label="Enter kiosk mode"
                 >
                   🖥
                 </button>
@@ -413,7 +417,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
               className="toolbar-btn"
               onClick={onOpenSettings}
               title="App Settings"
-              aria-label="App Settings"
+              aria-label="App settings"
             >
               ⚙
             </button>
@@ -425,7 +429,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                   className="toolbar-btn"
                   onClick={onOpenShortcutsHelp}
                   title="Keyboard Shortcuts (?)"
-                  aria-label="Keyboard Shortcuts"
+                  aria-label="Keyboard shortcuts"
                 >
                   ?
                 </button>
@@ -439,7 +443,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
                   className="toolbar-btn"
                   onClick={onExitManifestMode}
                   title="Exit Manifest Mode"
-                  aria-label="Exit Manifest Mode"
+                  aria-label="Exit manifest mode"
                 >
                   ⛶
                 </button>
@@ -472,19 +476,31 @@ const Toolbar: React.FC<ToolbarProps> = ({
         </div>
       ) : (
         <div className={`toolbar-minimized ${(isManifestMode && !toolbarVisible) ? 'hidden' : ''}`}>
-          <button className="toolbar-btn" onClick={onPrevious} title="Previous">⏮</button>
+          <button className="toolbar-btn" onClick={onPrevious} title="Previous" aria-label="Previous slide">⏮</button>
           <div className="toolbar-separator"></div>
-          <button className="toolbar-btn" onClick={onPlayPause} title="Play/Pause">
+          <button 
+            className="toolbar-btn" 
+            onClick={onPlayPause} 
+            title={isPlaying ? "Pause slideshow" : "Play slideshow"}
+            aria-label={isPlaying ? "Pause slideshow" : "Play slideshow"}
+          >
             {isPlaying ? '⏸' : '▶'}
           </button>
           <div className="toolbar-separator"></div>
-          <button className="toolbar-btn" onClick={onNext} title="Next">⏭</button>
+          <button className="toolbar-btn" onClick={onNext} title="Next" aria-label="Next slide">⏭</button>
           <div className="toolbar-separator"></div>
-          <button className="toolbar-btn" onClick={onFullscreenToggle} title="Fullscreen">⛶</button>
+          <button 
+            className="toolbar-btn" 
+            onClick={onFullscreenToggle} 
+            title={isFullscreen ? "Exit fullscreen" : "Toggle fullscreen"}
+            aria-label={isFullscreen ? "Exit fullscreen" : "Toggle fullscreen"}
+          >
+            ⛶
+          </button>
           <div className="toolbar-separator"></div>
-          <button className="toolbar-btn" onClick={onOpenPlaylist} title="Playlist">☰</button>
+          <button className="toolbar-btn" onClick={onOpenPlaylist} title="Playlist editor" aria-label="Playlist editor">☰</button>
           <div className="toolbar-separator"></div>
-          <button className="toolbar-btn" onClick={() => setIsMinimized(false)} title="Expand toolbar">▴</button>
+          <button className="toolbar-btn" onClick={() => setIsMinimized(false)} title="Expand toolbar" aria-label="Expand toolbar">▴</button>
         </div>
       )}
       

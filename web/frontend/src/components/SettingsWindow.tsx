@@ -7,11 +7,13 @@ import { useToast } from '../hooks/useToast';
 interface SettingsWindowProps {
   onClose: () => void;
   onSave?: () => void; // Optional callback when settings are saved
+  onOpenDiagnostics?: () => void; // Optional callback to open diagnostics panel
 }
 
 const SettingsWindow: React.FC<SettingsWindowProps> = ({
   onClose,
-  onSave
+  onSave,
+  onOpenDiagnostics
 }) => {
   const [settings, setSettings] = useState<AppSettings>(getDefaultSettings());
   const [hasChanges, setHasChanges] = useState(false);
@@ -57,7 +59,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
       <div className="settings-window" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
           <h2>Settings</h2>
-          <button className="close-btn" onClick={handleCancel} title="Close">×</button>
+          <button className="close-btn" onClick={handleCancel} title="Close" aria-label="Close settings">×</button>
         </div>
         
         <div className="settings-content">
@@ -136,6 +138,26 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                 Save last loaded folders
               </label>
             </div>
+          </section>
+
+          <section className="settings-section">
+            <h3>Diagnostics</h3>
+            <p className="settings-description">
+              View application event logs for troubleshooting. Use Ctrl+Alt+D to open diagnostics panel.
+            </p>
+            {onOpenDiagnostics && (
+              <div className="settings-manifest-actions">
+                <button
+                  className="settings-btn-secondary"
+                  onClick={() => {
+                    onOpenDiagnostics();
+                    onClose();
+                  }}
+                >
+                  Open Diagnostics Panel
+                </button>
+              </div>
+            )}
           </section>
 
           <section className="settings-section">

@@ -443,6 +443,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                     className="playlist-search-clear"
                     onClick={() => setSearchQuery('')}
                     title="Clear search"
+                    aria-label="Clear search"
                   >
                     ×
                   </button>
@@ -484,7 +485,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                 <span className="add-folder-icon">+</span>
                 <span className="add-folder-label">Add Folder</span>
               </button>
-              <button className="close-btn" onClick={onClose} title="Close (Esc)">×</button>
+              <button className="close-btn" onClick={onClose} title="Close (Esc)" aria-label="Close playlist">×</button>
             </div>
           </div>
           
@@ -501,6 +502,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                   className="playlist-btn-icon"
                   onClick={onAddFolder}
                   title="Add folder"
+                  aria-label="Add folder"
                 >
                   +
                 </button>
@@ -533,10 +535,25 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
               {filteredPlaylist.length === 0 ? (
                 <div className="playlist-empty">
                   {searchQuery 
-                    ? 'No items match your search' 
+                    ? (
+                      <>
+                        <p>No items match your search</p>
+                        <p className="playlist-empty-hint">Try a different search term or clear the search</p>
+                      </>
+                    )
                     : selectedRootFolder 
-                      ? 'No files in this folder' 
-                      : 'Select a folder to view files'}
+                      ? (
+                        <>
+                          <p>No files in this folder</p>
+                          <p className="playlist-empty-hint">This folder is empty or contains no media files</p>
+                        </>
+                      )
+                      : (
+                        <>
+                          <p>No folders added</p>
+                          <p className="playlist-empty-hint">Select a folder from the sidebar or add a new folder to view files</p>
+                        </>
+                      )}
                 </div>
               ) : viewMode === 'list' ? (
                 <ul className="playlist-list">
@@ -566,6 +583,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                                 onClose();
                               }}
                               title="Play slideshow from here"
+                              aria-label={`Play slideshow from ${item.fileName}`}
                             >
                               ▶
                             </button>
@@ -577,6 +595,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                               handleRemoveFile(item.filePath, item.fileName);
                             }}
                             title="Remove from playlist"
+                            aria-label={`Remove ${item.fileName} from playlist`}
                           >
                             ×
                           </button>
@@ -655,6 +674,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                                 onClose();
                               }}
                               title="Play slideshow from here"
+                              aria-label={`Play slideshow from ${item.fileName}`}
                             >
                               ▶
                             </button>
@@ -666,6 +686,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                               handleRemoveFile(item.filePath, item.fileName);
                             }}
                             title="Remove from playlist"
+                            aria-label={`Remove ${item.fileName} from playlist`}
                           >
                             ×
                           </button>

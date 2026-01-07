@@ -121,7 +121,7 @@ const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ isOpen, o
       <div className="shortcuts-help-modal" onClick={(e) => e.stopPropagation()}>
         <div className="shortcuts-help-header">
           <h2>Keyboard Shortcuts</h2>
-          <button className="shortcuts-help-close" onClick={onClose} title="Close (Esc)">
+          <button className="shortcuts-help-close" onClick={onClose} title="Close (Esc)" aria-label="Close keyboard shortcuts help">
             ×
           </button>
         </div>

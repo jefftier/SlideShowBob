@@ -8,6 +8,7 @@ import ProgressIndicator from './components/ProgressIndicator';
 import ManifestModeDialog from './components/ManifestModeDialog';
 import ManifestSelectionDialog from './components/ManifestSelectionDialog';
 import UpdatePrompt from './components/UpdatePrompt';
+import DiagnosticsPanel from './components/DiagnosticsPanel';
 import { useSlideshow } from './hooks/useSlideshow';
 import { useMediaLoader } from './hooks/useMediaLoader';
 import { useToast } from './hooks/useToast';
@@ -46,6 +47,7 @@ function App() {
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState<{current: number, total: number} | null>(null);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [isManifestMode, setIsManifestMode] = useState(false);
   const [manifestData, setManifestData] = useState<SlideshowManifest | null>(null);
   const [showManifestDialog, setShowManifestDialog] = useState(false);
@@ -1030,12 +1032,19 @@ function App() {
             setShowSettings(true);
           }
           break;
+        case 'd':
+        case 'D':
+          if (e.ctrlKey && e.altKey && !isKioskMode) {
+            e.preventDefault();
+            setShowDiagnostics(prev => !prev);
+          }
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFullscreen, isKioskMode, showPlaylist, showSettings, handlePlayPause, handleNext, handlePrevious, handleToggleFullscreen, handleZoomReset]);
+  }, [isFullscreen, isKioskMode, showPlaylist, showSettings, handlePlayPause, handleNext, handlePrevious, handleToggleFullscreen, handleZoomReset, showDiagnostics]);
 
   // Manifest mode: Cursor hiding in fullscreen
   useEffect(() => {
@@ -1253,6 +1262,7 @@ function App() {
       {playlist.length === 0 && !isLoadingFolders && !isKioskMode && (
         <div className="empty-state">
           <p>No media loaded</p>
+          <p className="empty-state-hint">Add a folder to begin your slideshow</p>
           <button onClick={handleAddFolder} className="btn-primary">
             Add Folder
           </button>
@@ -1455,6 +1465,7 @@ function App() {
       {!isKioskMode && showSettings && (
         <SettingsWindow
           onClose={() => setShowSettings(false)}
+          onOpenDiagnostics={() => setShowDiagnostics(true)}
           onSave={async () => {
             showSuccess('Settings saved successfully');
             // Check if saveFolders was disabled and clear saved folders from IndexedDB if so
@@ -1476,6 +1487,13 @@ function App() {
         <KeyboardShortcutsHelp 
           isOpen={showShortcutsHelp} 
           onClose={() => setShowShortcutsHelp(false)} 
+        />
+      )}
+
+      {!isKioskMode && (
+        <DiagnosticsPanel
+          isOpen={showDiagnostics}
+          onClose={() => setShowDiagnostics(false)}
         />
       )}
 

@@ -429,6 +429,17 @@
   align-self: flex-start;
 }
 
+.playlist-empty p {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.playlist-empty-hint {
+  font-size: 12px;
+  color: #666;
+  margin: 0;
+}
+
 .playlist-list {
   list-style: none;
   padding: 0;

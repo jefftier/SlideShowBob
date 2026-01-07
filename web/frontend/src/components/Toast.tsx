@@ -44,7 +44,7 @@ const ToastComponent: React.FC<ToastProps> = ({ toast, onClose }) => {
     <div className={`toast toast-${toast.type}`} onClick={() => onClose(toast.id)}>
       <span className="toast-icon">{getIcon()}</span>
       <span className="toast-message">{toast.message}</span>
-      <button className="toast-close" onClick={() => onClose(toast.id)} title="Close">
+      <button className="toast-close" onClick={() => onClose(toast.id)} title="Close" aria-label="Close notification">
         ×
       </button>
     </div>
