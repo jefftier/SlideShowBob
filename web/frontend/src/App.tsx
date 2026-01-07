@@ -72,6 +72,8 @@ function App() {
   const errorPolicy = usePlaybackErrorPolicy({ maxAttempts: 3, baseDelayMs: 1000 });
   const [currentMediaReloadKey, setCurrentMediaReloadKey] = useState(0);
   const retryTimerRef = useRef<number | null>(null);
+  // Track if retry is pending for current media (gates slideshow advancement)
+  const isRetryingCurrentMediaRef = useRef(false);
   
   // Expose error log to console for debugging (dev-only)
   useEffect(() => {
@@ -123,12 +125,18 @@ function App() {
     return slideDelayMs;
   }, [isManifestMode, currentMedia, manifestData, slideDelayMs]);
 
+  // Gate slideshow advancement when retry is pending for current media
+  const shouldGateAdvancement = useCallback(() => {
+    return isRetryingCurrentMediaRef.current;
+  }, []);
+
   const { navigateNext, navigatePrevious, startSlideshow, stopSlideshow, onVideoEnded } = useSlideshow({
     playlist: filteredPlaylist,
     currentIndex: filteredCurrentIndex,
     slideDelayMs: effectiveDelay,
     isPlaying,
-    onNavigate: handleNavigate
+    onNavigate: handleNavigate,
+    shouldGateAdvancement
   });
 
   const { loadMediaFromFolders, loadMediaFromDirectory } = useMediaLoader();
@@ -153,6 +161,9 @@ function App() {
       clearTimeout(retryTimerRef.current);
       retryTimerRef.current = null;
     }
+    
+    // Reset retry gating flag when media changes
+    isRetryingCurrentMediaRef.current = false;
     
     // Reset reload key when media changes (new item loaded)
     setCurrentMediaReloadKey(0);
@@ -950,17 +961,10 @@ function App() {
   }, [isManifestMode, isFullscreen]);
 
   // In manifest mode, restart slideshow when current item changes (for per-item delays)
-  useEffect(() => {
-    if (isManifestMode && isPlaying && currentMedia) {
-      // Restart slideshow to use the new delay for the current item
-      stopSlideshow();
-      setTimeout(() => {
-        if (isPlaying) {
-          startSlideshow();
-        }
-      }, 50);
-    }
-  }, [isManifestMode, isPlaying, currentMedia, effectiveDelay, startSlideshow, stopSlideshow]);
+  // NOTE: effectiveDelay change is handled by useSlideshow's delay effect, so we only
+  // need to handle currentMedia changes here. The delay effect will automatically restart
+  // the timer with the new delay, so we don't need a separate setTimeout here.
+  // This prevents timer stacking that could occur with the previous setTimeout approach.
 
   // Show loading state
   if (isLoading) {
@@ -1016,6 +1020,9 @@ function App() {
           }
           
           if (shouldRetry) {
+            // Set retry gating flag to prevent slideshow advancement during retry
+            isRetryingCurrentMediaRef.current = true;
+            
             // Show retry message
             const delaySeconds = Math.ceil(nextDelayMs / 1000);
             showWarning(
@@ -1026,10 +1033,15 @@ function App() {
             // Schedule retry
             retryTimerRef.current = setTimeout(() => {
               retryTimerRef.current = null;
+              // Clear retry gating flag before retry
+              isRetryingCurrentMediaRef.current = false;
               // Force remount by incrementing reload key
               setCurrentMediaReloadKey(prev => prev + 1);
             }, nextDelayMs);
           } else {
+            // Max retries reached - clear retry gating flag
+            isRetryingCurrentMediaRef.current = false;
+            
             // Max retries reached - skip to next
             const errorRecord = errorPolicy.getErrorRecord(mediaId);
             showError(
@@ -1046,11 +1058,18 @@ function App() {
               timestamp: new Date().toISOString(),
             });
             
-            // Advance to next item
-            setTimeout(() => handleNext(), 1000);
+            // Advance to next item using the deterministic navigateNext function
+            // Use a small delay to ensure error state is displayed, but use the
+            // slideshow's navigateNext which properly clears timers
+            setTimeout(() => {
+              navigateNext();
+            }, 1000);
           }
         }}
         onMediaLoadSuccess={() => {
+          // Clear retry gating flag on successful load
+          isRetryingCurrentMediaRef.current = false;
+          
           // Reset error policy on successful load
           if (currentMedia) {
             errorPolicy.resetOnSuccess(currentMedia.filePath);
