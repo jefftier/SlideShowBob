@@ -1,5 +1,11 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { MediaItem } from '../types/media';
+import { MediaItem, MediaType } from '../types/media';
+import { 
+  shouldAdvance, 
+  shouldRunTimer, 
+  getTimerCheckInterval,
+  type PlaybackState
+} from '../utils/playbackController';
 
 interface UseSlideshowOptions {
   playlist: MediaItem[];
@@ -12,6 +18,14 @@ interface UseSlideshowOptions {
    * Return true to prevent advancement, false to allow it.
    */
   shouldGateAdvancement?: () => boolean;
+  /**
+   * Current media load state - tracks when media has finished loading.
+   * This is critical for enforcing minimum display time for images.
+   */
+  mediaLoadState?: {
+    isLoaded: boolean;
+    loadTimestamp?: number;
+  };
 }
 
 /**
@@ -25,12 +39,14 @@ export function useSlideshow({
   slideDelayMs,
   isPlaying,
   onNavigate,
-  shouldGateAdvancement
+  shouldGateAdvancement,
+  mediaLoadState,
 }: UseSlideshowOptions) {
   // Single timer reference - only ONE timer should exist at any time
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoEndedRef = useRef(false);
-  const currentMediaTypeRef = useRef<string | null>(null);
+  const currentMediaTypeRef = useRef<MediaType | null>(null);
+  const gifCompletedRef = useRef(false);
   
   // Re-entrancy guard: prevents double-firing of advance operations
   const isAdvancingRef = useRef(false);
@@ -53,30 +69,49 @@ export function useSlideshow({
    * Guards against re-entrancy and gating conditions.
    */
   const advance = useCallback(() => {
+    const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+    
     // Re-entrancy guard: prevent concurrent execution
     if (isAdvancingRef.current) {
-      const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
       if (isDev) {
-        console.warn('[useSlideshow] Advance called while already advancing - ignoring');
+        console.warn('[useSlideshow] Advance called while already advancing - ignoring', {
+          currentIndex,
+          playlistLength: playlist.length
+        });
       }
       return;
     }
     
     // Gate check: prevent advancement during retry or other blocking conditions
     if (shouldGateAdvancement && shouldGateAdvancement()) {
-      const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
       if (isDev) {
-        console.log('[useSlideshow] Advancement gated by shouldGateAdvancement');
+        console.log('[useSlideshow] Advancement gated by shouldGateAdvancement', {
+          currentIndex,
+          playlistLength: playlist.length
+        });
       }
       return;
     }
     
     // Guard: ensure we have a valid playlist
-    if (playlist.length === 0) return;
+    if (playlist.length === 0) {
+      if (isDev) {
+        console.warn('[useSlideshow] Cannot advance - playlist is empty');
+      }
+      return;
+    }
     
     isAdvancingRef.current = true;
     try {
       const nextIndex = (currentIndex + 1) % playlist.length;
+      if (isDev) {
+        console.log('[useSlideshow] Advancing slideshow', {
+          fromIndex: currentIndex,
+          toIndex: nextIndex,
+          fromMedia: playlist[currentIndex]?.fileName,
+          toMedia: playlist[nextIndex]?.fileName
+        });
+      }
       onNavigate(nextIndex);
     } finally {
       // Reset guard after a brief delay to allow state updates to complete
@@ -134,6 +169,7 @@ export function useSlideshow({
   /**
    * Start slideshow with a single timer
    * ALWAYS clears existing timer before creating a new one
+   * Only runs timer for images - videos and GIFs advance on ended/completion event only
    */
   const startSlideshow = useCallback(() => {
     // CRITICAL: Always clear existing timer first to prevent stacking
@@ -141,24 +177,71 @@ export function useSlideshow({
     
     if (playlist.length === 0 || slideDelayMs <= 0) return;
     
+    const currentMedia = playlist[currentIndex];
+    if (!currentMedia) return;
+    
+    // Don't run timer for videos or GIFs - they advance on ended/completion event only
+    if (!shouldRunTimer(currentMedia.type)) {
+      const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+      if (isDev) {
+        const mediaTypeName = currentMedia.type === MediaType.Video ? 'video' : 'GIF';
+        console.log(`[useSlideshow] Timer not needed for ${mediaTypeName} - will advance on ${currentMedia.type === MediaType.Video ? 'ended' : 'completion'} event`);
+      }
+      return;
+    }
+    
+    // For images, use playback controller to determine when to advance
+    // NOTE: GIFs should NEVER reach here - they don't use timers (shouldRunTimer returns false)
     const tick = () => {
-      // For images, advance based on delay
-      // Videos are handled by onVideoEnded callback and advance immediately when they finish
-      // GIFs are treated as images and use the delay
-      if (currentMediaTypeRef.current !== 'Video') {
+      const now = Date.now();
+      const playbackState: PlaybackState = {
+        mediaType: currentMedia.type,
+        delayMs: slideDelayMs,
+        isLoaded: mediaLoadState?.isLoaded ?? false,
+        loadTimestamp: mediaLoadState?.loadTimestamp,
+        isRetrying: shouldGateAdvancement?.() ?? false
+      };
+      
+      // GIFs should never reach here (timer doesn't run for GIFs)
+      // But if they do somehow, don't advance (wait for onGifCompleted)
+      if (currentMedia.type === MediaType.Gif) {
+        const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+        if (isDev) {
+          console.warn('[useSlideshow] Timer tick called for GIF - this should not happen');
+        }
+        return;
+      }
+      
+      const decision = shouldAdvance(playbackState, now);
+      
+      if (decision.shouldAdvance) {
+        const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+        if (isDev) {
+          console.log('[useSlideshow] Advance decision:', decision.reason);
+        }
         advance();
       }
-      // If it's a video, don't advance here - wait for onVideoEnded to fire
     };
 
-    timerRef.current = setInterval(tick, slideDelayMs);
+    // Use frequent checks (100ms) to catch exact moment when delay is met
+    // NOTE: This should ONLY run for images - GIFs and videos should never reach here
+    if (currentMedia.type === MediaType.Gif || currentMedia.type === MediaType.Video) {
+      const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+      if (isDev) {
+        console.error(`[useSlideshow] BUG: Attempted to start timer for ${currentMedia.type} - this should not happen!`);
+      }
+      return; // Safety: Don't start timer for GIFs/videos
+    }
+    
+    const checkInterval = getTimerCheckInterval(currentMedia.type);
+    timerRef.current = setInterval(tick, checkInterval);
     activeTimerCountRef.current = 1;
     
     const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
     if (isDev) {
-      console.log('[useSlideshow] Timer started. Active timers:', activeTimerCountRef.current);
+      console.log('[useSlideshow] Timer started for image. Active timers:', activeTimerCountRef.current, 'Check interval:', checkInterval);
     }
-  }, [playlist, slideDelayMs, advance, clearTimer]);
+  }, [playlist, currentIndex, slideDelayMs, advance, clearTimer, mediaLoadState, shouldGateAdvancement]);
 
   /**
    * Stop slideshow - clears the timer
@@ -168,10 +251,19 @@ export function useSlideshow({
   }, [clearTimer]);
 
   // Effect: Manage timer based on isPlaying state
-  // Clears timer on pause, delay change, playlist change, or unmount
+  // Clears timer on pause, starts timer on play (only for images)
+  // NOTE: Only starts timer for images - GIFs and videos don't use timers
+  // Other effects handle timer restarts for delay/playlist/media changes
   useEffect(() => {
     if (isPlaying) {
-      startSlideshow();
+      const currentMedia = playlist[currentIndex];
+      // Only start timer for images (GIFs and videos don't use timers)
+      if (currentMedia && shouldRunTimer(currentMedia.type)) {
+        startSlideshow();
+      } else {
+        // For GIFs/videos, just ensure timer is cleared
+        stopSlideshow();
+      }
     } else {
       stopSlideshow();
     }
@@ -179,42 +271,72 @@ export function useSlideshow({
     return () => {
       stopSlideshow();
     };
-  }, [isPlaying, startSlideshow, stopSlideshow]);
+    // Only depend on isPlaying - other changes are handled by specific effects
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying]);
 
   // Effect: Restart timer when delay changes (if playing)
   // This ensures the timer uses the new delay immediately
+  // NOTE: Only for images - GIFs and videos don't use timers
   useEffect(() => {
     if (isPlaying && playlist.length > 0 && slideDelayMs > 0) {
-      // Clear existing timer and restart with new delay
-      clearTimer();
-      startSlideshow();
+      const currentMedia = playlist[currentIndex];
+      // Only restart timer for images (GIFs and videos don't use timers)
+      if (currentMedia && shouldRunTimer(currentMedia.type)) {
+        clearTimer();
+        startSlideshow();
+      } else {
+        // For GIFs/videos, just clear any existing timer
+        clearTimer();
+      }
     }
     return () => {
       // Cleanup on delay change
       clearTimer();
     };
-  }, [slideDelayMs, isPlaying, playlist.length, startSlideshow, clearTimer]);
+  }, [slideDelayMs, isPlaying, playlist, currentIndex, startSlideshow, clearTimer]);
 
   // Effect: Clear timer when playlist changes (if playing)
   // Prevents timer from advancing with stale playlist reference
+  // NOTE: Only for images - GIFs and videos don't use timers
   useEffect(() => {
     if (isPlaying) {
-      // Restart timer with new playlist
-      clearTimer();
-      startSlideshow();
+      const currentMedia = playlist[currentIndex];
+      // Only restart timer for images (GIFs and videos don't use timers)
+      if (currentMedia && shouldRunTimer(currentMedia.type)) {
+        clearTimer();
+        startSlideshow();
+      } else {
+        // For GIFs/videos, just clear any existing timer
+        clearTimer();
+      }
     }
     return () => {
       clearTimer();
     };
-  }, [playlist.length, isPlaying, startSlideshow, clearTimer]);
+  }, [playlist.length, isPlaying, playlist, currentIndex, startSlideshow, clearTimer]);
 
   // Effect: Update media type ref when current media changes
   useEffect(() => {
     if (playlist && currentIndex >= 0 && currentIndex < playlist.length && playlist[currentIndex]) {
-      currentMediaTypeRef.current = playlist[currentIndex].type;
+      const newMediaType = playlist[currentIndex].type;
+      currentMediaTypeRef.current = newMediaType;
       videoEndedRef.current = false;
+      gifCompletedRef.current = false;
+      
+      // Clear timer when media changes (always)
+      clearTimer();
+      
+      // Only restart timer for images (GIFs and videos don't use timers)
+      if (isPlaying && shouldRunTimer(newMediaType)) {
+        // Small delay to ensure mediaLoadState is updated
+        const timeoutId = setTimeout(() => {
+          startSlideshow();
+        }, 50);
+        return () => clearTimeout(timeoutId);
+      }
     }
-  }, [playlist, currentIndex]);
+  }, [playlist, currentIndex, isPlaying, clearTimer, startSlideshow]);
 
   // Effect: Clear timer when current index changes significantly (e.g., manual navigation)
   // This prevents timer from continuing with stale index
@@ -237,20 +359,65 @@ export function useSlideshow({
     videoEndedRef.current = true;
     // Immediately advance to next item when video ends
     // Don't wait for timer - videos should play to completion and then advance
+    // No delay needed - ended event is reliable
     if (isPlaying) {
-      // Small delay to ensure video has fully ended
-      setTimeout(() => {
-        advance();
-      }, 100);
+      advance();
     }
   }, [isPlaying, advance]);
+  
+  /**
+   * Callback to notify when GIF animation completes.
+   * GIFs behave like videos - they advance immediately on completion, ignoring delay.
+   */
+  const onGifCompleted = useCallback(() => {
+    const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+    if (isDev) {
+      console.log('[useSlideshow] onGifCompleted called', { 
+        isPlaying, 
+        currentIndex,
+        playlistLength: playlist.length,
+        currentMedia: playlist[currentIndex]?.fileName
+      });
+    }
+    gifCompletedRef.current = true;
+    // GIFs behave like videos - advance immediately on completion
+    if (isPlaying) {
+      if (isDev) {
+        console.log('[useSlideshow] Calling advance() for GIF completion');
+      }
+      advance();
+    } else {
+      if (isDev) {
+        console.log('[useSlideshow] Not advancing - slideshow not playing');
+      }
+    }
+  }, [isPlaying, advance, currentIndex, playlist]);
+
+  // Effect: Restart timer when media load state changes (for images only)
+  // GIFs don't use timers - they advance via onGifCompleted callback
+  // This ensures timer starts counting from when media actually loads
+  useEffect(() => {
+    if (isPlaying && mediaLoadState?.isLoaded) {
+      const currentMedia = playlist[currentIndex];
+      if (currentMedia && shouldRunTimer(currentMedia.type)) {
+        // Restart timer now that media is loaded
+        clearTimer();
+        // Small delay to ensure state is stable
+        const timeoutId = setTimeout(() => {
+          startSlideshow();
+        }, 50);
+        return () => clearTimeout(timeoutId);
+      }
+    }
+  }, [mediaLoadState?.isLoaded, mediaLoadState?.loadTimestamp, isPlaying, playlist, currentIndex, clearTimer, startSlideshow]);
 
   return {
     navigateNext,
     navigatePrevious,
     startSlideshow,
     stopSlideshow,
-    onVideoEnded
+    onVideoEnded,
+    onGifCompleted
   };
 }
 

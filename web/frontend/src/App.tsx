@@ -119,6 +119,12 @@ function App() {
   // Track if retry is pending for current media (gates slideshow advancement)
   const isRetryingCurrentMediaRef = useRef(false);
   
+  // Track media load state for playback timing (critical for minimum display time)
+  const [mediaLoadState, setMediaLoadState] = useState<{
+    isLoaded: boolean;
+    loadTimestamp?: number;
+  }>({ isLoaded: false });
+  
   // Expose error log to console for debugging (dev-only)
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -174,13 +180,14 @@ function App() {
     return isRetryingCurrentMediaRef.current;
   }, []);
 
-  const { navigateNext, navigatePrevious, startSlideshow, stopSlideshow, onVideoEnded } = useSlideshow({
+  const { navigateNext, navigatePrevious, startSlideshow, stopSlideshow, onVideoEnded, onGifCompleted } = useSlideshow({
     playlist: filteredPlaylist,
     currentIndex: filteredCurrentIndex,
     slideDelayMs: effectiveDelay,
     isPlaying,
     onNavigate: handleNavigate,
-    shouldGateAdvancement
+    shouldGateAdvancement,
+    mediaLoadState
   });
 
   const { loadMediaFromDirectory } = useMediaLoader();
@@ -211,6 +218,9 @@ function App() {
     
     // Reset reload key when media changes (new item loaded)
     setCurrentMediaReloadKey(0);
+    
+    // Reset media load state when media changes
+    setMediaLoadState({ isLoaded: false });
     
     // Reset error policy for the new media item on successful change
     if (currentMedia) {
@@ -1260,11 +1270,18 @@ function App() {
           // Clear retry gating flag on successful load
           isRetryingCurrentMediaRef.current = false;
           
+          // Record load timestamp for minimum display time enforcement
+          setMediaLoadState({
+            isLoaded: true,
+            loadTimestamp: Date.now()
+          });
+          
           // Reset error policy on successful load
           if (currentMedia) {
             errorPolicy.resetOnSuccess(currentMedia.filePath);
           }
         }}
+        onGifCompleted={onGifCompleted}
       />
       
       {isLoadingFolders && (
