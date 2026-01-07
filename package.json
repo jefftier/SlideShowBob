@@ -1,0 +1,21 @@
+{
+  "name": "slideshowbob",
+  "version": "1.0.0",
+  "description": "SlideShowBob - Desktop and Web slideshow application",
+  "private": true,
+  "scripts": {
+    "dev": "cd web/frontend && npm run dev",
+    "dev:frontend": "cd web/frontend && npm run dev",
+    "dev:backend": "cd web/backend && npm run dev",
+    "build": "cd web/frontend && npm run build",
+    "build:frontend": "cd web/frontend && npm run build",
+    "preview": "cd web/frontend && npm run preview",
+    "test": "cd web/frontend && npm run test",
+    "install:all": "npm install && cd web/frontend && npm install && cd ../backend && npm install"
+  },
+  "workspaces": [
+    "web/frontend",
+    "web/backend"
+  ]
+}
+
