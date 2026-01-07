@@ -77,6 +77,40 @@ The built files will be in the `dist` directory, including:
 - Ensure HTTPS is enabled (required for File System Access API and Service Workers)
 - Configure security headers (see `SECURITY.md` for details)
 
+## Continuous Integration
+
+This project uses GitHub Actions for CI/CD. The CI pipeline runs automatically on pull requests and pushes to `main`/`master` branches.
+
+### CI Pipeline
+
+The CI workflow:
+- Runs on **Node.js 20** (LTS)
+- Installs dependencies with `npm ci`
+- Builds the project with `npm run build`
+- Runs tests with `npm run test:run`
+- Blocks merges if any step fails
+
+### Running CI Checks Locally
+
+To verify your changes before pushing, run the same commands locally:
+
+```bash
+cd web/frontend
+npm ci
+npm run build
+npm run test:run
+```
+
+This ensures your code will pass CI checks before creating a pull request.
+
+### Dependency Updates
+
+Dependabot is configured to:
+- Check for npm dependency updates **weekly**
+- Create PRs for minor and patch updates
+- Group updates by dependency type (production vs development)
+- Limit to **5 open PRs** at a time
+
 ## Usage
 
 1. **Add Folders**: Click the "Add Folder" button (or folder icon in toolbar) to select a directory containing your media files

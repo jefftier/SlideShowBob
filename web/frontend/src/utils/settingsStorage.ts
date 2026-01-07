@@ -1,5 +1,11 @@
 // Settings persistence using localStorage
 
+// Optional callbacks for error reporting (to avoid tight coupling with React hooks)
+export interface StorageErrorCallbacks {
+  showError?: (message: string) => void;
+  showWarning?: (message: string) => void;
+}
+
 export interface AppSettings {
   slideDelayMs: number;
   includeVideos: boolean;
@@ -35,23 +41,47 @@ const defaultSettings: AppSettings = {
   saveFolders: true,
 };
 
-export const loadSettings = (): AppSettings => {
+// Track if we've already shown a warning to avoid spam
+let hasShownLoadWarning = false;
+
+export const loadSettings = (callbacks?: StorageErrorCallbacks): AppSettings => {
   try {
     const stored = localStorage.getItem(SETTINGS_KEY);
     if (stored) {
-      const parsed = JSON.parse(stored);
-      // Merge with defaults to handle missing properties
-      return { ...defaultSettings, ...parsed };
+      try {
+        const parsed = JSON.parse(stored);
+        // Merge with defaults to handle missing properties
+        return { ...defaultSettings, ...parsed };
+      } catch (parseError) {
+        // Corrupt JSON - show warning once and fall back to defaults
+        console.warn('Error parsing settings JSON:', parseError);
+        if (!hasShownLoadWarning && callbacks?.showWarning) {
+          hasShownLoadWarning = true;
+          callbacks.showWarning('Saved settings could not be loaded. Defaults were restored.');
+        }
+        // Clear the corrupted data
+        try {
+          localStorage.removeItem(SETTINGS_KEY);
+        } catch {
+          // Ignore errors when removing corrupted data
+        }
+        return { ...defaultSettings };
+      }
     }
   } catch (error) {
-    console.error('Error loading settings:', error);
+    // Catch any localStorage.getItem errors (e.g., storage disabled, quota exceeded)
+    console.warn('Error loading settings:', error);
+    if (!hasShownLoadWarning && callbacks?.showWarning) {
+      hasShownLoadWarning = true;
+      callbacks.showWarning('Saved settings could not be loaded. Defaults were restored.');
+    }
   }
   return { ...defaultSettings };
 };
 
-export const saveSettings = (settings: Partial<AppSettings>): void => {
+export const saveSettings = (settings: Partial<AppSettings>, callbacks?: StorageErrorCallbacks): void => {
   try {
-    // Load existing settings first
+    // Load existing settings first (without callbacks to avoid duplicate warnings)
     const existing = loadSettings();
     
     // Merge with new settings, respecting save flags
@@ -85,9 +115,26 @@ export const saveSettings = (settings: Partial<AppSettings>): void => {
     if (settings.saveZoomFactor !== undefined) merged.saveZoomFactor = settings.saveZoomFactor;
     if (settings.saveFolders !== undefined) merged.saveFolders = settings.saveFolders;
     
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged));
+    // Wrap localStorage.setItem in try/catch to catch all write failures
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged));
+    } catch (writeError) {
+      // Catch localStorage.setItem errors (quota, storage disabled, etc.)
+      console.warn('Error saving settings to localStorage:', writeError);
+      if (callbacks?.showError) {
+        callbacks.showError('Unable to save settings. Changes may not persist.');
+      }
+      // Continue running with in-memory state (do NOT crash)
+      return;
+    }
   } catch (error) {
-    console.error('Error saving settings:', error);
+    // Catch any other errors (e.g., from loadSettings or JSON.stringify)
+    console.warn('Error saving settings:', error);
+    if (callbacks?.showError) {
+      callbacks.showError('Unable to save settings. Changes may not persist.');
+    }
+    // Continue running with in-memory state (do NOT crash)
+    // The settings are already applied to the in-memory state, they just won't persist
   }
 };
 
