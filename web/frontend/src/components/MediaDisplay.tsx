@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MediaItem, MediaType } from '../types/media';
 import { logger } from '../utils/logger';
 import { addEvent } from '../utils/eventLog';
+import { TransitionEffect } from '../utils/settingsStorage';
 import './MediaDisplay.css';
 
 interface MediaDisplayProps {
@@ -9,6 +10,7 @@ interface MediaDisplayProps {
   zoomFactor: number;
   isFitToWindow: boolean;
   isMuted: boolean;
+  transitionEffect: TransitionEffect;
   onVideoEnded: () => void;
   onImageClick?: () => void;
   onEffectiveZoomChange?: (zoom: number) => void;
@@ -21,6 +23,7 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   zoomFactor,
   isFitToWindow,
   isMuted,
+  transitionEffect,
   onVideoEnded,
   onImageClick,
   onEffectiveZoomChange,
@@ -34,6 +37,7 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [transitionKey, setTransitionKey] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -53,6 +57,8 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
       return;
     }
 
+    // Trigger transition by updating key
+    setTransitionKey(prev => prev + 1);
     setIsLoading(true);
     loadSuccessNotifiedRef.current = false; // Reset success notification flag
 
@@ -671,15 +677,17 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
       )}
       
       <div 
-        className="media-container" 
+        className="media-container"
         style={containerStyle}
         onMouseDown={handleMouseDown}
         onTouchStart={handleTouchStart}
       >
         {currentMedia.type === MediaType.Video && videoSrc ? (
           <video
+            key={`${transitionKey}-video`}
             ref={videoRef}
             src={videoSrc}
+            className={`transition-${transitionEffect.toLowerCase()}`}
             style={mediaStyle}
             controls={false}
             autoPlay
@@ -716,9 +724,11 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
           />
         ) : imageSrc ? (
           <img
+            key={`${transitionKey}-image`}
             ref={imageRef}
             src={imageSrc}
             alt={currentMedia.fileName}
+            className={`transition-${transitionEffect.toLowerCase()}`}
             style={mediaStyle}
             onLoad={() => {
               setIsLoading(false);

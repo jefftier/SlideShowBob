@@ -94,3 +94,95 @@
   }
 }
 
+/* Transition Effects */
+.media-container img,
+.media-container video {
+  will-change: opacity, transform, clip-path;
+}
+
+/* Fade Transition */
+.media-container img.transition-fade,
+.media-container video.transition-fade {
+  animation: fadeIn 0.6s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Push Transition */
+.media-container img.transition-push,
+.media-container video.transition-push {
+  animation: pushIn 0.6s ease-in-out;
+}
+
+@keyframes pushIn {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Wipe Transition */
+.media-container img.transition-wipe,
+.media-container video.transition-wipe {
+  animation: wipeIn 0.6s ease-in-out;
+}
+
+@keyframes wipeIn {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* Morph Transition */
+.media-container img.transition-morph,
+.media-container video.transition-morph {
+  animation: morphIn 0.8s ease-in-out;
+}
+
+@keyframes morphIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.8) rotate(-5deg);
+  }
+  50% {
+    transform: scale(1.05) rotate(2deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+/* Zoom Transition */
+.media-container img.transition-zoom,
+.media-container video.transition-zoom {
+  animation: zoomIn 0.6s ease-in-out;
+}
+
+@keyframes zoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+

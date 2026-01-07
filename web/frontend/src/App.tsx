@@ -41,6 +41,7 @@ function App() {
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [sortMode, setSortMode] = useState<'NameAZ' | 'NameZA' | 'DateOldest' | 'DateNewest' | 'Random'>('NameAZ');
+  const [transitionEffect, setTransitionEffect] = useState<'Fade' | 'Push' | 'Wipe' | 'Morph' | 'Zoom'>('Fade');
   const [playlist, setPlaylist] = useState<MediaItem[]>([]);
   const [statusText, setStatusText] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
@@ -271,6 +272,9 @@ function App() {
         if (savedSettings.saveZoomFactor) {
           setZoomFactor(savedSettings.zoomFactor);
         }
+        if (savedSettings.saveTransitionEffect) {
+          setTransitionEffect(savedSettings.transitionEffect);
+        }
 
         // Load directory handles from IndexedDB (only if saveFolders is enabled)
         const handles = await loadFolders(savedSettings.saveFolders);
@@ -448,7 +452,7 @@ function App() {
     try {
       // Use File System Access API
       if ('showDirectoryPicker' in window) {
-        const dirHandle = await (window as any).showDirectoryPicker();
+        const dirHandle = await (window as any).showDirectoryPicker({ mode: 'read' });
         const folderName = dirHandle.name;
         
         // Check if folder already exists
@@ -1139,6 +1143,7 @@ function App() {
         zoomFactor={zoomFactor}
         isFitToWindow={isFitToWindow}
         isMuted={isMuted}
+        transitionEffect={transitionEffect}
         onVideoEnded={onVideoEnded}
         onImageClick={handleNext}
         onEffectiveZoomChange={setEffectiveZoom}
@@ -1464,8 +1469,12 @@ function App() {
           onOpenDiagnostics={() => setShowDiagnostics(true)}
           onSave={async () => {
             showSuccess('Settings saved successfully');
-            // Check if saveFolders was disabled and clear saved folders from IndexedDB if so
+            // Reload settings to apply changes immediately
             const currentSettings = loadSettings({ showError, showWarning });
+            if (currentSettings.saveTransitionEffect) {
+              setTransitionEffect(currentSettings.transitionEffect);
+            }
+            // Check if saveFolders was disabled and clear saved folders from IndexedDB if so
             if (!currentSettings.saveFolders) {
               try {
                 await clearAllFolders();

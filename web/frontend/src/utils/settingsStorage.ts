@@ -9,6 +9,8 @@ export interface StorageErrorCallbacks {
   showWarning?: (message: string) => void;
 }
 
+export type TransitionEffect = 'Fade' | 'Push' | 'Wipe' | 'Morph' | 'Zoom';
+
 export interface AppSettings {
   slideDelayMs: number;
   includeVideos: boolean;
@@ -16,6 +18,7 @@ export interface AppSettings {
   isMuted: boolean;
   isFitToWindow: boolean;
   zoomFactor: number;
+  transitionEffect: TransitionEffect;
   // Save flags
   saveSlideDelay: boolean;
   saveIncludeVideos: boolean;
@@ -23,6 +26,7 @@ export interface AppSettings {
   saveIsMuted: boolean;
   saveIsFitToWindow: boolean;
   saveZoomFactor: boolean;
+  saveTransitionEffect: boolean;
   saveFolders: boolean;
 }
 
@@ -35,12 +39,14 @@ const defaultSettings: AppSettings = {
   isMuted: true,
   isFitToWindow: true,
   zoomFactor: 1.0,
+  transitionEffect: 'Fade',
   saveSlideDelay: true,
   saveIncludeVideos: true,
   saveSortMode: true,
   saveIsMuted: true,
   saveIsFitToWindow: true,
   saveZoomFactor: true,
+  saveTransitionEffect: true,
   saveFolders: true,
 };
 
@@ -124,6 +130,9 @@ export const saveSettings = (settings: Partial<AppSettings>, callbacks?: Storage
     if (settings.saveZoomFactor !== false && settings.zoomFactor !== undefined) {
       merged.zoomFactor = settings.zoomFactor;
     }
+    if (settings.saveTransitionEffect !== false && settings.transitionEffect !== undefined) {
+      merged.transitionEffect = settings.transitionEffect;
+    }
     
     // Update save flags if provided
     if (settings.saveSlideDelay !== undefined) merged.saveSlideDelay = settings.saveSlideDelay;
@@ -132,6 +141,7 @@ export const saveSettings = (settings: Partial<AppSettings>, callbacks?: Storage
     if (settings.saveIsMuted !== undefined) merged.saveIsMuted = settings.saveIsMuted;
     if (settings.saveIsFitToWindow !== undefined) merged.saveIsFitToWindow = settings.saveIsFitToWindow;
     if (settings.saveZoomFactor !== undefined) merged.saveZoomFactor = settings.saveZoomFactor;
+    if (settings.saveTransitionEffect !== undefined) merged.saveTransitionEffect = settings.saveTransitionEffect;
     if (settings.saveFolders !== undefined) merged.saveFolders = settings.saveFolders;
     
     // Wrap localStorage.setItem in try/catch to catch all write failures
