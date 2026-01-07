@@ -11,6 +11,7 @@ import ManifestSelectionDialog from './components/ManifestSelectionDialog';
 import { useSlideshow } from './hooks/useSlideshow';
 import { useMediaLoader } from './hooks/useMediaLoader';
 import { useToast } from './hooks/useToast';
+import { usePlaybackErrorPolicy } from './hooks/usePlaybackErrorPolicy';
 import { MediaItem, MediaType } from './types/media';
 import { SlideshowManifest } from './types/manifest';
 import { loadSettings, saveSettings, AppSettings } from './utils/settingsStorage';
@@ -64,8 +65,28 @@ function App() {
   } | null>(null);
   const [cursorHidden, setCursorHidden] = useState(false);
   const [toolbarVisible, setToolbarVisible] = useState(true);
-  const cursorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const { toasts, showSuccess, showError, showInfo, showWarning, removeToast } = useToast();
+  const cursorTimeoutRef = useRef<number | null>(null);
+  const { showSuccess, showError, showInfo, showWarning } = useToast();
+  
+  // Retry policy for media errors
+  const errorPolicy = usePlaybackErrorPolicy({ maxAttempts: 3, baseDelayMs: 1000 });
+  const [currentMediaReloadKey, setCurrentMediaReloadKey] = useState(0);
+  const retryTimerRef = useRef<number | null>(null);
+  
+  // Expose error log to console for debugging (dev-only)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__getPlaybackErrors = () => {
+        const errors = errorPolicy.getAllErrorRecords();
+        console.table(errors);
+        return errors;
+      };
+      (window as any).__clearPlaybackErrors = () => {
+        errorPolicy.clearErrorRecords();
+        console.log('Playback error log cleared');
+      };
+    }
+  }, [errorPolicy]);
 
   // Get filtered playlist based on includeVideos (excludes both Video and Gif when false)
   const filteredPlaylist = useMemo(() => {
@@ -117,8 +138,32 @@ function App() {
     return () => {
       // Revoke all object URLs when component unmounts
       objectUrlRegistry.revokeAll();
+      // Clear any pending retry timers
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
     };
   }, []);
+
+  // Reset reload key and clear retry timer when media changes
+  useEffect(() => {
+    // Clear any pending retry timer when media changes
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    
+    // Reset reload key when media changes (new item loaded)
+    setCurrentMediaReloadKey(0);
+    
+    // Reset error policy for the new media item on successful change
+    if (currentMedia) {
+      const mediaId = currentMedia.filePath;
+      errorPolicy.resetOnSuccess(mediaId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMedia?.filePath]); // Only depend on filePath, not the whole object
 
   // Load settings and directory handles on mount
   useEffect(() => {
@@ -935,6 +980,7 @@ function App() {
       style={cursorHidden ? { cursor: 'none' } : {}}
     >
       <MediaDisplay
+        key={currentMedia ? `${currentMedia.filePath}-${currentMediaReloadKey}` : 'no-media'}
         currentMedia={currentMedia}
         zoomFactor={zoomFactor}
         isFitToWindow={isFitToWindow}
@@ -943,9 +989,72 @@ function App() {
         onImageClick={handleNext}
         onEffectiveZoomChange={setEffectiveZoom}
         onMediaError={(error) => {
-          showError(`Failed to load media: ${error}`);
-          // Auto-advance to next item on error
-          setTimeout(() => handleNext(), 1000);
+          if (!currentMedia) return;
+          
+          const mediaId = currentMedia.filePath;
+          const fileName = currentMedia.fileName;
+          
+          // Determine error type (simplified - could be enhanced with more context)
+          const errorType: 'network' | 'decode' | 'unknown' = 
+            error.toLowerCase().includes('network') || error.toLowerCase().includes('fetch') 
+              ? 'network' 
+              : error.toLowerCase().includes('decode') || error.toLowerCase().includes('format')
+              ? 'decode'
+              : 'unknown';
+          
+          // Record failure and get retry info
+          const { shouldRetry, nextDelayMs, attempt } = errorPolicy.recordFailure(
+            mediaId,
+            fileName,
+            errorType
+          );
+          
+          // Clear any existing retry timer
+          if (retryTimerRef.current) {
+            clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = null;
+          }
+          
+          if (shouldRetry) {
+            // Show retry message
+            const delaySeconds = Math.ceil(nextDelayMs / 1000);
+            showWarning(
+              `Failed to load media. Retrying in ${delaySeconds}s (attempt ${attempt}/${errorPolicy.config.maxAttempts})...`,
+              nextDelayMs + 500 // Show toast slightly longer than delay
+            );
+            
+            // Schedule retry
+            retryTimerRef.current = setTimeout(() => {
+              retryTimerRef.current = null;
+              // Force remount by incrementing reload key
+              setCurrentMediaReloadKey(prev => prev + 1);
+            }, nextDelayMs);
+          } else {
+            // Max retries reached - skip to next
+            const errorRecord = errorPolicy.getErrorRecord(mediaId);
+            showError(
+              `Failed to load after ${errorPolicy.config.maxAttempts} attempts. Skipping.`,
+              5000
+            );
+            
+            // Log error for debugging
+            console.error('Media load failed after max retries:', {
+              mediaId,
+              fileName,
+              attempts: errorRecord?.attempts || attempt,
+              errorType,
+              timestamp: new Date().toISOString(),
+            });
+            
+            // Advance to next item
+            setTimeout(() => handleNext(), 1000);
+          }
+        }}
+        onMediaLoadSuccess={() => {
+          // Reset error policy on successful load
+          if (currentMedia) {
+            errorPolicy.resetOnSuccess(currentMedia.filePath);
+          }
         }}
       />
       

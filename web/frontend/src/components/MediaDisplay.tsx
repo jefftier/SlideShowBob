@@ -10,6 +10,8 @@ interface MediaDisplayProps {
   onVideoEnded: () => void;
   onImageClick?: () => void;
   onEffectiveZoomChange?: (zoom: number) => void;
+  onMediaError?: (error: string) => void;
+  onMediaLoadSuccess?: () => void;
 }
 
 const MediaDisplay: React.FC<MediaDisplayProps> = ({
@@ -20,12 +22,13 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   onVideoEnded,
   onImageClick,
   onEffectiveZoomChange,
-  onMediaError
+  onMediaError,
+  onMediaLoadSuccess
 }) => {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [effectiveZoom, setEffectiveZoom] = useState(1.0);
+  const [, setEffectiveZoom] = useState(1.0); // Used via onEffectiveZoomChange callback
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -35,28 +38,48 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   const isNavigatingRef = useRef(false);
   const clickStartTimeRef = useRef(0);
   const clickStartPosRef = useRef({ x: 0, y: 0 });
+  const loadSuccessNotifiedRef = useRef(false);
 
   useEffect(() => {
     if (!currentMedia) {
       setImageSrc(null);
       setVideoSrc(null);
       setIsLoading(false);
+      loadSuccessNotifiedRef.current = false;
       return;
     }
 
     setIsLoading(true);
+    loadSuccessNotifiedRef.current = false; // Reset success notification flag
 
     // Use object URL if available (from File System Access API), otherwise use filePath
     const mediaUrl = currentMedia.objectUrl || currentMedia.filePath;
     
-    if (currentMedia.type === MediaType.Video) {
-      setVideoSrc(mediaUrl);
-      setImageSrc(null);
-      // Don't set isLoading to false here - wait for video to load
+    // Dev-only: Simulate failures based on URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const failRate = urlParams.get('failRate');
+    const shouldSimulateFailure = failRate && !isNaN(parseFloat(failRate)) && Math.random() < parseFloat(failRate);
+    
+    if (shouldSimulateFailure) {
+      // Simulate failure by using invalid URL
+      const invalidUrl = 'data:image/png;base64,invalid';
+      if (currentMedia.type === MediaType.Video) {
+        setVideoSrc(invalidUrl);
+        setImageSrc(null);
+      } else {
+        setImageSrc(invalidUrl);
+        setVideoSrc(null);
+      }
     } else {
-      setImageSrc(mediaUrl);
-      setVideoSrc(null);
-      // For images, isLoading will be set to false in onLoad handler
+      if (currentMedia.type === MediaType.Video) {
+        setVideoSrc(mediaUrl);
+        setImageSrc(null);
+        // Don't set isLoading to false here - wait for video to load
+      } else {
+        setImageSrc(mediaUrl);
+        setVideoSrc(null);
+        // For images, isLoading will be set to false in onLoad handler
+      }
     }
     
     // Note: Object URLs are now managed centrally via objectUrlRegistry
@@ -78,16 +101,28 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         playPromise
           .then(() => {
             setIsLoading(false);
+            // Notify successful load (only once)
+            if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
+              loadSuccessNotifiedRef.current = true;
+              onMediaLoadSuccess();
+            }
           })
           .catch((error) => {
             console.error('Error playing video:', error);
             setIsLoading(false);
             // If autoplay fails (e.g., due to browser policy), try to play on user interaction
             // The video will be ready to play when user clicks
+            // Still consider it a successful load if video element loaded
+            if (videoRef.current && videoRef.current.readyState >= 2 && !loadSuccessNotifiedRef.current) {
+              loadSuccessNotifiedRef.current = true;
+              if (onMediaLoadSuccess) {
+                onMediaLoadSuccess();
+              }
+            }
           });
       }
     }
-  }, [videoSrc]);
+  }, [videoSrc, onMediaLoadSuccess]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -160,7 +195,9 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
     // Calculate after media loads
     const mediaElement = imageRef.current || videoRef.current;
     if (mediaElement) {
-      if (mediaElement.complete || (mediaElement as HTMLVideoElement).readyState >= 2) {
+      const isComplete = (mediaElement as HTMLImageElement).complete || 
+                         ((mediaElement as HTMLVideoElement).readyState >= 2);
+      if (isComplete) {
         calculateEffectiveZoom();
       } else {
         const handleLoad = () => {
@@ -566,7 +603,14 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
             playsInline
             muted={isMuted}
             onEnded={handleVideoEnded}
-            onLoadedData={() => setIsLoading(false)}
+            onLoadedData={() => {
+              setIsLoading(false);
+              // Notify successful load (only once, onLoadedData is more reliable than play promise)
+              if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
+                loadSuccessNotifiedRef.current = true;
+                onMediaLoadSuccess();
+              }
+            }}
             onCanPlay={() => {
               // Ensure video plays when it can
               if (videoRef.current && videoRef.current.paused) {
@@ -583,7 +627,14 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
             src={imageSrc}
             alt={currentMedia.fileName}
             style={mediaStyle}
-            onLoad={() => setIsLoading(false)}
+            onLoad={() => {
+              setIsLoading(false);
+              // Notify successful load (only once)
+              if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
+                loadSuccessNotifiedRef.current = true;
+                onMediaLoadSuccess();
+              }
+            }}
             onError={handleImageError}
           />
         ) : null}
