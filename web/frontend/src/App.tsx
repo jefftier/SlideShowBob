@@ -16,6 +16,7 @@ import { SlideshowManifest } from './types/manifest';
 import { loadSettings, saveSettings, AppSettings } from './utils/settingsStorage';
 import { loadDirectoryHandles, saveDirectoryHandle, removeDirectoryHandle, clearAllDirectoryHandles, isIndexedDBSupported } from './utils/directoryStorage';
 import { findManifestFiles, loadManifestFile, matchManifestToMedia } from './utils/manifestLoader';
+import { objectUrlRegistry } from './utils/objectUrlRegistry';
 import './App.css';
 
 function App() {
@@ -110,6 +111,14 @@ function App() {
   });
 
   const { loadMediaFromFolders, loadMediaFromDirectory } = useMediaLoader();
+
+  // Cleanup object URLs on unmount
+  useEffect(() => {
+    return () => {
+      // Revoke all object URLs when component unmounts
+      objectUrlRegistry.revokeAll();
+    };
+  }, []);
 
   // Load settings and directory handles on mount
   useEffect(() => {
@@ -435,6 +444,16 @@ function App() {
     setIsManifestMode(true);
     setManifestData(manifest);
     
+    // Revoke object URLs for items no longer in playlist before replacing
+    const itemsToKeep = new Set(mediaItems.map(item => item.filePath));
+    const itemsToRemove = playlist.filter(item => !itemsToKeep.has(item.filePath));
+    if (itemsToRemove.length > 0) {
+      const urlsToRevoke = itemsToRemove
+        .map(item => item.objectUrl)
+        .filter((url): url is string => url !== undefined);
+      objectUrlRegistry.revokeMany(urlsToRevoke);
+    }
+    
     // Set playlist to manifest items only
     setPlaylist(mediaItems);
     setCurrentIndex(0);
@@ -486,6 +505,16 @@ function App() {
     setIsManifestMode(true);
     setManifestData(selected.manifest);
     
+    // Revoke object URLs for items no longer in playlist before replacing
+    const itemsToKeep = new Set(matched.map(item => item.filePath));
+    const itemsToRemove = playlist.filter(item => !itemsToKeep.has(item.filePath));
+    if (itemsToRemove.length > 0) {
+      const urlsToRevoke = itemsToRemove
+        .map(item => item.objectUrl)
+        .filter((url): url is string => url !== undefined);
+      objectUrlRegistry.revokeMany(urlsToRevoke);
+    }
+    
     // Set playlist to manifest items only
     setPlaylist(matched);
     setCurrentIndex(0);
@@ -519,6 +548,9 @@ function App() {
   }, []);
   
   const handleExitManifestMode = useCallback(() => {
+    // Revoke all object URLs before clearing playlist
+    objectUrlRegistry.revokeAll();
+    
     setIsManifestMode(false);
     setManifestData(null);
     setPlaylist([]);
@@ -674,6 +706,12 @@ function App() {
   }, [playlist, includeVideos, isPlaying]);
 
   const handleRemoveFile = (filePath: string) => {
+    // Find the item being removed to revoke its object URL
+    const itemToRemove = playlist.find(item => item.filePath === filePath);
+    if (itemToRemove?.objectUrl) {
+      objectUrlRegistry.revoke(itemToRemove.objectUrl);
+    }
+    
     const newPlaylist = playlist.filter(item => item.filePath !== filePath);
     setPlaylist(newPlaylist);
     
@@ -957,6 +995,16 @@ function App() {
                 new Map(sortedItems.map(item => [item.filePath, item])).values()
               );
               
+              // Revoke object URLs for items no longer in the new playlist
+              const newFilePaths = new Set(uniqueItems.map(item => item.filePath));
+              const itemsToRemove = playlist.filter(item => !newFilePaths.has(item.filePath));
+              if (itemsToRemove.length > 0) {
+                const urlsToRevoke = itemsToRemove
+                  .map(item => item.objectUrl)
+                  .filter((url): url is string => url !== undefined);
+                objectUrlRegistry.revokeMany(urlsToRevoke);
+              }
+              
               setPlaylist(uniqueItems);
               
               // Update current index if needed
@@ -1075,6 +1123,13 @@ function App() {
             
             // Remove all files from that folder
             const filesInFolder = playlist.filter(item => item.folderName === folderName);
+            
+            // Revoke object URLs for all files in the folder before removing
+            const urlsToRevoke = filesInFolder
+              .map(item => item.objectUrl)
+              .filter((url): url is string => url !== undefined);
+            objectUrlRegistry.revokeMany(urlsToRevoke);
+            
             const newPlaylist = playlist.filter(item => item.folderName !== folderName);
             setPlaylist(newPlaylist);
             

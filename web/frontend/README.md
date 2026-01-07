@@ -33,22 +33,33 @@ A modern web-based slideshow application that replicates the functionality of th
 ## Getting Started
 
 ### Prerequisites
-- Node.js 18+ and npm
-- Modern browser with File System Access API support (Chrome, Edge, or Opera)
+- **Node.js 20.19+ or 22.12+** (required for Vite 7)
+- **npm** (comes with Node.js)
+- **Modern browser** with File System Access API support (Chrome 86+, Edge 86+, or Opera 72+)
 
-### Installation
+### Local Development
 
-1. Install dependencies:
+1. **Install dependencies:**
 ```bash
 npm install
 ```
 
-2. Start development server:
+2. **Start development server:**
 ```bash
 npm run dev
 ```
 
-3. Open your browser to the URL shown (typically `http://localhost:5173`)
+3. **Open your browser** to the URL shown (typically `http://localhost:5173`)
+
+4. **Type checking** (in another terminal):
+```bash
+npm run build
+```
+
+**Development Notes:**
+- The dev server uses Vite's HMR (Hot Module Replacement) for fast development
+- TypeScript strict mode is enabled - fix type errors before committing
+- Service Worker is disabled in development mode for easier debugging
 
 ### Building for Production
 
@@ -56,7 +67,15 @@ npm run dev
 npm run build
 ```
 
-The built files will be in the `dist` directory.
+The built files will be in the `dist` directory, including:
+- Optimized JavaScript and CSS bundles
+- Service Worker for PWA functionality
+- Static assets (icons, manifest, etc.)
+
+**Production Deployment:**
+- Serve the `dist` directory via a web server (nginx, Apache, etc.)
+- Ensure HTTPS is enabled (required for File System Access API and Service Workers)
+- Configure security headers (see `SECURITY.md` for details)
 
 ## Usage
 
@@ -68,12 +87,26 @@ The built files will be in the `dist` directory.
 
 ## Browser Compatibility
 
-The File System Access API is currently supported in:
-- Chrome 86+
-- Edge 86+
-- Opera 72+
+### Required Browser Features
 
-For other browsers, you may need to use a backend API to serve files instead.
+This application requires the **File System Access API** for direct file access. Supported browsers:
+- **Chrome 86+** (recommended)
+- **Edge 86+** (recommended)
+- **Opera 72+**
+
+**Note:** Firefox and Safari do not currently support the File System Access API. For these browsers, a backend API would be required to serve files.
+
+### Progressive Web App (PWA) Support
+
+This application is a Progressive Web App (PWA) that can be installed on supported devices:
+- **Installation:** When visiting the app, browsers will prompt to "Install" or "Add to Home Screen"
+- **Offline Support:** The app caches its assets via a Service Worker for offline use
+- **Auto-Updates:** The Service Worker automatically updates when new versions are available
+- **Best Experience:** For long-running slideshow playback, install the PWA for better performance and stability
+
+**PWA Installation:**
+- **Chrome/Edge:** Click the install icon in the address bar, or use the browser menu
+- **Mobile:** Use "Add to Home Screen" from the browser menu
 
 ## Architecture
 

@@ -59,10 +59,11 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
       // For images, isLoading will be set to false in onLoad handler
     }
     
-    // Cleanup: revoke object URL when component unmounts or media changes
+    // Note: Object URLs are now managed centrally via objectUrlRegistry
+    // URLs are revoked when media items are removed from playlist, folders are removed,
+    // or the app unmounts. We don't revoke here to allow URL reuse during playback.
     return () => {
-      // Note: We don't revoke here because we might want to reuse the URL
-      // In production, implement proper cleanup when media is removed from playlist
+      // Cleanup handled by objectUrlRegistry at the lifecycle level
     };
   }, [currentMedia]);
 

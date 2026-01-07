@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { MediaItem, determineMediaType } from '../types/media';
+import { objectUrlRegistry } from '../utils/objectUrlRegistry';
 
 // Supported image extensions
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp', '.gif'];
@@ -68,6 +69,9 @@ async function scanDirectory(
             const filePath = path ? `${path}/${name}` : name;
             const relativePath = path ? `${path}/${name}` : name;
             const objectUrl = URL.createObjectURL(file);
+            
+            // Register the object URL immediately to track it for lifecycle management
+            objectUrlRegistry.register(objectUrl);
             
             mediaItems.push({
               filePath: filePath,
