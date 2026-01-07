@@ -1,77 +1,25 @@
 // Utility for loading and validating manifest files
 
-import { SlideshowManifest, ManifestValidationResult, ManifestItem } from '../types/manifest';
+import { SlideshowManifest, ManifestValidationResult } from '../types/manifest';
 import { MediaItem } from '../types/media';
+import { validateManifest as validateManifestStrict, MAX_MANIFEST_SIZE } from './manifestValidation';
 
 const MANIFEST_VERSION = '1.0';
 
 /**
  * Validates a manifest file structure
+ * Wrapper around strict validation that returns ManifestValidationResult
+ * @deprecated Use validateManifestStrict from manifestValidation.ts for new code
  */
 export function validateManifest(data: any): ManifestValidationResult {
   try {
-    // Check if it's an object
-    if (!data || typeof data !== 'object') {
-      return { valid: false, error: 'Manifest must be a JSON object' };
-    }
-
-    // Check version (make it optional, default to "1.0")
-    let version = data.version;
-    if (!version) {
-      version = '1.0'; // Default version if not specified
-    } else if (typeof version !== 'string') {
-      return { valid: false, error: 'Manifest version must be a string' };
-    }
-
-    // Check items array
-    if (!Array.isArray(data.items)) {
-      return { valid: false, error: 'Manifest must have an items array' };
-    }
-
-    if (data.items.length === 0) {
-      return { valid: false, error: 'Manifest items array cannot be empty' };
-    }
-
-    // Validate each item
-    for (let i = 0; i < data.items.length; i++) {
-      const item = data.items[i];
-      if (!item || typeof item !== 'object') {
-        return { valid: false, error: `Item ${i + 1} must be an object` };
-      }
-      if (!item.file || typeof item.file !== 'string') {
-        return { valid: false, error: `Item ${i + 1} must have a file field (string)` };
-      }
-      if (item.delay !== undefined && (typeof item.delay !== 'number' || item.delay < 0)) {
-        return { valid: false, error: `Item ${i + 1} delay must be a non-negative number` };
-      }
-      if (item.zoom !== undefined && (typeof item.zoom !== 'number' || item.zoom <= 0)) {
-        return { valid: false, error: `Item ${i + 1} zoom must be a positive number` };
-      }
-      if (item.fit !== undefined && typeof item.fit !== 'boolean') {
-        return { valid: false, error: `Item ${i + 1} fit must be a boolean` };
-      }
-    }
-
-    // Validate optional fields
-    if (data.defaultDelay !== undefined && (typeof data.defaultDelay !== 'number' || data.defaultDelay < 0)) {
-      return { valid: false, error: 'defaultDelay must be a non-negative number' };
-    }
-
-    const manifest: SlideshowManifest = {
-      version: version,
-      name: data.name,
-      defaultDelay: data.defaultDelay,
-      items: data.items.map((item: any) => ({
-        file: item.file,
-        delay: item.delay,
-        zoom: item.zoom,
-        fit: item.fit
-      }))
-    };
-
+    const manifest = validateManifestStrict(data);
     return { valid: true, manifest };
   } catch (error) {
-    return { valid: false, error: `Validation error: ${error instanceof Error ? error.message : 'Unknown error'}` };
+    return { 
+      valid: false, 
+      error: error instanceof Error ? error.message : 'Unknown validation error' 
+    };
   }
 }
 
@@ -98,12 +46,24 @@ export async function findManifestFiles(
 
 /**
  * Loads and validates a manifest file
+ * Enforces size limits and strict validation before parsing
  */
 export async function loadManifestFile(
   fileHandle: FileSystemFileHandle
 ): Promise<ManifestValidationResult> {
   try {
     const file = await fileHandle.getFile();
+    
+    // Check file size before reading (DoS protection)
+    if (file.size > MAX_MANIFEST_SIZE) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      const maxMB = (MAX_MANIFEST_SIZE / (1024 * 1024)).toFixed(2);
+      return {
+        valid: false,
+        error: `Manifest file too large: ${sizeMB} MB (maximum allowed: ${maxMB} MB)`
+      };
+    }
+    
     const text = await file.text();
     
     // Try to parse JSON - this will catch syntax errors like trailing commas
@@ -113,10 +73,11 @@ export async function loadManifestFile(
     } catch (parseError) {
       return {
         valid: false,
-        error: `JSON syntax error: ${parseError instanceof Error ? parseError.message : 'Invalid JSON format'}`
+        error: 'Invalid JSON in manifest'
       };
     }
     
+    // Use strict validation (includes path safety checks)
     const result = validateManifest(data);
     if (result.valid) {
       result.fileName = fileHandle.name;

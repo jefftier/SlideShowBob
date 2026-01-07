@@ -18,6 +18,7 @@ import { loadSettings, saveSettings, AppSettings } from './utils/settingsStorage
 import { loadDirectoryHandles, saveDirectoryHandle, removeDirectoryHandle, clearAllDirectoryHandles, isIndexedDBSupported } from './utils/directoryStorage';
 import { findManifestFiles, loadManifestFile, matchManifestToMedia } from './utils/manifestLoader';
 import { objectUrlRegistry } from './utils/objectUrlRegistry';
+import { validateManifest as validateManifestStrict, validateMediaPath, MAX_MANIFEST_SIZE } from './utils/manifestValidation';
 import './App.css';
 
 function App() {
@@ -258,6 +259,35 @@ function App() {
 
     initializeApp();
   }, []); // Only run on mount
+
+  // Dev-only: Expose manifest validation functions to window for manual testing
+  useEffect(() => {
+    if (import.meta.env.DEV && typeof window !== 'undefined') {
+      (window as any).__validateManifestSample = (sample: unknown) => {
+        try {
+          const manifest = validateManifestStrict(sample);
+          return { ok: true, manifest };
+        } catch (error) {
+          return { 
+            ok: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+          };
+        }
+      };
+      
+      (window as any).__validateMediaPath = (path: string, itemIndex?: number) => {
+        const error = validateMediaPath(path, itemIndex);
+        return error ? { ok: false, error } : { ok: true };
+      };
+      
+      (window as any).__MAX_MANIFEST_SIZE = MAX_MANIFEST_SIZE;
+      
+      console.log('Dev validation harness available:');
+      console.log('  window.__validateManifestSample(sample) - Validate manifest object');
+      console.log('  window.__validateMediaPath(path, index?) - Validate media path');
+      console.log('  window.__MAX_MANIFEST_SIZE - Max manifest size in bytes');
+    }
+  }, []);
 
   // Removed handleLoadFolders - now handled directly in handleAddFolder
   // In production, you'd implement a system to store and restore directory handles
