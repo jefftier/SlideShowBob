@@ -118,6 +118,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
   const displayIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
 
+  // Don't render toolbar at all in kiosk mode
+  if (isKioskMode) {
+    return null;
+  }
+
   return (
     <>
       {!isMinimized ? (

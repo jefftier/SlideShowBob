@@ -22,6 +22,15 @@ interface UseKioskModeOptions {
 export function useKioskMode(options: UseKioskModeOptions = {}) {
   const { onEnter, onExit } = options;
   const [isKioskMode, setIsKioskMode] = useState(false);
+  // Use refs to store callbacks to avoid stale closures
+  const onEnterRef = useRef(onEnter);
+  const onExitRef = useRef(onExit);
+  
+  // Update refs when callbacks change
+  useEffect(() => {
+    onEnterRef.current = onEnter;
+    onExitRef.current = onExit;
+  }, [onEnter, onExit]);
   
   // Escape sequence tracking
   const escapeSequenceRef = useRef<{
@@ -67,7 +76,21 @@ export function useKioskMode(options: UseKioskModeOptions = {}) {
    * Exit kiosk mode: exit fullscreen
    */
   const exitKiosk = useCallback(async () => {
+    // Prevent double-exit
+    if (!isKioskMode) {
+      return;
+    }
+    
     try {
+      // Set kiosk mode to false first and call onExit immediately
+      // This ensures toolbar is restored before fullscreen exits
+      setIsKioskMode(false);
+      if (onExit) {
+        onExit();
+      }
+      
+      // Then exit fullscreen (this will trigger fullscreenchange event,
+      // but isKioskMode is already false, so handleFullscreenChange won't do anything)
       if (document.exitFullscreen) {
         await document.exitFullscreen();
       } else if ((document as any).webkitExitFullscreen) {
@@ -77,10 +100,6 @@ export function useKioskMode(options: UseKioskModeOptions = {}) {
       } else if ((document as any).msExitFullscreen) {
         await (document as any).msExitFullscreen();
       }
-      setIsKioskMode(false);
-      if (onExit) {
-        onExit();
-      }
     } catch (error) {
       console.error('Failed to exit fullscreen:', error);
       // Still set kiosk mode to false even if exit fails
@@ -89,7 +108,7 @@ export function useKioskMode(options: UseKioskModeOptions = {}) {
         onExit();
       }
     }
-  }, [onExit]);
+  }, [onExit, isKioskMode]);
 
   /**
    * Toggle kiosk mode
@@ -121,34 +140,65 @@ export function useKioskMode(options: UseKioskModeOptions = {}) {
   useEffect(() => {
     const handleFullscreenChange = () => {
       const isFullscreen = isFullscreenActive();
-      if (!isFullscreen && isKioskMode) {
-        // User exited fullscreen via browser - exit kiosk mode
+      const currentKioskMode = isKioskMode; // Capture current state
+      
+      if (!isFullscreen && currentKioskMode) {
+        // User exited fullscreen via browser (e.g., pressing Escape)
+        // Exit kiosk mode and restore toolbar
         setIsKioskMode(false);
-        if (onExit) {
-          onExit();
+        // Use ref to get latest callback
+        if (onExitRef.current) {
+          onExitRef.current();
         }
-      } else if (isFullscreen && !isKioskMode) {
+      } else if (isFullscreen && !currentKioskMode) {
         // User entered fullscreen via browser - enter kiosk mode
         setIsKioskMode(true);
-        if (onEnter) {
-          onEnter();
+        if (onEnterRef.current) {
+          onEnterRef.current();
         }
       }
     };
-
+    
     // Listen to all fullscreen change events (cross-browser)
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     document.addEventListener('mozfullscreenchange', handleFullscreenChange);
     document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+    
+    // Also listen on window for some browsers
+    window.addEventListener('fullscreenchange', handleFullscreenChange);
+    window.addEventListener('webkitfullscreenchange', handleFullscreenChange);
 
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
       document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
       document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+      window.removeEventListener('fullscreenchange', handleFullscreenChange);
+      window.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
     };
-  }, [isKioskMode, isFullscreenActive, onEnter, onExit]);
+  }, [isKioskMode]);
+  
+  // Additional polling check as backup (in case events don't fire)
+  useEffect(() => {
+    if (!isKioskMode) return;
+    
+    const checkFullscreen = () => {
+      const isFullscreen = isFullscreenActive();
+      if (!isFullscreen && isKioskMode) {
+        // Polling detected fullscreen exit - exit kiosk mode
+        setIsKioskMode(false);
+        if (onExitRef.current) {
+          onExitRef.current();
+        }
+      }
+    };
+    
+    // Poll every 100ms when in kiosk mode
+    const interval = setInterval(checkFullscreen, 100);
+    
+    return () => clearInterval(interval);
+  }, [isKioskMode]);
 
   /**
    * Handle escape sequence: Shift + Escape (3 times within 2 seconds) OR Ctrl+Alt+K

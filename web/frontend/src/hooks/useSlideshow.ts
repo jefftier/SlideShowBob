@@ -142,10 +142,13 @@ export function useSlideshow({
     if (playlist.length === 0 || slideDelayMs <= 0) return;
     
     const tick = () => {
-      // Only advance if video has ended or current item is not a video
-      if (videoEndedRef.current || currentMediaTypeRef.current !== 'Video') {
+      // For images, advance based on delay
+      // Videos are handled by onVideoEnded callback and advance immediately when they finish
+      // GIFs are treated as images and use the delay
+      if (currentMediaTypeRef.current !== 'Video') {
         advance();
       }
+      // If it's a video, don't advance here - wait for onVideoEnded to fire
     };
 
     timerRef.current = setInterval(tick, slideDelayMs);
@@ -232,7 +235,15 @@ export function useSlideshow({
 
   const onVideoEnded = useCallback(() => {
     videoEndedRef.current = true;
-  }, []);
+    // Immediately advance to next item when video ends
+    // Don't wait for timer - videos should play to completion and then advance
+    if (isPlaying) {
+      // Small delay to ensure video has fully ended
+      setTimeout(() => {
+        advance();
+      }, 100);
+    }
+  }, [isPlaying, advance]);
 
   return {
     navigateNext,

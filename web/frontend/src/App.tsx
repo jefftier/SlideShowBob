@@ -1078,8 +1078,23 @@ function App() {
     };
   }, [isManifestMode, isFullscreen]);
 
+  // Ensure toolbar is visible when not in kiosk mode
+  // This is a safety net in case onExit callback doesn't fire
+  useEffect(() => {
+    if (!isKioskMode && !toolbarVisible) {
+      // Force toolbar to be visible when exiting kiosk mode
+      setToolbarVisible(true);
+      setCursorHidden(false);
+    }
+  }, [isKioskMode, toolbarVisible]);
+
   // Manifest mode: Toolbar visibility (show on mouse move to bottom)
   useEffect(() => {
+    // Don't interfere with kiosk mode toolbar visibility
+    if (isKioskMode) {
+      return;
+    }
+    
     if (!isManifestMode || !isFullscreen) {
       setToolbarVisible(true);
       return;
@@ -1112,7 +1127,7 @@ function App() {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseleave', handleMouseLeave);
     };
-  }, [isManifestMode, isFullscreen]);
+  }, [isManifestMode, isFullscreen, isKioskMode]);
 
   // In manifest mode, restart slideshow when current item changes (for per-item delays)
   // NOTE: effectiveDelay change is handled by useSlideshow's delay effect, so we only
@@ -1272,8 +1287,7 @@ function App() {
         </div>
       )}
 
-      {!isKioskMode && (
-        <Toolbar
+      <Toolbar
           isPlaying={isPlaying}
           includeVideos={includeVideos}
           onIncludeVideosChange={async (value) => {
@@ -1419,7 +1433,6 @@ function App() {
         isKioskMode={isKioskMode}
         onEnterKiosk={enterKiosk}
       />
-      )}
 
       {!isKioskMode && showPlaylist && (
         <PlaylistWindow
