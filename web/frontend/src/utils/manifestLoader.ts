@@ -165,8 +165,7 @@ export function validateJSONSyntax(text: string): { valid: boolean; error?: stri
  */
 export function matchManifestToMedia(
   manifest: SlideshowManifest,
-  mediaItems: MediaItem[],
-  rootFolderName: string
+  mediaItems: MediaItem[]
 ): { matched: MediaItem[]; missing: string[] } {
   const matched: MediaItem[] = [];
   const missing: string[] = [];

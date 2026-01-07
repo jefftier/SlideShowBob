@@ -28,7 +28,7 @@ export function useSlideshow({
   shouldGateAdvancement
 }: UseSlideshowOptions) {
   // Single timer reference - only ONE timer should exist at any time
-  const timerRef = useRef<number | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoEndedRef = useRef(false);
   const currentMediaTypeRef = useRef<string | null>(null);
   

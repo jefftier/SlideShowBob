@@ -11,7 +11,6 @@ interface ToolbarProps {
   zoomFactor: number;
   effectiveZoom?: number;
   onZoomChange: (value: number) => void;
-  onZoomReset: () => void;
   isFitToWindow: boolean;
   onFitToWindowChange: (value: boolean) => void;
   isMuted: boolean;
@@ -47,7 +46,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
   zoomFactor,
   effectiveZoom,
   onZoomChange,
-  onZoomReset,
   isFitToWindow,
   onFitToWindowChange,
   isMuted,

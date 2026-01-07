@@ -509,8 +509,7 @@ function App() {
               // Match manifest to media
               const { matched, missing } = matchManifestToMedia(
                 manifestResult.manifest!,
-                mediaItems,
-                folderName
+                mediaItems
               );
               
               if (matched.length === 0) {
@@ -535,7 +534,7 @@ function App() {
               const mediaItems = await loadMediaFromDirectory(dirHandle, includeVideos);
               const manifestOptions = await Promise.all(
                 validManifests.map(async (result) => {
-                  const { matched } = matchManifestToMedia(result.manifest!, mediaItems, folderName);
+                  const { matched } = matchManifestToMedia(result.manifest!, mediaItems);
                   return {
                     name: result.fileName || 'manifest.json',
                     itemCount: matched.length,
@@ -686,8 +685,7 @@ function App() {
     // Match manifest to media
     const { matched, missing } = matchManifestToMedia(
       selected.manifest,
-      mediaItems,
-      folderName
+      mediaItems
     );
     
     if (matched.length === 0) {
@@ -1392,7 +1390,6 @@ function App() {
         zoomFactor={zoomFactor}
         effectiveZoom={effectiveZoom}
         onZoomChange={setZoomFactor}
-        onZoomReset={handleZoomReset}
         isFitToWindow={isFitToWindow}
         onFitToWindowChange={setIsFitToWindow}
         isMuted={isMuted}
@@ -1423,7 +1420,6 @@ function App() {
         <PlaylistWindow
           playlist={playlist}
           currentIndex={currentIndex}
-          folders={folders}
           onClose={() => setShowPlaylist(false)}
           onNavigateToFile={handleNavigateToFile}
           onRemoveFile={handleRemoveFile}

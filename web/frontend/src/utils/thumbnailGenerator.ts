@@ -4,7 +4,6 @@
 import { MediaType } from '../types/media';
 
 const THUMBNAIL_SIZE = 150; // Max dimension for thumbnails (reduced for faster processing)
-const PLACEHOLDER_SIZE = 30; // Size for blur-up placeholder (very small for instant display)
 const THUMBNAIL_CACHE_SIZE = 200; // Max cached thumbnails (LRU)
 const JPEG_QUALITY = 0.75; // JPEG quality (reduced for faster encoding)
 const WEBP_QUALITY = 0.75; // WebP quality (same as JPEG for consistency)

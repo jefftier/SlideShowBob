@@ -106,8 +106,7 @@ async function scanDirectory(
 
 export function useMediaLoader() {
   const loadMediaFromFolders = useCallback(async (
-    folderPaths: string[],
-    includeVideos: boolean
+    folderPaths: string[]
   ): Promise<MediaItem[]> => {
     const mediaItems: MediaItem[] = [];
 

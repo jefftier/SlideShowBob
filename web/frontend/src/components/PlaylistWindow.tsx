@@ -9,7 +9,6 @@ import './PlaylistWindow.css';
 interface PlaylistWindowProps {
   playlist: MediaItem[];
   currentIndex: number;
-  folders: string[];
   onClose: () => void;
   onNavigateToFile: (filePath: string) => void;
   onRemoveFile: (filePath: string) => void;
@@ -22,7 +21,6 @@ interface PlaylistWindowProps {
 const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
   playlist,
   currentIndex,
-  folders,
   onClose,
   onNavigateToFile,
   onRemoveFile,
@@ -41,12 +39,11 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
   const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
   const [loadingThumbnails, setLoadingThumbnails] = useState<Set<string>>(new Set());
   const contentRef = React.useRef<HTMLDivElement>(null);
-  const currentItemRef = React.useRef<HTMLDivElement>(null);
+  const currentItemRef = React.useRef<HTMLLIElement | HTMLDivElement>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const sidebarRef = React.useRef<HTMLDivElement>(null);
   const thumbnailObserverRef = useRef<IntersectionObserver | null>(null);
   const thumbnailItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Build folder tree from playlist
   useEffect(() => {
@@ -557,13 +554,13 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                 </div>
               ) : viewMode === 'list' ? (
                 <ul className="playlist-list">
-                  {filteredPlaylist.map((item, index) => {
+                  {filteredPlaylist.map((item) => {
                     const originalIndex = playlist.findIndex(p => p.filePath === item.filePath);
                     const isCurrent = originalIndex === currentIndex;
                     return (
                       <li
                         key={item.filePath}
-                        ref={isCurrent ? currentItemRef : null}
+                        ref={isCurrent ? (currentItemRef as React.RefObject<HTMLLIElement>) : null}
                         className={`playlist-item ${isCurrent ? 'current' : ''}`}
                         onClick={() => onNavigateToFile(item.filePath)}
                         title="Click to jump to this file"
