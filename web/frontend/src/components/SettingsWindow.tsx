@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './SettingsWindow.css';
 import { loadSettings, saveSettings, AppSettings, getDefaultSettings } from '../utils/settingsStorage';
 import { createSampleManifest } from '../utils/manifestLoader';
+import { useToast } from '../hooks/useToast';
 
 interface SettingsWindowProps {
   onClose: () => void;
@@ -14,11 +15,12 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
 }) => {
   const [settings, setSettings] = useState<AppSettings>(getDefaultSettings());
   const [hasChanges, setHasChanges] = useState(false);
+  const { showError, showWarning } = useToast();
 
   useEffect(() => {
-    const loaded = loadSettings();
+    const loaded = loadSettings({ showError, showWarning });
     setSettings(loaded);
-  }, []);
+  }, [showError, showWarning]);
 
   const handleSaveFlagChange = (key: keyof AppSettings, value: boolean) => {
     setSettings(prev => {
@@ -30,7 +32,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
 
   const handleSave = () => {
     try {
-      saveSettings(settings);
+      saveSettings(settings, { showError, showWarning });
       setHasChanges(false);
       if (onSave) {
         onSave();
@@ -38,13 +40,13 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
       onClose();
     } catch (error) {
       console.error('Error saving settings:', error);
-      // Error is handled by saveSettings internally, but we could show a toast here if needed
+      // Error is handled by saveSettings internally via callbacks
     }
   };
 
   const handleCancel = () => {
     // Reload original settings
-    const loaded = loadSettings();
+    const loaded = loadSettings({ showError, showWarning });
     setSettings(loaded);
     setHasChanges(false);
     onClose();

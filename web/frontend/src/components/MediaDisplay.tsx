@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MediaItem, MediaType } from '../types/media';
+import { logger } from '../utils/logger';
+import { addEvent } from '../utils/eventLog';
 import './MediaDisplay.css';
 
 interface MediaDisplayProps {
@@ -39,6 +41,8 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   const clickStartTimeRef = useRef(0);
   const clickStartPosRef = useRef({ x: 0, y: 0 });
   const loadSuccessNotifiedRef = useRef(false);
+  const activeTimeoutsRef = useRef<Set<number>>(new Set());
+  const activeAnimationFramesRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     if (!currentMedia) {
@@ -105,6 +109,16 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
             if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
               loadSuccessNotifiedRef.current = true;
               onMediaLoadSuccess();
+              
+              // Log media load success (video play promise)
+              if (currentMedia) {
+                const entry = logger.event('media_load_success', {
+                  mediaType: 'video',
+                  fileName: currentMedia.fileName,
+                  filePath: currentMedia.filePath,
+                });
+                addEvent(entry);
+              }
             }
           })
           .catch((error) => {
@@ -140,11 +154,15 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
       return;
     }
 
+    // Capture current element at effect start to ensure cleanup targets the same instance
+    const mediaElement = imageRef.current || videoRef.current;
+    
+    // Define stable handler that uses captured refs
     const calculateEffectiveZoom = () => {
-      const mediaElement = imageRef.current || videoRef.current;
-      const container = containerRef.current;
+      const currentMediaElement = imageRef.current || videoRef.current;
+      const currentContainer = containerRef.current;
       
-      if (!mediaElement || !container) {
+      if (!currentMediaElement || !currentContainer) {
         setEffectiveZoom(zoomFactor);
         if (onEffectiveZoomChange) {
           onEffectiveZoomChange(zoomFactor);
@@ -152,10 +170,10 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         return;
       }
 
-      const naturalWidth = (mediaElement as HTMLImageElement).naturalWidth || 
-                          (mediaElement as HTMLVideoElement).videoWidth || 0;
-      const naturalHeight = (mediaElement as HTMLImageElement).naturalHeight || 
-                           (mediaElement as HTMLVideoElement).videoHeight || 0;
+      const naturalWidth = (currentMediaElement as HTMLImageElement).naturalWidth || 
+                          (currentMediaElement as HTMLVideoElement).videoWidth || 0;
+      const naturalHeight = (currentMediaElement as HTMLImageElement).naturalHeight || 
+                           (currentMediaElement as HTMLVideoElement).videoHeight || 0;
       
       if (naturalWidth === 0 || naturalHeight === 0) {
         setEffectiveZoom(zoomFactor);
@@ -165,8 +183,8 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         return;
       }
 
-      const displayedWidth = mediaElement.clientWidth;
-      const displayedHeight = mediaElement.clientHeight;
+      const displayedWidth = currentMediaElement.clientWidth;
+      const displayedHeight = currentMediaElement.clientHeight;
       
       if (displayedWidth === 0 || displayedHeight === 0) {
         setEffectiveZoom(zoomFactor);
@@ -189,46 +207,70 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
       }
     };
 
-    // Use a small delay to ensure layout is complete
-    const timeoutId = setTimeout(calculateEffectiveZoom, 100);
+    // Track all timeouts for cleanup
+    const timeoutIds: number[] = [];
 
-    // Calculate after media loads
-    const mediaElement = imageRef.current || videoRef.current;
+    // Use a small delay to ensure layout is complete
+    const initialTimeoutId = window.setTimeout(calculateEffectiveZoom, 100);
+    timeoutIds.push(initialTimeoutId);
+
+    // Define stable load handler that tracks its own timeout
+    const handleLoad = () => {
+      const loadTimeoutId = window.setTimeout(calculateEffectiveZoom, 100);
+      timeoutIds.push(loadTimeoutId);
+    };
+
+    // Set up media element listeners if element exists and isn't already loaded
     if (mediaElement) {
       const isComplete = (mediaElement as HTMLImageElement).complete || 
                          ((mediaElement as HTMLVideoElement).readyState >= 2);
-      if (isComplete) {
-        calculateEffectiveZoom();
-      } else {
-        const handleLoad = () => {
-          setTimeout(calculateEffectiveZoom, 100);
-        };
+      if (!isComplete) {
         mediaElement.addEventListener('load', handleLoad);
         mediaElement.addEventListener('loadeddata', handleLoad);
-        return () => {
-          clearTimeout(timeoutId);
-          mediaElement.removeEventListener('load', handleLoad);
-          mediaElement.removeEventListener('loadeddata', handleLoad);
-        };
+      } else {
+        calculateEffectiveZoom();
       }
     }
 
     // Also recalculate on window resize
     window.addEventListener('resize', calculateEffectiveZoom);
+
+    // Cleanup: remove listeners from the captured element and clear all timeouts
     return () => {
-      clearTimeout(timeoutId);
+      // Clear all tracked timeouts
+      timeoutIds.forEach(id => window.clearTimeout(id));
+      
+      // Remove listeners from the captured element instance
+      if (mediaElement) {
+        mediaElement.removeEventListener('load', handleLoad);
+        mediaElement.removeEventListener('loadeddata', handleLoad);
+      }
+      
+      // Remove window resize listener
       window.removeEventListener('resize', calculateEffectiveZoom);
     };
   }, [isFitToWindow, zoomFactor, imageSrc, videoSrc, currentMedia, onEffectiveZoomChange]);
 
-  const handleVideoEnded = () => {
+  const handleVideoEnded = useCallback(() => {
     onVideoEnded();
-  };
+  }, [onVideoEnded]);
 
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const errorMessage = `Failed to load image: ${currentMedia?.fileName || 'Unknown'}`;
     console.error('Image load error:', e);
     setIsLoading(false);
+    
+    // Log media load error
+    if (currentMedia) {
+      const entry = logger.event('media_load_error', {
+        mediaType: 'image',
+        fileName: currentMedia.fileName,
+        filePath: currentMedia.filePath,
+        error: errorMessage,
+      }, 'error');
+      addEvent(entry);
+    }
+    
     if (onMediaError) {
       onMediaError(errorMessage);
     }
@@ -238,6 +280,18 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
     const errorMessage = `Failed to load video: ${currentMedia?.fileName || 'Unknown'}`;
     console.error('Video load error:', e);
     setIsLoading(false);
+    
+    // Log media load error
+    if (currentMedia) {
+      const entry = logger.event('media_load_error', {
+        mediaType: 'video',
+        fileName: currentMedia.fileName,
+        filePath: currentMedia.filePath,
+        error: errorMessage,
+      }, 'error');
+      addEvent(entry);
+    }
+    
     if (onMediaError) {
       onMediaError(errorMessage);
     }
@@ -338,9 +392,11 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         if (!isNavigatingRef.current) {
           isNavigatingRef.current = true;
           onImageClick();
-          setTimeout(() => {
+          const timeoutId = window.setTimeout(() => {
             isNavigatingRef.current = false;
+            activeTimeoutsRef.current.delete(timeoutId);
           }, 200);
+          activeTimeoutsRef.current.add(timeoutId);
         }
       }
     }
@@ -353,6 +409,22 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   useEffect(() => {
     setPanOffset({ x: 0, y: 0 });
   }, [isFitToWindow, currentMedia]);
+
+  // Cleanup all timeouts and animation frames when media changes or component unmounts
+  useEffect(() => {
+    return () => {
+      // Clear all active timeouts
+      activeTimeoutsRef.current.forEach(timeoutId => window.clearTimeout(timeoutId));
+      activeTimeoutsRef.current.clear();
+      
+      // Cancel all active animation frames
+      activeAnimationFramesRef.current.forEach(rafId => cancelAnimationFrame(rafId));
+      activeAnimationFramesRef.current.clear();
+      
+      // Reset navigation flag
+      isNavigatingRef.current = false;
+    };
+  }, [currentMedia]);
 
   // Touch event handlers (similar to mouse handlers)
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -443,9 +515,11 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         if (!isNavigatingRef.current) {
           isNavigatingRef.current = true;
           onImageClick();
-          setTimeout(() => {
+          const timeoutId = window.setTimeout(() => {
             isNavigatingRef.current = false;
+            activeTimeoutsRef.current.delete(timeoutId);
           }, 200);
+          activeTimeoutsRef.current.add(timeoutId);
         }
       }
     }
@@ -515,17 +589,26 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
       
       // Reset flag after navigation completes
       // Use requestAnimationFrame to ensure state updates have processed
-      const timeoutId = requestAnimationFrame(() => {
-        setTimeout(() => {
+      const rafId = requestAnimationFrame(() => {
+        activeAnimationFramesRef.current.delete(rafId);
+        const timeoutId = window.setTimeout(() => {
           isNavigatingRef.current = false;
+          activeTimeoutsRef.current.delete(timeoutId);
         }, 100);
+        activeTimeoutsRef.current.add(timeoutId);
       });
+      activeAnimationFramesRef.current.add(rafId);
       
       // Safety: Always reset after 1 second even if something goes wrong
-      setTimeout(() => {
+      const safetyTimeoutId = window.setTimeout(() => {
         isNavigatingRef.current = false;
-        cancelAnimationFrame(timeoutId);
+        if (activeAnimationFramesRef.current.has(rafId)) {
+          cancelAnimationFrame(rafId);
+          activeAnimationFramesRef.current.delete(rafId);
+        }
+        activeTimeoutsRef.current.delete(safetyTimeoutId);
       }, 1000);
+      activeTimeoutsRef.current.add(safetyTimeoutId);
     }
   }, [currentMedia, isLoading, onImageClick, isFitToWindow]);
 
@@ -609,6 +692,16 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
               if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
                 loadSuccessNotifiedRef.current = true;
                 onMediaLoadSuccess();
+                
+                // Log media load success
+                if (currentMedia) {
+                  const entry = logger.event('media_load_success', {
+                    mediaType: 'video',
+                    fileName: currentMedia.fileName,
+                    filePath: currentMedia.filePath,
+                  });
+                  addEvent(entry);
+                }
               }
             }}
             onCanPlay={() => {
@@ -633,6 +726,16 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
               if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
                 loadSuccessNotifiedRef.current = true;
                 onMediaLoadSuccess();
+                
+                // Log media load success
+                if (currentMedia) {
+                  const entry = logger.event('media_load_success', {
+                    mediaType: 'image',
+                    fileName: currentMedia.fileName,
+                    filePath: currentMedia.filePath,
+                  });
+                  addEvent(entry);
+                }
               }
             }}
             onError={handleImageError}

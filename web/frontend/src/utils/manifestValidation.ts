@@ -12,61 +12,58 @@ export const MAX_MANIFEST_SIZE = 1_000_000; // 1,000,000 bytes
 
 /**
  * Validates that a media file path is safe and relative
- * Rejects path traversal, absolute paths, and URLs
+ * Rejects path traversal, absolute paths, Windows drive paths, and URLs
  * 
  * @param path - The path to validate
- * @param itemIndex - Optional index for error messages
- * @returns Error message if invalid, undefined if valid
+ * @returns The validated path (normalized) or throws with specific error message
+ * @throws Error with specific message if path is unsafe
  */
-export function validateMediaPath(path: string, itemIndex?: number): string | undefined {
-  if (typeof path !== 'string' || path.length === 0) {
-    return itemIndex !== undefined 
-      ? `Item ${itemIndex + 1}: file path must be a non-empty string`
-      : 'File path must be a non-empty string';
+export function validateMediaPath(path: string): string {
+  // Trim whitespace
+  const trimmed = path.trim();
+  
+  // Reject if empty after trimming
+  if (trimmed.length === 0) {
+    throw new Error('Unsafe path: empty path not allowed');
   }
-
-  // Normalize separators to '/' for consistent checking
-  const normalized = path.replace(/\\/g, '/');
-
-  // Reject path traversal sequences
-  if (normalized.includes('../') || normalized.includes('..\\') || normalized === '..' || normalized.startsWith('../')) {
-    return itemIndex !== undefined
-      ? `Item ${itemIndex + 1}: Unsafe path (path traversal detected): ${path}`
-      : `Unsafe path (path traversal detected): ${path}`;
+  
+  // Normalize backslashes to forward slashes for validation checks
+  const normalized = trimmed.replace(/\\/g, '/');
+  
+  // Reject if contains null bytes or weird control chars
+  if (/[\0\r\n\t]/.test(trimmed)) {
+    throw new Error('Unsafe path: contains null bytes or control characters');
   }
-
-  // Reject absolute paths (Unix-style)
-  if (normalized.startsWith('/')) {
-    return itemIndex !== undefined
-      ? `Item ${itemIndex + 1}: Absolute path not allowed: ${path}`
-      : `Absolute path not allowed: ${path}`;
+  
+  // Reject if contains ".." as a path segment
+  // Check for: "/../", startsWith("../"), endsWith("/.."), or equals("..")
+  // After normalization, all backslashes are forward slashes, so we only need to check for "/"
+  if (normalized.includes('/../') || 
+      normalized.startsWith('../') || 
+      normalized.endsWith('/..') || 
+      normalized === '..') {
+    throw new Error("Unsafe path: contains '..' segment");
   }
-
-  // Reject absolute paths (Windows-style)
-  // Match patterns like C:\ or C:/ or D:\ etc.
-  if (/^[A-Za-z]:[\/\\]/.test(normalized)) {
-    return itemIndex !== undefined
-      ? `Item ${itemIndex + 1}: Windows absolute path not allowed: ${path}`
-      : `Windows absolute path not allowed: ${path}`;
+  
+  // Reject if starts with "/" or "\" (absolute)
+  // Check the trimmed path before normalization to catch both cases
+  if (trimmed.startsWith('/') || trimmed.startsWith('\\')) {
+    throw new Error('Unsafe path: absolute paths not allowed');
   }
-
-  // Reject URLs (http, https, data, blob, file protocols)
-  const urlPattern = /^(https?|data|blob|file):/i;
-  if (urlPattern.test(normalized.trim())) {
-    return itemIndex !== undefined
-      ? `Item ${itemIndex + 1}: URL paths not allowed: ${path}`
-      : `URL paths not allowed: ${path}`;
+  
+  // Reject if matches Windows drive prefix: /^[a-zA-Z]:[\\/]/
+  if (/^[a-zA-Z]:[\\/]/.test(trimmed)) {
+    throw new Error('Unsafe path: Windows drive paths not allowed');
   }
-
-  // Reject paths that start with backslash (Windows network or absolute)
-  if (normalized.startsWith('\\')) {
-    return itemIndex !== undefined
-      ? `Item ${itemIndex + 1}: Network/absolute path not allowed: ${path}`
-      : `Network/absolute path not allowed: ${path}`;
+  
+  // Reject if starts with a URL scheme (case-insensitive): /^[a-zA-Z][a-zA-Z0-9+.-]*:/
+  // This blocks http:, https:, data:, blob:, file:, etc.
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    throw new Error('Unsafe path: URL schemes not allowed');
   }
-
-  // Path is valid (relative within folder scope)
-  return undefined;
+  
+  // Return the original path (validated)
+  return trimmed;
 }
 
 /**
@@ -155,6 +152,14 @@ export function validateManifest(data: unknown): SlideshowManifest {
     if (!itemObj.file || typeof itemObj.file !== 'string') {
       throw new Error(`items[${i}].file must be a string`);
     }
+    
+    // Validate file path safety (path traversal, absolute paths, URLs, etc.)
+    let validatedFilePath: string;
+    try {
+      validatedFilePath = validateMediaPath(itemObj.file);
+    } catch (error) {
+      throw new Error(`items[${i}].file: ${error instanceof Error ? error.message : 'Unsafe path'}`);
+    }
 
     // Validate delay (optional)
     let delay: number | undefined;
@@ -184,7 +189,7 @@ export function validateManifest(data: unknown): SlideshowManifest {
     }
 
     validatedItems.push({
-      file: itemObj.file,
+      file: validatedFilePath,
       delay,
       zoom,
       fit

@@ -1,26 +1,17 @@
 import { useCallback } from 'react';
 import { MediaItem, determineMediaType } from '../types/media';
 import { objectUrlRegistry } from '../utils/objectUrlRegistry';
+import { assertReadPermission } from '../utils/fsPermissions';
 
 // Supported image extensions
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp', '.gif'];
 // Supported video extensions
 const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.wmv'];
 
-interface FileSystemDirectoryHandle {
-  name: string;
-  kind: 'directory';
-  getFileHandle(name: string): Promise<FileSystemFileHandle>;
-  keys(): AsyncIterableIterator<string>;
-  values(): AsyncIterableIterator<FileSystemDirectoryHandle | FileSystemFileHandle>;
-  entries(): AsyncIterableIterator<[string, FileSystemDirectoryHandle | FileSystemFileHandle]>;
-}
-
-interface FileSystemFileHandle {
-  name: string;
-  kind: 'file';
-  getFile(): Promise<File>;
-}
+// Use any for FileSystemDirectoryHandle to avoid type conflicts with browser types
+// The actual browser implementation has more methods than our minimal interface
+type FileSystemDirectoryHandle = any;
+type FileSystemFileHandle = any;
 
 async function scanDirectory(
   dirHandle: FileSystemDirectoryHandle,
@@ -29,6 +20,11 @@ async function scanDirectory(
   path: string = '',
   onProgress?: (current: number, total: number) => void
 ): Promise<MediaItem[]> {
+  // Check permission before scanning (only at root level to avoid redundant checks)
+  if (path === '') {
+    await assertReadPermission(dirHandle, `folder "${rootFolderName}"`);
+  }
+  
   const mediaItems: MediaItem[] = [];
   let totalFiles = 0;
   let processedFiles = 0;

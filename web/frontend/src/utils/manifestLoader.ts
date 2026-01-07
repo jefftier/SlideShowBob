@@ -3,6 +3,7 @@
 import { SlideshowManifest, ManifestValidationResult } from '../types/manifest';
 import { MediaItem } from '../types/media';
 import { validateManifest as validateManifestStrict, MAX_MANIFEST_SIZE } from './manifestValidation';
+import { assertReadPermission } from './fsPermissions';
 
 const MANIFEST_VERSION = '1.0';
 
@@ -29,12 +30,17 @@ export function validateManifest(data: any): ManifestValidationResult {
 export async function findManifestFiles(
   dirHandle: FileSystemDirectoryHandle
 ): Promise<{ name: string; handle: FileSystemFileHandle }[]> {
+  // Check permission before scanning
+  await assertReadPermission(dirHandle, `folder "${dirHandle.name}"`);
+  
   const manifestFiles: { name: string; handle: FileSystemFileHandle }[] = [];
 
   try {
-    for await (const [name, handle] of dirHandle.entries()) {
-      if (handle.kind === 'file' && name.toLowerCase().endsWith('.json')) {
-        manifestFiles.push({ name, handle: handle as FileSystemFileHandle });
+    // Use type assertion for entries() method
+    const handle = dirHandle as any;
+    for await (const [name, entryHandle] of handle.entries()) {
+      if (entryHandle.kind === 'file' && name.toLowerCase().endsWith('.json')) {
+        manifestFiles.push({ name, handle: entryHandle as FileSystemFileHandle });
       }
     }
   } catch (error) {

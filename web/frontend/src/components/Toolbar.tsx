@@ -34,6 +34,8 @@ interface ToolbarProps {
   isManifestMode?: boolean;
   onExitManifestMode?: () => void;
   toolbarVisible?: boolean;
+  isKioskMode?: boolean;
+  onEnterKiosk?: () => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -67,7 +69,9 @@ const Toolbar: React.FC<ToolbarProps> = ({
   statusText,
   isManifestMode,
   onExitManifestMode,
-  toolbarVisible = true
+  toolbarVisible = true,
+  isKioskMode = false,
+  onEnterKiosk
 }) => {
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -390,6 +394,20 @@ const Toolbar: React.FC<ToolbarProps> = ({
             </div>
             
             <div className="toolbar-separator"></div>
+            
+            {!isKioskMode && onEnterKiosk && (
+              <>
+                <button
+                  className="toolbar-btn"
+                  onClick={onEnterKiosk}
+                  title="Enter Kiosk Mode (fullscreen + hide UI)"
+                  aria-label="Enter Kiosk Mode"
+                >
+                  🖥
+                </button>
+                <div className="toolbar-separator"></div>
+              </>
+            )}
             
             <button
               className="toolbar-btn"

@@ -1,0 +1,86 @@
+.update-prompt {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 10001;
+  animation: slideInUp 0.3s ease;
+}
+
+.update-prompt-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #1a1a1a;
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  border-left: 4px solid #ff9800;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  min-width: 300px;
+  max-width: 500px;
+}
+
+.update-prompt-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.update-prompt-message {
+  flex: 1;
+  color: #e0e0e0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.update-prompt-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.update-prompt-button {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.update-prompt-button-primary {
+  background: #ff9800;
+  color: #fff;
+}
+
+.update-prompt-button-primary:hover {
+  background: #fb8c00;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
+}
+
+.update-prompt-button-primary:active {
+  transform: translateY(0);
+}
+
+.update-prompt-button-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e0e0e0;
+}
+
+.update-prompt-button-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+@keyframes slideInUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+

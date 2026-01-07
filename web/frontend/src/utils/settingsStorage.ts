@@ -1,5 +1,8 @@
 // Settings persistence using localStorage
 
+import { logger } from './logger';
+import { addEvent } from './eventLog';
+
 // Optional callbacks for error reporting (to avoid tight coupling with React hooks)
 export interface StorageErrorCallbacks {
   showError?: (message: string) => void;
@@ -55,6 +58,14 @@ export const loadSettings = (callbacks?: StorageErrorCallbacks): AppSettings => 
       } catch (parseError) {
         // Corrupt JSON - show warning once and fall back to defaults
         console.warn('Error parsing settings JSON:', parseError);
+        
+        // Log settings load failure
+        const entry = logger.event('settings_load_failed', {
+          error: 'parse_error',
+          errorMessage: parseError instanceof Error ? parseError.message : String(parseError),
+        }, 'error');
+        addEvent(entry);
+        
         if (!hasShownLoadWarning && callbacks?.showWarning) {
           hasShownLoadWarning = true;
           callbacks.showWarning('Saved settings could not be loaded. Defaults were restored.');
@@ -71,6 +82,14 @@ export const loadSettings = (callbacks?: StorageErrorCallbacks): AppSettings => 
   } catch (error) {
     // Catch any localStorage.getItem errors (e.g., storage disabled, quota exceeded)
     console.warn('Error loading settings:', error);
+    
+    // Log settings load failure
+    const entry = logger.event('settings_load_failed', {
+      error: 'storage_error',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    }, 'error');
+    addEvent(entry);
+    
     if (!hasShownLoadWarning && callbacks?.showWarning) {
       hasShownLoadWarning = true;
       callbacks.showWarning('Saved settings could not be loaded. Defaults were restored.');
@@ -121,6 +140,14 @@ export const saveSettings = (settings: Partial<AppSettings>, callbacks?: Storage
     } catch (writeError) {
       // Catch localStorage.setItem errors (quota, storage disabled, etc.)
       console.warn('Error saving settings to localStorage:', writeError);
+      
+      // Log settings save failure
+      const entry = logger.event('settings_save_failed', {
+        error: 'write_error',
+        errorMessage: writeError instanceof Error ? writeError.message : String(writeError),
+      }, 'error');
+      addEvent(entry);
+      
       if (callbacks?.showError) {
         callbacks.showError('Unable to save settings. Changes may not persist.');
       }
@@ -130,6 +157,14 @@ export const saveSettings = (settings: Partial<AppSettings>, callbacks?: Storage
   } catch (error) {
     // Catch any other errors (e.g., from loadSettings or JSON.stringify)
     console.warn('Error saving settings:', error);
+    
+    // Log settings save failure
+    const entry = logger.event('settings_save_failed', {
+      error: 'unknown_error',
+      errorMessage: error instanceof Error ? error.message : String(error),
+    }, 'error');
+    addEvent(entry);
+    
     if (callbacks?.showError) {
       callbacks.showError('Unable to save settings. Changes may not persist.');
     }

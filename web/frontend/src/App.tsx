@@ -1,33 +1,36 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import MediaDisplay from './components/MediaDisplay';
 import Toolbar from './components/Toolbar';
 import PlaylistWindow from './components/PlaylistWindow';
 import SettingsWindow from './components/SettingsWindow';
-import ToastContainer from './components/ToastContainer';
 import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp';
 import ProgressIndicator from './components/ProgressIndicator';
 import ManifestModeDialog from './components/ManifestModeDialog';
 import ManifestSelectionDialog from './components/ManifestSelectionDialog';
+import UpdatePrompt from './components/UpdatePrompt';
 import { useSlideshow } from './hooks/useSlideshow';
 import { useMediaLoader } from './hooks/useMediaLoader';
 import { useToast } from './hooks/useToast';
 import { usePlaybackErrorPolicy } from './hooks/usePlaybackErrorPolicy';
+import { useFolderPersistence } from './hooks/useFolderPersistence';
+import { useKioskMode } from './hooks/useKioskMode';
 import { MediaItem, MediaType } from './types/media';
 import { SlideshowManifest } from './types/manifest';
-import { loadSettings, saveSettings, AppSettings } from './utils/settingsStorage';
-import { loadDirectoryHandles, saveDirectoryHandle, removeDirectoryHandle, clearAllDirectoryHandles, isIndexedDBSupported } from './utils/directoryStorage';
+import { loadSettings, saveSettings } from './utils/settingsStorage';
+// Directory storage functions are now handled by useFolderPersistence hook
 import { findManifestFiles, loadManifestFile, matchManifestToMedia } from './utils/manifestLoader';
 import { objectUrlRegistry } from './utils/objectUrlRegistry';
+import { hasReadPermission, assertReadPermission } from './utils/fsPermissions';
 import { validateManifest as validateManifestStrict, validateMediaPath, MAX_MANIFEST_SIZE } from './utils/manifestValidation';
+import { logger } from './utils/logger';
+import { addEvent } from './utils/eventLog';
 import './App.css';
 
 function App() {
-  const [folders, setFolders] = useState<string[]>([]);
   const [currentMedia, setCurrentMedia] = useState<MediaItem | null>(null);
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [includeVideos, setIncludeVideos] = useState(true);
-  const [directoryHandles, setDirectoryHandles] = useState<Map<string, any>>(new Map());
   const [slideDelayMs, setSlideDelayMs] = useState(2000);
   const [zoomFactor, setZoomFactor] = useState(1.0);
   const [effectiveZoom, setEffectiveZoom] = useState(1.0);
@@ -66,8 +69,45 @@ function App() {
   } | null>(null);
   const [cursorHidden, setCursorHidden] = useState(false);
   const [toolbarVisible, setToolbarVisible] = useState(true);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const updateSWRef = useRef<(() => void) | null>(null);
   const cursorTimeoutRef = useRef<number | null>(null);
   const { showSuccess, showError, showInfo, showWarning } = useToast();
+  
+  // Kiosk mode hook
+  const { isKioskMode, enterKiosk } = useKioskMode({
+    onEnter: () => {
+      // Hide toolbar and cursor when entering kiosk mode
+      setToolbarVisible(false);
+      setCursorHidden(true);
+    },
+    onExit: () => {
+      // Restore toolbar visibility when exiting kiosk mode
+      setToolbarVisible(true);
+      setCursorHidden(false);
+    },
+  });
+  
+  // Folder persistence hook
+  const {
+    directoryHandles,
+    folders,
+    setFolders,
+    loadFolders,
+    persistFolder,
+    removeFolder,
+    handleRevokedFolder: handleRevokedFolderHook,
+    clearAllFolders,
+  } = useFolderPersistence({
+    showError,
+    showWarning,
+    revokeUrlsForMediaItems: (items) => {
+      const urlsToRevoke = items
+        .map(item => item.objectUrl)
+        .filter((url): url is string => url !== undefined);
+      objectUrlRegistry.revokeMany(urlsToRevoke);
+    },
+  });
   
   // Retry policy for media errors
   const errorPolicy = usePlaybackErrorPolicy({ maxAttempts: 3, baseDelayMs: 1000 });
@@ -140,7 +180,7 @@ function App() {
     shouldGateAdvancement
   });
 
-  const { loadMediaFromFolders, loadMediaFromDirectory } = useMediaLoader();
+  const { loadMediaFromDirectory } = useMediaLoader();
 
   // Cleanup object URLs on unmount
   useEffect(() => {
@@ -177,6 +217,32 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentMedia?.filePath]); // Only depend on filePath, not the whole object
 
+  // Service Worker update handling
+  useEffect(() => {
+    const handleUpdateAvailable = (event: Event) => {
+      const customEvent = event as CustomEvent<{ updateSW: () => void }>;
+      if (customEvent.detail?.updateSW) {
+        updateSWRef.current = customEvent.detail.updateSW;
+        setUpdateAvailable(true);
+      }
+    };
+
+    window.addEventListener('sw-update-available', handleUpdateAvailable);
+    return () => {
+      window.removeEventListener('sw-update-available', handleUpdateAvailable);
+    };
+  }, []);
+
+  // Apply service worker update
+  const handleApplyUpdate = useCallback(() => {
+    if (updateSWRef.current) {
+      updateSWRef.current();
+      setUpdateAvailable(false);
+      // The service worker will reload the page after update
+      window.location.reload();
+    }
+  }, []);
+
   // Load settings and directory handles on mount
   useEffect(() => {
     const initializeApp = async () => {
@@ -184,7 +250,7 @@ function App() {
       
       try {
         // Load settings from localStorage
-        const savedSettings = loadSettings();
+        const savedSettings = loadSettings({ showError, showWarning });
         if (savedSettings.saveSlideDelay) {
           setSlideDelayMs(savedSettings.slideDelayMs);
         }
@@ -205,50 +271,53 @@ function App() {
         }
 
         // Load directory handles from IndexedDB (only if saveFolders is enabled)
-        if (savedSettings.saveFolders && isIndexedDBSupported()) {
-          try {
-            const handles = await loadDirectoryHandles();
-            setDirectoryHandles(handles);
-            
-            // Extract folder names
-            const folderNames = Array.from(handles.keys());
-            setFolders(folderNames);
-            
-            // Reload media from persisted folders
-            if (handles.size > 0) {
-              setStatusText('Loading folders...');
-              const allMediaItems: MediaItem[] = [];
+        const handles = await loadFolders(savedSettings.saveFolders);
+        
+        // Reload media from persisted folders
+        if (handles.size > 0) {
+          setStatusText('Loading folders...');
+          const allMediaItems: MediaItem[] = [];
+          
+          for (const [folderName, handle] of handles.entries()) {
+            try {
+              // Check permission before using handle
+              if (!(await hasReadPermission(handle))) {
+                console.warn(`Permission revoked for folder "${folderName}"`);
+                const removedItems = await handleRevokedFolder(folderName);
+                // Remove items from playlist
+                setPlaylist(prev => prev.filter(item => !removedItems.some(removed => removed.filePath === item.filePath)));
+                continue;
+              }
               
-              for (const [folderName, handle] of handles.entries()) {
+              const mediaItems = await loadMediaFromDirectory(handle, savedSettings.includeVideos);
+              allMediaItems.push(...mediaItems);
+            } catch (error) {
+              console.error(`Error loading folder ${folderName}:`, error);
+              // Check if it's a permission error
+              if (error instanceof Error && error.message.includes('Permission denied')) {
+                const removedItems = await handleRevokedFolder(folderName);
+                // Remove items from playlist
+                setPlaylist(prev => prev.filter(item => !removedItems.some(removed => removed.filePath === item.filePath)));
+              } else {
+                // Other error - remove invalid handle
                 try {
-                  const mediaItems = await loadMediaFromDirectory(handle, savedSettings.includeVideos);
-                  allMediaItems.push(...mediaItems);
-                } catch (error) {
-                  console.error(`Error loading folder ${folderName}:`, error);
-                  // Remove invalid handle
-                  await removeDirectoryHandle(folderName);
+                  await removeFolder(folderName);
+                } catch (removeError) {
+                  // Error already shown by removeFolder via toast
+                  console.warn('Error removing invalid handle:', removeError);
                 }
               }
-              
-              if (allMediaItems.length > 0) {
-                const sortedItems = sortMediaItems(allMediaItems, savedSettings.sortMode);
-                setPlaylist(sortedItems);
-                setCurrentIndex(0);
-                setCurrentMedia(sortedItems[0]);
-              }
-              
-              setStatusText('');
             }
-          } catch (error) {
-            console.error('Error loading directory handles:', error);
           }
-        } else if (!savedSettings.saveFolders && isIndexedDBSupported()) {
-          // If saveFolders is disabled, clear any existing saved folders
-          try {
-            await clearAllDirectoryHandles();
-          } catch (error) {
-            console.error('Error clearing directory handles:', error);
+          
+          if (allMediaItems.length > 0) {
+            const sortedItems = sortMediaItems(allMediaItems, savedSettings.sortMode);
+            setPlaylist(sortedItems);
+            setCurrentIndex(0);
+            setCurrentMedia(sortedItems[0]);
           }
+          
+          setStatusText('');
         }
       } catch (error) {
         console.error('Error initializing app:', error);
@@ -275,9 +344,13 @@ function App() {
         }
       };
       
-      (window as any).__validateMediaPath = (path: string, itemIndex?: number) => {
-        const error = validateMediaPath(path, itemIndex);
-        return error ? { ok: false, error } : { ok: true };
+      (window as any).__validateMediaPath = (path: string) => {
+        try {
+          const validated = validateMediaPath(path);
+          return { ok: true, validated };
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : 'Unknown error' };
+        }
       };
       
       (window as any).__MAX_MANIFEST_SIZE = MAX_MANIFEST_SIZE;
@@ -291,6 +364,54 @@ function App() {
 
   // Removed handleLoadFolders - now handled directly in handleAddFolder
   // In production, you'd implement a system to store and restore directory handles
+
+  /**
+   * Helper function to remove a folder and all its media items when permission is revoked
+   * This handles cleanup: removes from state, removes playlist items, revokes URLs, and shows toast
+   * @returns Array of media items that were removed (for caller to handle playlist updates if needed)
+   */
+  const handleRevokedFolder = useCallback(async (folderName: string): Promise<MediaItem[]> => {
+    // Use the hook to handle folder removal and URL revocation
+    const removedItems = await handleRevokedFolderHook(folderName, playlist);
+    
+    // Remove files from playlist and update current media/index
+    setPlaylist(prevPlaylist => {
+      const newPlaylist = prevPlaylist.filter(item => item.folderName !== folderName);
+      
+      // Update current media and index if current media belongs to revoked folder
+      // Use setTimeout to avoid nested state updates (React batches these)
+      setTimeout(() => {
+        setCurrentMedia(prevMedia => {
+          if (prevMedia && prevMedia.folderName === folderName) {
+            // Current media belongs to revoked folder - find next valid item
+            if (newPlaylist.length > 0) {
+              // Find the index of the current item in the new playlist, or go to first
+              const currentIndexInNew = newPlaylist.findIndex(
+                item => item.filePath === prevMedia.filePath
+              );
+              if (currentIndexInNew >= 0) {
+                setCurrentIndex(currentIndexInNew);
+                return newPlaylist[currentIndexInNew];
+              } else {
+                // Current item was removed, go to first item
+                setCurrentIndex(0);
+                return newPlaylist[0];
+              }
+            } else {
+              // Playlist is now empty
+              setCurrentIndex(-1);
+              return null;
+            }
+          }
+          return prevMedia;
+        });
+      }, 0);
+      
+      return newPlaylist;
+    });
+    
+    return removedItems;
+  }, [handleRevokedFolderHook, playlist]);
 
   const sortMediaItems = (items: MediaItem[], mode: string): MediaItem[] => {
     // Create a deep copy to ensure React detects the change
@@ -340,6 +461,9 @@ function App() {
         showInfo(`Scanning folder "${folderName}"...`);
         
         try {
+          // Check permission before using handle
+          await assertReadPermission(dirHandle, `folder "${folderName}"`);
+          
           // Check for manifest files first
           const manifestFiles = await findManifestFiles(dirHandle);
           console.log('Found manifest files:', manifestFiles.map(f => f.name));
@@ -448,21 +572,9 @@ function App() {
             return;
           }
           
-          // Store directory handle in state
-          const newHandles = new Map(directoryHandles);
-          newHandles.set(folderName, dirHandle);
-          setDirectoryHandles(newHandles);
-          
-          // Persist directory handle to IndexedDB (only if saveFolders is enabled)
-          const currentSettings = loadSettings();
-          if (currentSettings.saveFolders && isIndexedDBSupported()) {
-            try {
-              await saveDirectoryHandle(folderName, dirHandle);
-            } catch (error) {
-              console.error('Error saving directory handle:', error);
-              showError('Failed to save folder. It may not persist after refresh.');
-            }
-          }
+          // Persist directory handle (hook handles state and IndexedDB)
+          const currentSettings = loadSettings({ showError, showWarning });
+          await persistFolder(folderName, dirHandle, currentSettings.saveFolders);
           
           let sortedItems = [...mediaItems];
           
@@ -488,10 +600,7 @@ function App() {
             setCurrentMedia(mergedPlaylist[0]);
           }
           
-          // Add folder name to folders list
-          if (!folders.includes(folderName)) {
-            setFolders([...folders, folderName]);
-          }
+          // Folder name is already added by persistFolder hook
           
           showSuccess(`Added ${newItems.length} item${newItems.length !== 1 ? 's' : ''} from "${folderName}"`);
           setStatusText('');
@@ -606,10 +715,9 @@ function App() {
     setCurrentIndex(0);
     setCurrentMedia(matched[0]);
     
-    // Store directory handle
-    const newHandles = new Map(directoryHandles);
-    newHandles.set(folderName, dirHandle);
-    setDirectoryHandles(newHandles);
+    // Store directory handle (hook handles state and IndexedDB)
+    const currentSettings = loadSettings({ showError, showWarning });
+    await persistFolder(folderName, dirHandle, currentSettings.saveFolders);
     
     // Clear other folders (manifest mode uses only manifest items)
     setFolders([selected.fileName]);
@@ -624,7 +732,7 @@ function App() {
     }
     
     showSuccess(`Loaded playlist: ${selected.fileName} (${matched.length} items)`);
-  }, [pendingManifestFiles, pendingManifestContext, directoryHandles, showSuccess, showWarning]);
+  }, [pendingManifestFiles, pendingManifestContext, persistFolder, setFolders, showSuccess, showWarning]);
   
   const handleIgnoreAllManifests = useCallback(() => {
     setShowManifestSelection(false);
@@ -815,7 +923,7 @@ function App() {
   const handleZoomReset = useCallback(() => {
     setZoomFactor(1.0);
     setIsFitToWindow(true);
-    saveSettings({ zoomFactor: 1.0, isFitToWindow: true });
+    saveSettings({ zoomFactor: 1.0, isFitToWindow: true }, { showError, showWarning });
   }, []);
 
   useEffect(() => {
@@ -855,6 +963,11 @@ function App() {
           }
           break;
         case 'Escape':
+          // Don't handle Escape in kiosk mode - let useKioskMode handle it
+          if (isKioskMode) {
+            // Let the kiosk mode hook handle escape sequence
+            return;
+          }
           if (isFullscreen) {
             e.preventDefault();
             handleToggleFullscreen();
@@ -871,7 +984,7 @@ function App() {
           e.preventDefault();
           setZoomFactor(prev => {
             const newValue = Math.min(prev + 0.1, 5);
-            saveSettings({ zoomFactor: newValue });
+            saveSettings({ zoomFactor: newValue }, { showError, showWarning });
             return newValue;
           });
           break;
@@ -880,7 +993,7 @@ function App() {
           e.preventDefault();
           setZoomFactor(prev => {
             const newValue = Math.max(prev - 0.1, 0.1);
-            saveSettings({ zoomFactor: newValue });
+            saveSettings({ zoomFactor: newValue }, { showError, showWarning });
             return newValue;
           });
           break;
@@ -922,7 +1035,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFullscreen, showPlaylist, showSettings, handlePlayPause, handleNext, handlePrevious, handleToggleFullscreen, handleZoomReset]);
+  }, [isFullscreen, isKioskMode, showPlaylist, showSettings, handlePlayPause, handleNext, handlePrevious, handleToggleFullscreen, handleZoomReset]);
 
   // Manifest mode: Cursor hiding in fullscreen
   useEffect(() => {
@@ -940,7 +1053,7 @@ function App() {
       if (cursorTimeoutRef.current) {
         clearTimeout(cursorTimeoutRef.current);
       }
-      cursorTimeoutRef.current = setTimeout(() => {
+      cursorTimeoutRef.current = window.setTimeout(() => {
         setCursorHidden(true);
       }, 2000);
     };
@@ -1053,6 +1166,16 @@ function App() {
             // Set retry gating flag to prevent slideshow advancement during retry
             isRetryingCurrentMediaRef.current = true;
             
+            // Log retry scheduled
+            const retryEntry = logger.event('retry_scheduled', {
+              mediaId,
+              fileName,
+              attempt,
+              maxAttempts: errorPolicy.config.maxAttempts,
+              delayMs: nextDelayMs,
+            });
+            addEvent(retryEntry);
+            
             // Show retry message
             const delaySeconds = Math.ceil(nextDelayMs / 1000);
             showWarning(
@@ -1061,7 +1184,7 @@ function App() {
             );
             
             // Schedule retry
-            retryTimerRef.current = setTimeout(() => {
+            retryTimerRef.current = window.setTimeout(() => {
               retryTimerRef.current = null;
               // Clear retry gating flag before retry
               isRetryingCurrentMediaRef.current = false;
@@ -1078,6 +1201,16 @@ function App() {
               `Failed to load after ${errorPolicy.config.maxAttempts} attempts. Skipping.`,
               5000
             );
+            
+            // Log final skip after max retries
+            const skipEntry = logger.event('final_skip_after_max_retries', {
+              mediaId,
+              fileName,
+              attempts: errorRecord?.attempts || attempt,
+              maxAttempts: errorPolicy.config.maxAttempts,
+              errorType,
+            }, 'error');
+            addEvent(skipEntry);
             
             // Log error for debugging
             console.error('Media load failed after max retries:', {
@@ -1117,7 +1250,7 @@ function App() {
         </div>
       )}
 
-      {playlist.length === 0 && !isLoadingFolders && (
+      {playlist.length === 0 && !isLoadingFolders && !isKioskMode && (
         <div className="empty-state">
           <p>No media loaded</p>
           <button onClick={handleAddFolder} className="btn-primary">
@@ -1126,10 +1259,11 @@ function App() {
         </div>
       )}
 
-      <Toolbar
-        isPlaying={isPlaying}
-        includeVideos={includeVideos}
-        onIncludeVideosChange={async (value) => {
+      {!isKioskMode && (
+        <Toolbar
+          isPlaying={isPlaying}
+          includeVideos={includeVideos}
+          onIncludeVideosChange={async (value) => {
           const wasIncludingVideos = includeVideos;
           setIncludeVideos(value);
           
@@ -1141,8 +1275,30 @@ function App() {
               
               // Reload all folders with the new includeVideos setting
               for (const [folderName, dirHandle] of directoryHandles.entries()) {
-                const mediaItems = await loadMediaFromDirectory(dirHandle, value);
-                allMediaItems.push(...mediaItems);
+                try {
+                  // Check permission before using handle
+                  if (!(await hasReadPermission(dirHandle))) {
+                    console.warn(`Permission revoked for folder "${folderName}"`);
+                    const removedItems = await handleRevokedFolder(folderName);
+                    // Remove items from playlist (will be rebuilt anyway, but clean up now)
+                    setPlaylist(prev => prev.filter(item => !removedItems.some(removed => removed.filePath === item.filePath)));
+                    continue;
+                  }
+                  
+                  const mediaItems = await loadMediaFromDirectory(dirHandle, value);
+                  allMediaItems.push(...mediaItems);
+                } catch (error) {
+                  console.error(`Error reloading folder ${folderName}:`, error);
+                  // Check if it's a permission error
+                  if (error instanceof Error && error.message.includes('Permission denied')) {
+                    const removedItems = await handleRevokedFolder(folderName);
+                    // Remove items from playlist (will be rebuilt anyway, but clean up now)
+                    setPlaylist(prev => prev.filter(item => !removedItems.some(removed => removed.filePath === item.filePath)));
+                  } else {
+                    // Other error - skip this folder
+                    showWarning(`Failed to reload folder "${folderName}": ${error instanceof Error ? error.message : 'Unknown error'}`);
+                  }
+                }
               }
               
               // Apply sorting
@@ -1221,7 +1377,7 @@ function App() {
         slideDelayMs={slideDelayMs}
         onSlideDelayChange={(value) => {
           setSlideDelayMs(value);
-          saveSettings({ slideDelayMs: value });
+          saveSettings({ slideDelayMs: value }, { showError, showWarning });
         }}
         zoomFactor={zoomFactor}
         effectiveZoom={effectiveZoom}
@@ -1248,9 +1404,12 @@ function App() {
         isManifestMode={isManifestMode}
         onExitManifestMode={handleExitManifestMode}
         toolbarVisible={toolbarVisible}
+        isKioskMode={isKioskMode}
+        onEnterKiosk={enterKiosk}
       />
+      )}
 
-      {showPlaylist && (
+      {!isKioskMode && showPlaylist && (
         <PlaylistWindow
           playlist={playlist}
           currentIndex={currentIndex}
@@ -1260,24 +1419,8 @@ function App() {
           onRemoveFile={handleRemoveFile}
           onPlayFromFile={handlePlayFromFile}
           onRemoveFolder={async (folderName) => {
-            // Remove folder from folders list
-            const newFolders = folders.filter(f => f !== folderName);
-            setFolders(newFolders);
-            
-            // Remove directory handle from state
-            const newHandles = new Map(directoryHandles);
-            newHandles.delete(folderName);
-            setDirectoryHandles(newHandles);
-            
-            // Remove directory handle from IndexedDB (if saveFolders is enabled, or just to clean up)
-            if (isIndexedDBSupported()) {
-              try {
-                await removeDirectoryHandle(folderName);
-              } catch (error) {
-                console.error('Error removing directory handle:', error);
-                // Don't show error - folder is removed from UI anyway
-              }
-            }
+            // Remove folder (hook handles state and IndexedDB)
+            await removeFolder(folderName);
             
             // Remove all files from that folder
             const filesInFolder = playlist.filter(item => item.folderName === folderName);
@@ -1309,31 +1452,34 @@ function App() {
         />
       )}
 
-      {showSettings && (
+      {!isKioskMode && showSettings && (
         <SettingsWindow
           onClose={() => setShowSettings(false)}
           onSave={async () => {
             showSuccess('Settings saved successfully');
             // Check if saveFolders was disabled and clear saved folders from IndexedDB if so
-            const currentSettings = loadSettings();
-            if (!currentSettings.saveFolders && isIndexedDBSupported()) {
+            const currentSettings = loadSettings({ showError, showWarning });
+            if (!currentSettings.saveFolders) {
               try {
-                await clearAllDirectoryHandles();
+                await clearAllFolders();
                 // Note: Current folders in state remain active, but won't be saved on next load
               } catch (error) {
-                console.error('Error clearing directory handles:', error);
+                // Error already shown by clearAllFolders via toast
+                console.warn('Error clearing directory handles:', error);
               }
             }
           }}
         />
       )}
 
-      <KeyboardShortcutsHelp 
-        isOpen={showShortcutsHelp} 
-        onClose={() => setShowShortcutsHelp(false)} 
-      />
+      {!isKioskMode && (
+        <KeyboardShortcutsHelp 
+          isOpen={showShortcutsHelp} 
+          onClose={() => setShowShortcutsHelp(false)} 
+        />
+      )}
 
-      {showManifestDialog && pendingManifestData && (
+      {!isKioskMode && showManifestDialog && pendingManifestData && (
         <ManifestModeDialog
           manifestName={pendingManifestData.fileName}
           itemCount={pendingManifestData.mediaItems.length}
@@ -1343,12 +1489,35 @@ function App() {
         />
       )}
 
-      {showManifestSelection && pendingManifestFiles.length > 0 && (
+      {!isKioskMode && showManifestSelection && pendingManifestFiles.length > 0 && (
         <ManifestSelectionDialog
           manifests={pendingManifestFiles.map(f => ({ name: f.name, itemCount: f.itemCount }))}
           onSelect={handleSelectManifest}
           onIgnore={handleIgnoreAllManifests}
         />
+      )}
+
+      {!isKioskMode && updateAvailable && (
+        <UpdatePrompt 
+          onReload={handleApplyUpdate}
+          onDismiss={() => setUpdateAvailable(false)}
+        />
+      )}
+      
+      {/* Kiosk mode indicator - minimal status dot */}
+      {isKioskMode && (
+        <div style={{
+          position: 'fixed',
+          top: '8px',
+          right: '8px',
+          width: '8px',
+          height: '8px',
+          borderRadius: '50%',
+          backgroundColor: 'rgba(0, 120, 212, 0.6)',
+          zIndex: 10000,
+          pointerEvents: 'none',
+          boxShadow: '0 0 4px rgba(0, 120, 212, 0.8)'
+        }} title="Kiosk Mode Active" />
       )}
     </div>
   );

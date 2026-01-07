@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       // PWA configuration will be added later when we implement offline features
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}']
@@ -27,5 +27,10 @@ export default defineConfig({
       }
     })
   ],
+  test: {
+    environment: 'jsdom',
+    setupFiles: './src/test/setup.ts',
+    globals: true
+  }
 })
 
