@@ -123,6 +123,16 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                 Save zoom level
               </label>
             </div>
+            <div className="settings-preference">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={settings.saveFolders}
+                  onChange={(e) => handleSaveFlagChange('saveFolders', e.target.checked)}
+                />
+                Save last loaded folders
+              </label>
+            </div>
           </section>
         </div>
         

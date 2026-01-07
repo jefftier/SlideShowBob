@@ -316,6 +316,105 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
     setPanOffset({ x: 0, y: 0 });
   }, [isFitToWindow, currentMedia]);
 
+  // Touch event handlers (similar to mouse handlers)
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return; // Only handle single touch
+    
+    // Only enable drag when fit is off
+    if (!isFitToWindow && currentMedia && !isLoading && containerRef.current) {
+      const target = e.target as HTMLElement;
+      if (target.closest('.loading-overlay')) {
+        return;
+      }
+      
+      const mediaElement = imageRef.current || videoRef.current;
+      if (!mediaElement) return;
+      
+      const touch = e.touches[0];
+      clickStartTimeRef.current = Date.now();
+      clickStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+      
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const mediaRect = mediaElement.getBoundingClientRect();
+      const scaledWidth = mediaRect.width * zoomFactor;
+      const scaledHeight = mediaRect.height * zoomFactor;
+      
+      const isLargerThanViewport = scaledWidth > containerRect.width || scaledHeight > containerRect.height;
+      
+      if (isLargerThanViewport) {
+        setIsDragging(true);
+        setDragStart({ x: touch.clientX - panOffset.x, y: touch.clientY - panOffset.y });
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+  }, [isFitToWindow, currentMedia, isLoading, panOffset, zoomFactor]);
+
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    
+    if (isDragging && !isFitToWindow && containerRef.current) {
+      const touch = e.touches[0];
+      const newX = touch.clientX - dragStart.x;
+      const newY = touch.clientY - dragStart.y;
+      
+      const container = containerRef.current;
+      const mediaElement = imageRef.current || videoRef.current;
+      
+      if (mediaElement) {
+        const containerRect = container.getBoundingClientRect();
+        const naturalWidth = (mediaElement as HTMLImageElement).naturalWidth || 
+                            (mediaElement as HTMLVideoElement).videoWidth || 0;
+        const naturalHeight = (mediaElement as HTMLImageElement).naturalHeight || 
+                             (mediaElement as HTMLVideoElement).videoHeight || 0;
+        
+        if (naturalWidth > 0 && naturalHeight > 0) {
+          const scaledWidth = naturalWidth * zoomFactor;
+          const scaledHeight = naturalHeight * zoomFactor;
+          
+          const maxX = Math.max(0, (scaledWidth - containerRect.width) / 2);
+          const maxY = Math.max(0, (scaledHeight - containerRect.height) / 2);
+          
+          const constrainedX = Math.max(-maxX, Math.min(maxX, newX));
+          const constrainedY = Math.max(-maxY, Math.min(maxY, newY));
+          
+          setPanOffset({ x: constrainedX, y: constrainedY });
+        } else {
+          setPanOffset({ x: newX, y: newY });
+        }
+      }
+      
+      e.preventDefault();
+    }
+  }, [isDragging, isFitToWindow, dragStart, zoomFactor]);
+
+  const handleTouchEnd = useCallback((e: TouchEvent) => {
+    if (isDragging) {
+      setIsDragging(false);
+    }
+    
+    if (!isFitToWindow && currentMedia && !isLoading && clickStartTimeRef.current > 0) {
+      const touch = e.changedTouches[0];
+      const clickDuration = Date.now() - clickStartTimeRef.current;
+      const clickDistance = Math.sqrt(
+        Math.pow(touch.clientX - clickStartPosRef.current.x, 2) +
+        Math.pow(touch.clientY - clickStartPosRef.current.y, 2)
+      );
+      
+      if (clickDuration < 300 && clickDistance < 10 && onImageClick) {
+        if (!isNavigatingRef.current) {
+          isNavigatingRef.current = true;
+          onImageClick();
+          setTimeout(() => {
+            isNavigatingRef.current = false;
+          }, 200);
+        }
+      }
+    }
+    
+    clickStartTimeRef.current = 0;
+  }, [isDragging, isFitToWindow, currentMedia, isLoading, onImageClick]);
+
   // Add/remove mouse move and up listeners
   useEffect(() => {
     if (!isFitToWindow && currentMedia && !isLoading) {
@@ -325,14 +424,19 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         // Only listen for mousemove when actually dragging
         document.addEventListener('mousemove', handleMouseMove);
       }
+      // Touch events
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleTouchEnd);
       return () => {
         document.removeEventListener('mouseup', handleMouseUp);
         if (isDragging) {
           document.removeEventListener('mousemove', handleMouseMove);
         }
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleTouchEnd);
       };
     }
-  }, [isDragging, isFitToWindow, currentMedia, isLoading, handleMouseMove, handleMouseUp]);
+  }, [isDragging, isFitToWindow, currentMedia, isLoading, handleMouseMove, handleMouseUp, handleTouchMove, handleTouchEnd]);
 
   // Use useCallback to ensure stable reference and prevent issues with changing callbacks
   // MUST be defined before any conditional returns to follow Rules of Hooks
@@ -436,7 +540,6 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
       className="media-display" 
       ref={containerRef} 
       onClick={handleClick}
-      onMouseDown={handleMouseDown}
       style={{ cursor: getCursorStyle() }}
     >
       {isLoading && (
@@ -446,7 +549,12 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         </div>
       )}
       
-      <div className="media-container" style={containerStyle}>
+      <div 
+        className="media-container" 
+        style={containerStyle}
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
+      >
         {currentMedia.type === MediaType.Video && videoSrc ? (
           <video
             ref={videoRef}

@@ -93,3 +93,52 @@
   font-size: 16px;
 }
 
+/* Responsive Design */
+@media (max-width: 768px) {
+  .app {
+    font-size: 14px;
+  }
+
+  .empty-state {
+    padding: 20px;
+  }
+
+  .empty-state p {
+    font-size: 14px;
+  }
+
+  .btn-primary {
+    padding: 12px 24px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .app {
+    font-size: 12px;
+  }
+
+  .empty-state {
+    padding: 16px;
+    width: 90%;
+  }
+
+  .empty-state p {
+    font-size: 13px;
+  }
+
+  .btn-primary {
+    padding: 10px 20px;
+    font-size: 13px;
+    width: 100%;
+    max-width: 200px;
+  }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  .btn-primary {
+    min-height: 44px; /* Minimum touch target size */
+  }
+}
+

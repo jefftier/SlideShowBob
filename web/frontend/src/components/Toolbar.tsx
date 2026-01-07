@@ -25,6 +25,7 @@ interface ToolbarProps {
   onAddFolder: () => void;
   onOpenPlaylist: () => void;
   onOpenSettings: () => void;
+  onOpenShortcutsHelp?: () => void;
   onSort: (mode: 'NameAZ' | 'NameZA' | 'DateOldest' | 'DateNewest' | 'Random') => void;
   currentSortMode?: 'NameAZ' | 'NameZA' | 'DateOldest' | 'DateNewest' | 'Random';
   currentIndex: number;
@@ -55,6 +56,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onAddFolder,
   onOpenPlaylist,
   onOpenSettings,
+  onOpenShortcutsHelp,
   onSort,
   currentSortMode,
   currentIndex,
@@ -391,6 +393,20 @@ const Toolbar: React.FC<ToolbarProps> = ({
             >
               ⚙
             </button>
+            
+            {onOpenShortcutsHelp && (
+              <>
+                <div className="toolbar-separator"></div>
+                <button
+                  className="toolbar-btn"
+                  onClick={onOpenShortcutsHelp}
+                  title="Keyboard Shortcuts (?)"
+                  aria-label="Keyboard Shortcuts"
+                >
+                  ?
+                </button>
+              </>
+            )}
             
             <div className="toolbar-separator"></div>
             

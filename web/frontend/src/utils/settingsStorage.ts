@@ -14,6 +14,7 @@ export interface AppSettings {
   saveIsMuted: boolean;
   saveIsFitToWindow: boolean;
   saveZoomFactor: boolean;
+  saveFolders: boolean;
 }
 
 const SETTINGS_KEY = 'slideshow-settings';
@@ -31,6 +32,7 @@ const defaultSettings: AppSettings = {
   saveIsMuted: true,
   saveIsFitToWindow: true,
   saveZoomFactor: true,
+  saveFolders: true,
 };
 
 export const loadSettings = (): AppSettings => {
@@ -81,6 +83,7 @@ export const saveSettings = (settings: Partial<AppSettings>): void => {
     if (settings.saveIsMuted !== undefined) merged.saveIsMuted = settings.saveIsMuted;
     if (settings.saveIsFitToWindow !== undefined) merged.saveIsFitToWindow = settings.saveIsFitToWindow;
     if (settings.saveZoomFactor !== undefined) merged.saveZoomFactor = settings.saveZoomFactor;
+    if (settings.saveFolders !== undefined) merged.saveFolders = settings.saveFolders;
     
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged));
   } catch (error) {

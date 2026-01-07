@@ -25,10 +25,31 @@ async function scanDirectory(
   dirHandle: FileSystemDirectoryHandle,
   includeVideos: boolean,
   rootFolderName: string,
-  path: string = ''
+  path: string = '',
+  onProgress?: (current: number, total: number) => void
 ): Promise<MediaItem[]> {
   const mediaItems: MediaItem[] = [];
+  let totalFiles = 0;
+  let processedFiles = 0;
 
+  // First pass: count total files (for progress tracking)
+  try {
+    for await (const [, handle] of dirHandle.entries()) {
+      if (handle.kind === 'file') {
+        totalFiles++;
+      } else if (handle.kind === 'directory') {
+        // Count files in subdirectories recursively
+        const subDirHandle = handle as FileSystemDirectoryHandle;
+        const subPath = path ? `${path}/${handle.name}` : handle.name;
+        const subItems = await scanDirectory(subDirHandle, includeVideos, rootFolderName, subPath);
+        totalFiles += subItems.length;
+      }
+    }
+  } catch (error) {
+    console.error(`Error counting files in directory ${path}:`, error);
+  }
+
+  // Second pass: process files with progress updates
   try {
     for await (const [name, handle] of dirHandle.entries()) {
       if (handle.kind === 'file') {
@@ -62,11 +83,17 @@ async function scanDirectory(
             console.warn(`Error reading file ${name}:`, error);
           }
         }
+        
+        processedFiles++;
+        // Update progress every 10 files or on last file
+        if (onProgress && (processedFiles % 10 === 0 || processedFiles === totalFiles)) {
+          onProgress(processedFiles, totalFiles);
+        }
       } else if (handle.kind === 'directory') {
         // Recursively scan subdirectories
         const subDirHandle = handle as FileSystemDirectoryHandle;
         const subPath = path ? `${path}/${name}` : name;
-        const subItems = await scanDirectory(subDirHandle, includeVideos, rootFolderName, subPath);
+        const subItems = await scanDirectory(subDirHandle, includeVideos, rootFolderName, subPath, onProgress);
         mediaItems.push(...subItems);
       }
     }
@@ -117,10 +144,11 @@ export function useMediaLoader() {
 
   const loadMediaFromDirectory = useCallback(async (
     dirHandle: FileSystemDirectoryHandle,
-    includeVideos: boolean
+    includeVideos: boolean,
+    onProgress?: (current: number, total: number) => void
   ): Promise<MediaItem[]> => {
     const rootFolderName = dirHandle.name;
-    return scanDirectory(dirHandle, includeVideos, rootFolderName);
+    return scanDirectory(dirHandle, includeVideos, rootFolderName, '', onProgress);
   }, []);
 
   return {

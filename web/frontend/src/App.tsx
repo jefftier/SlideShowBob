@@ -4,12 +4,14 @@ import Toolbar from './components/Toolbar';
 import PlaylistWindow from './components/PlaylistWindow';
 import SettingsWindow from './components/SettingsWindow';
 import ToastContainer from './components/ToastContainer';
+import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp';
+import ProgressIndicator from './components/ProgressIndicator';
 import { useSlideshow } from './hooks/useSlideshow';
 import { useMediaLoader } from './hooks/useMediaLoader';
 import { useToast } from './hooks/useToast';
 import { MediaItem, MediaType } from './types/media';
 import { loadSettings, saveSettings, AppSettings } from './utils/settingsStorage';
-import { loadDirectoryHandles, saveDirectoryHandle, removeDirectoryHandle, isIndexedDBSupported } from './utils/directoryStorage';
+import { loadDirectoryHandles, saveDirectoryHandle, removeDirectoryHandle, clearAllDirectoryHandles, isIndexedDBSupported } from './utils/directoryStorage';
 import './App.css';
 
 function App() {
@@ -32,6 +34,8 @@ function App() {
   const [statusText, setStatusText] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState<{current: number, total: number} | null>(null);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const { toasts, showSuccess, showError, showInfo, removeToast } = useToast();
 
   // Get filtered playlist based on includeVideos (excludes both Video and Gif when false)
@@ -95,8 +99,8 @@ function App() {
           setZoomFactor(savedSettings.zoomFactor);
         }
 
-        // Load directory handles from IndexedDB
-        if (isIndexedDBSupported()) {
+        // Load directory handles from IndexedDB (only if saveFolders is enabled)
+        if (savedSettings.saveFolders && isIndexedDBSupported()) {
           try {
             const handles = await loadDirectoryHandles();
             setDirectoryHandles(handles);
@@ -132,6 +136,13 @@ function App() {
             }
           } catch (error) {
             console.error('Error loading directory handles:', error);
+          }
+        } else if (!savedSettings.saveFolders && isIndexedDBSupported()) {
+          // If saveFolders is disabled, clear any existing saved folders
+          try {
+            await clearAllDirectoryHandles();
+          } catch (error) {
+            console.error('Error clearing directory handles:', error);
           }
         }
       } catch (error) {
@@ -191,11 +202,15 @@ function App() {
         
         setIsLoadingFolders(true);
         setStatusText(`Loading "${folderName}"...`);
+        setLoadingProgress({ current: 0, total: 0 });
         showInfo(`Scanning folder "${folderName}"...`);
         
         try {
-          // Load media from the selected directory
-          const mediaItems = await loadMediaFromDirectory(dirHandle, includeVideos);
+          // Load media from the selected directory with progress tracking
+          const mediaItems = await loadMediaFromDirectory(dirHandle, includeVideos, (current, total) => {
+            setLoadingProgress({ current, total });
+            setStatusText(`Loading "${folderName}"... (${current.toLocaleString()} / ${total.toLocaleString()} files)`);
+          });
           
           if (mediaItems.length === 0) {
             showWarning(`No media files found in "${folderName}"`);
@@ -209,8 +224,9 @@ function App() {
           newHandles.set(folderName, dirHandle);
           setDirectoryHandles(newHandles);
           
-          // Persist directory handle to IndexedDB
-          if (isIndexedDBSupported()) {
+          // Persist directory handle to IndexedDB (only if saveFolders is enabled)
+          const currentSettings = loadSettings();
+          if (currentSettings.saveFolders && isIndexedDBSupported()) {
             try {
               await saveDirectoryHandle(folderName, dirHandle);
             } catch (error) {
@@ -250,10 +266,12 @@ function App() {
           
           showSuccess(`Added ${newItems.length} item${newItems.length !== 1 ? 's' : ''} from "${folderName}"`);
           setStatusText('');
+          setLoadingProgress(null);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           showError(`Failed to load folder "${folderName}": ${errorMessage}`);
           setStatusText(`Error: ${errorMessage}`);
+          setLoadingProgress(null);
           console.error('Error loading directory:', error);
         } finally {
           setIsLoadingFolders(false);
@@ -498,6 +516,33 @@ function App() {
             handleZoomReset();
           }
           break;
+        case '?':
+          // ? key requires Shift on most keyboards, so allow Shift
+          if (!e.ctrlKey && !e.altKey) {
+            e.preventDefault();
+            setShowShortcutsHelp(true);
+          }
+          break;
+        case '/':
+          // Some keyboards use / for ?, handle both
+          if (e.shiftKey && !e.ctrlKey && !e.altKey) {
+            e.preventDefault();
+            setShowShortcutsHelp(true);
+          }
+          break;
+        case 'p':
+        case 'P':
+          if (!e.shiftKey && !e.ctrlKey && !e.altKey) {
+            e.preventDefault();
+            setShowPlaylist(true);
+          }
+          break;
+        case ',':
+          if (!e.shiftKey && !e.ctrlKey && !e.altKey) {
+            e.preventDefault();
+            setShowSettings(true);
+          }
+          break;
       }
     };
 
@@ -536,8 +581,11 @@ function App() {
       
       {isLoadingFolders && (
         <div className="loading-overlay-global">
-          <div className="loading-spinner"></div>
-          <p>{statusText || 'Loading folders...'}</p>
+          <ProgressIndicator
+            message={statusText || 'Loading folders...'}
+            current={loadingProgress?.current}
+            total={loadingProgress?.total}
+          />
         </div>
       )}
 
@@ -680,13 +728,13 @@ function App() {
             newHandles.delete(folderName);
             setDirectoryHandles(newHandles);
             
-            // Remove directory handle from IndexedDB
+            // Remove directory handle from IndexedDB (if saveFolders is enabled, or just to clean up)
             if (isIndexedDBSupported()) {
               try {
                 await removeDirectoryHandle(folderName);
               } catch (error) {
                 console.error('Error removing directory handle:', error);
-                showError('Failed to remove folder from storage');
+                // Don't show error - folder is removed from UI anyway
               }
             }
             
@@ -716,11 +764,26 @@ function App() {
       {showSettings && (
         <SettingsWindow
           onClose={() => setShowSettings(false)}
-          onSave={() => {
+          onSave={async () => {
             showSuccess('Settings saved successfully');
+            // Check if saveFolders was disabled and clear saved folders from IndexedDB if so
+            const currentSettings = loadSettings();
+            if (!currentSettings.saveFolders && isIndexedDBSupported()) {
+              try {
+                await clearAllDirectoryHandles();
+                // Note: Current folders in state remain active, but won't be saved on next load
+              } catch (error) {
+                console.error('Error clearing directory handles:', error);
+              }
+            }
           }}
         />
       )}
+
+      <KeyboardShortcutsHelp 
+        isOpen={showShortcutsHelp} 
+        onClose={() => setShowShortcutsHelp(false)} 
+      />
     </div>
   );
 }

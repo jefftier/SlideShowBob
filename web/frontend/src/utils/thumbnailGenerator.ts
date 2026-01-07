@@ -4,8 +4,21 @@
 import { MediaType } from '../types/media';
 
 const THUMBNAIL_SIZE = 150; // Max dimension for thumbnails (reduced for faster processing)
+const PLACEHOLDER_SIZE = 30; // Size for blur-up placeholder (very small for instant display)
 const THUMBNAIL_CACHE_SIZE = 200; // Max cached thumbnails (LRU)
 const JPEG_QUALITY = 0.75; // JPEG quality (reduced for faster encoding)
+const WEBP_QUALITY = 0.75; // WebP quality (same as JPEG for consistency)
+
+// Check WebP support
+function supportsWebP(): boolean {
+  if (typeof window === 'undefined') return false;
+  const canvas = document.createElement('canvas');
+  canvas.width = 1;
+  canvas.height = 1;
+  return canvas.toDataURL('image/webp').indexOf('data:image/webp') === 0;
+}
+
+const webpSupported = supportsWebP();
 
 interface CachedThumbnail {
   thumbnailUrl: string;
@@ -90,7 +103,10 @@ async function generateImageThumbnail(file: File): Promise<string | null> {
         (imageBitmap as ImageBitmap).close();
       }
       
-      // Convert to blob URL
+      // Convert to blob URL - use WebP if supported, fallback to JPEG
+      const mimeType = webpSupported ? 'image/webp' : 'image/jpeg';
+      const quality = webpSupported ? WEBP_QUALITY : JPEG_QUALITY;
+      
       canvas.toBlob((blob) => {
         URL.revokeObjectURL(objectUrl);
         if (blob) {
@@ -99,7 +115,7 @@ async function generateImageThumbnail(file: File): Promise<string | null> {
         } else {
           resolve(null);
         }
-      }, 'image/jpeg', JPEG_QUALITY);
+      }, mimeType, quality);
     } catch (error) {
       URL.revokeObjectURL(objectUrl);
       resolve(null);
@@ -161,7 +177,10 @@ async function generateVideoThumbnail(file: File): Promise<string | null> {
       
       ctx.drawImage(video, 0, 0, width, height);
       
-      // Convert to blob URL
+      // Convert to blob URL - use WebP if supported, fallback to JPEG
+      const mimeType = webpSupported ? 'image/webp' : 'image/jpeg';
+      const quality = webpSupported ? WEBP_QUALITY : JPEG_QUALITY;
+      
       canvas.toBlob((blob) => {
         URL.revokeObjectURL(objectUrl);
         if (blob) {
@@ -170,7 +189,7 @@ async function generateVideoThumbnail(file: File): Promise<string | null> {
         } else {
           resolve(null);
         }
-      }, 'image/jpeg', JPEG_QUALITY);
+      }, mimeType, quality);
     };
     
     video.onerror = () => {

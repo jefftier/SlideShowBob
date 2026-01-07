@@ -14,6 +14,73 @@
   overflow: visible;
 }
 
+/* Responsive Design */
+@media (max-width: 768px) {
+  .toolbar-expanded,
+  .toolbar-minimized {
+    padding: 6px 4px;
+    border-radius: 0;
+    left: 0;
+    right: 0;
+    transform: none;
+    width: 100%;
+  }
+
+  .toolbar-content {
+    gap: 2px;
+  }
+
+  .toolbar-btn {
+    width: 36px;
+    height: 36px;
+    min-width: 36px; /* Ensure minimum touch target */
+  }
+
+  .toolbar-input {
+    width: 60px;
+    font-size: 12px;
+    padding: 4px;
+  }
+
+  .toolbar-label {
+    font-size: 11px;
+  }
+
+  .status-bar {
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .toolbar-btn {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    font-size: 18px;
+  }
+
+  .toolbar-input {
+    width: 50px;
+  }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  .toolbar-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .toolbar-btn:hover {
+    background: transparent; /* Disable hover on touch devices */
+  }
+
+  .toolbar-btn:active {
+    background: rgba(255, 255, 255, 0.2);
+  }
+}
+
 .toolbar-content {
   display: flex;
   align-items: center;

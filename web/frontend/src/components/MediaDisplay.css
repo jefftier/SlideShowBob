@@ -61,3 +61,36 @@
   color: #e0e0e0;
 }
 
+/* Responsive Design */
+@media (max-width: 768px) {
+  .media-display {
+    touch-action: pan-x pan-y pinch-zoom;
+  }
+
+  .media-container img,
+  .media-container video {
+    max-width: 100vw;
+    max-height: 100vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .loading-overlay p {
+    font-size: 12px;
+    margin-top: 12px;
+  }
+
+  .loading-spinner {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  .media-container img,
+  .media-container video {
+    cursor: default;
+  }
+}
+

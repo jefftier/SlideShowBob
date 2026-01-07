@@ -656,6 +656,180 @@
   color: #fff;
 }
 
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .playlist-window {
+    width: 95%;
+    max-width: none;
+  }
+
+  .playlist-sidebar {
+    min-width: 200px;
+  }
+}
+
+@media (max-width: 768px) {
+  .playlist-window {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .playlist-window-overlay {
+    padding-top: 0;
+    align-items: flex-start;
+  }
+
+  .playlist-header {
+    padding: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .playlist-header h2 {
+    font-size: 16px;
+  }
+
+  .playlist-controls {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .playlist-search {
+    width: 150px;
+    font-size: 12px;
+  }
+
+  .playlist-body {
+    flex-direction: column;
+  }
+
+  .playlist-sidebar {
+    width: 100% !important;
+    min-width: 100%;
+    max-width: 100%;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .playlist-resize-handle {
+    display: none;
+  }
+
+  .playlist-content {
+    width: 100%;
+  }
+
+  .playlist-grid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .playlist-grid-item {
+    padding: 4px;
+  }
+
+  .playlist-grid-thumbnail {
+    margin-bottom: 4px;
+  }
+
+  .playlist-grid-name {
+    font-size: 9px;
+  }
+
+  .playlist-grid-index {
+    font-size: 8px;
+  }
+
+  .playlist-list {
+    padding: 8px;
+  }
+
+  .playlist-item {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+
+  .playlist-item-index {
+    min-width: 30px;
+    font-size: 11px;
+  }
+
+  .playlist-item-name {
+    font-size: 12px;
+  }
+
+  .playlist-item-type {
+    font-size: 10px;
+    min-width: 50px;
+  }
+}
+
+@media (max-width: 480px) {
+  .playlist-header {
+    padding: 8px;
+  }
+
+  .playlist-header h2 {
+    font-size: 14px;
+  }
+
+  .playlist-search {
+    width: 120px;
+    font-size: 11px;
+  }
+
+  .playlist-grid {
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .playlist-grid-item {
+    padding: 3px;
+  }
+
+  .playlist-grid-name {
+    font-size: 8px;
+  }
+
+  .playlist-item {
+    padding: 4px 6px;
+    font-size: 11px;
+  }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  .playlist-grid-item,
+  .playlist-item {
+    min-height: 44px; /* Minimum touch target */
+  }
+
+  .playlist-grid-actions,
+  .playlist-item-actions {
+    opacity: 1; /* Always show on touch devices */
+  }
+
+  .playlist-grid-play,
+  .playlist-grid-remove,
+  .playlist-item-play,
+  .playlist-item-remove {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .playlist-btn,
+  .add-folder-btn,
+  .close-btn {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+}
+
 
 .add-folder-btn {
   padding: 6px 12px;

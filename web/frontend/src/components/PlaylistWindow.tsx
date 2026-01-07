@@ -3,6 +3,7 @@ import { MediaItem, MediaType } from '../types/media';
 import { buildFolderTree, toggleFolder, setFolderExpanded, FolderNode } from '../utils/folderTree';
 import FolderTree from './FolderTree';
 import { generateThumbnail, revokeThumbnail } from '../utils/thumbnailGenerator';
+import SkeletonLoader from './SkeletonLoader';
 import './PlaylistWindow.css';
 
 interface PlaylistWindowProps {
@@ -586,7 +587,10 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                 </ul>
               ) : (
                 <div className="playlist-grid">
-                  {filteredPlaylist.map((item) => {
+                  {filteredPlaylist.length === 0 && thumbnails.size === 0 && loadingThumbnails.size === 0 ? (
+                    <SkeletonLoader count={12} />
+                  ) : (
+                    filteredPlaylist.map((item) => {
                     const originalIndex = playlist.findIndex(p => p.filePath === item.filePath);
                     const isCurrent = originalIndex === currentIndex;
                     const thumbnailUrl = thumbnails.get(item.filePath);
@@ -668,7 +672,8 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                         </div>
                       </div>
                     );
-                  })}
+                    })
+                  )}
                 </div>
               )}
             </div>
