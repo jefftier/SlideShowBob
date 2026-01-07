@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './SettingsWindow.css';
 import { loadSettings, saveSettings, AppSettings, getDefaultSettings } from '../utils/settingsStorage';
+import { createSampleManifest } from '../utils/manifestLoader';
 
 interface SettingsWindowProps {
   onClose: () => void;
@@ -132,6 +133,52 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                 />
                 Save last loaded folders
               </label>
+            </div>
+          </section>
+
+          <section className="settings-section">
+            <h3>Slideshow Playlist (Manifest)</h3>
+            <p className="settings-description">
+              A playlist manifest file allows you to create custom slideshows with specific files, 
+              custom delays per file, and precise control over the playback order. Place a JSON file 
+              in your folder root with the slideshow configuration.
+            </p>
+            <div className="settings-manifest-info">
+              <h4>How to use:</h4>
+              <ol>
+                <li>Download the sample manifest file below</li>
+                <li>Edit it with your file names and desired delays</li>
+                <li>Save it as a .json file in your folder root (any name works)</li>
+                <li>When loading the folder, you'll be asked if you want to use the manifest</li>
+              </ol>
+              <div className="settings-manifest-actions">
+                <button
+                  className="settings-btn-secondary"
+                  onClick={() => {
+                    const sample = createSampleManifest();
+                    const blob = new Blob([sample], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'slideshow-playlist.json';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  Download Sample Manifest
+                </button>
+              </div>
+              <div className="settings-manifest-format">
+                <h4>Manifest Format:</h4>
+                <ul>
+                  <li><strong>file</strong>: Relative path to the file (e.g., "image.jpg" or "subfolder/video.mp4")</li>
+                  <li><strong>delay</strong>: Optional delay in milliseconds (uses default if not specified)</li>
+                  <li><strong>zoom</strong>: Optional zoom level (e.g., 1.5 for 150%)</li>
+                  <li><strong>fit</strong>: Optional fit-to-window setting (true/false)</li>
+                </ul>
+              </div>
             </div>
           </section>
         </div>

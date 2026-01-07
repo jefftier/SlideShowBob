@@ -142,3 +142,16 @@
   }
 }
 
+/* Manifest mode styles */
+.app.manifest-mode {
+  /* Manifest mode specific styles */
+}
+
+.app.cursor-hidden {
+  cursor: none !important;
+}
+
+.app.cursor-hidden * {
+  cursor: none !important;
+}
+

@@ -31,6 +31,9 @@ interface ToolbarProps {
   currentIndex: number;
   totalCount: number;
   statusText: string;
+  isManifestMode?: boolean;
+  onExitManifestMode?: () => void;
+  toolbarVisible?: boolean;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -61,7 +64,10 @@ const Toolbar: React.FC<ToolbarProps> = ({
   currentSortMode,
   currentIndex,
   totalCount,
-  statusText
+  statusText,
+  isManifestMode,
+  onExitManifestMode,
+  toolbarVisible = true
 }) => {
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -113,7 +119,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   return (
     <>
       {!isMinimized ? (
-        <div className="toolbar-expanded">
+        <div className={`toolbar-expanded ${(isManifestMode && !toolbarVisible) ? 'hidden' : ''}`}>
           <div className="toolbar-content">
             <button
               className="toolbar-btn"
@@ -408,6 +414,20 @@ const Toolbar: React.FC<ToolbarProps> = ({
               </>
             )}
             
+            {isManifestMode && onExitManifestMode && (
+              <>
+                <div className="toolbar-separator"></div>
+                <button
+                  className="toolbar-btn"
+                  onClick={onExitManifestMode}
+                  title="Exit Manifest Mode"
+                  aria-label="Exit Manifest Mode"
+                >
+                  ⛶
+                </button>
+              </>
+            )}
+            
             <div className="toolbar-separator"></div>
             
             <span className="toolbar-label">Delay</span>
@@ -433,7 +453,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           </div>
         </div>
       ) : (
-        <div className="toolbar-minimized">
+        <div className={`toolbar-minimized ${(isManifestMode && !toolbarVisible) ? 'hidden' : ''}`}>
           <button className="toolbar-btn" onClick={onPrevious} title="Previous">⏮</button>
           <div className="toolbar-separator"></div>
           <button className="toolbar-btn" onClick={onPlayPause} title="Play/Pause">

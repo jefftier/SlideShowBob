@@ -58,7 +58,7 @@ export function useSlideshow({
       stopSlideshow();
     }
     return () => stopSlideshow();
-  }, [isPlaying, startSlideshow, stopSlideshow]);
+  }, [isPlaying, startSlideshow, stopSlideshow, slideDelayMs]); // Include slideDelayMs to restart with new delay
 
   useEffect(() => {
     if (playlist && currentIndex >= 0 && currentIndex < playlist.length && playlist[currentIndex]) {

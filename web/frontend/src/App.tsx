@@ -6,12 +6,16 @@ import SettingsWindow from './components/SettingsWindow';
 import ToastContainer from './components/ToastContainer';
 import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp';
 import ProgressIndicator from './components/ProgressIndicator';
+import ManifestModeDialog from './components/ManifestModeDialog';
+import ManifestSelectionDialog from './components/ManifestSelectionDialog';
 import { useSlideshow } from './hooks/useSlideshow';
 import { useMediaLoader } from './hooks/useMediaLoader';
 import { useToast } from './hooks/useToast';
 import { MediaItem, MediaType } from './types/media';
+import { SlideshowManifest } from './types/manifest';
 import { loadSettings, saveSettings, AppSettings } from './utils/settingsStorage';
 import { loadDirectoryHandles, saveDirectoryHandle, removeDirectoryHandle, clearAllDirectoryHandles, isIndexedDBSupported } from './utils/directoryStorage';
+import { findManifestFiles, loadManifestFile, matchManifestToMedia } from './utils/manifestLoader';
 import './App.css';
 
 function App() {
@@ -36,7 +40,31 @@ function App() {
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState<{current: number, total: number} | null>(null);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
-  const { toasts, showSuccess, showError, showInfo, removeToast } = useToast();
+  const [isManifestMode, setIsManifestMode] = useState(false);
+  const [manifestData, setManifestData] = useState<SlideshowManifest | null>(null);
+  const [showManifestDialog, setShowManifestDialog] = useState(false);
+  const [showManifestSelection, setShowManifestSelection] = useState(false);
+  const [pendingManifestData, setPendingManifestData] = useState<{
+    manifest: SlideshowManifest;
+    fileName: string;
+    mediaItems: MediaItem[];
+    missingFiles: string[];
+  } | null>(null);
+  const [pendingManifestFiles, setPendingManifestFiles] = useState<Array<{
+    name: string;
+    itemCount: number;
+    manifest: SlideshowManifest;
+    fileName: string;
+  }>>([]);
+  const [pendingManifestContext, setPendingManifestContext] = useState<{
+    dirHandle: FileSystemDirectoryHandle;
+    folderName: string;
+    mediaItems: MediaItem[];
+  } | null>(null);
+  const [cursorHidden, setCursorHidden] = useState(false);
+  const [toolbarVisible, setToolbarVisible] = useState(true);
+  const cursorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const { toasts, showSuccess, showError, showInfo, showWarning, removeToast } = useToast();
 
   // Get filtered playlist based on includeVideos (excludes both Video and Gif when false)
   const filteredPlaylist = useMemo(() => {
@@ -62,10 +90,21 @@ function App() {
     }
   }, [filteredPlaylist, playlist]);
 
+  // Calculate effective delay for current item (uses manifest delay if available)
+  const effectiveDelay = useMemo(() => {
+    if (isManifestMode && currentMedia && (currentMedia as any).manifestDelay !== undefined) {
+      return (currentMedia as any).manifestDelay;
+    }
+    if (isManifestMode && manifestData?.defaultDelay !== undefined) {
+      return manifestData.defaultDelay;
+    }
+    return slideDelayMs;
+  }, [isManifestMode, currentMedia, manifestData, slideDelayMs]);
+
   const { navigateNext, navigatePrevious, startSlideshow, stopSlideshow, onVideoEnded } = useSlideshow({
     playlist: filteredPlaylist,
     currentIndex: filteredCurrentIndex,
-    slideDelayMs,
+    slideDelayMs: effectiveDelay,
     isPlaying,
     onNavigate: handleNavigate
   });
@@ -206,7 +245,102 @@ function App() {
         showInfo(`Scanning folder "${folderName}"...`);
         
         try {
-          // Load media from the selected directory with progress tracking
+          // Check for manifest files first
+          const manifestFiles = await findManifestFiles(dirHandle);
+          console.log('Found manifest files:', manifestFiles.map(f => f.name));
+          
+          if (manifestFiles.length > 0) {
+            // Load and validate all manifest files
+            const manifestResults = await Promise.all(
+              manifestFiles.map(async (file) => {
+                const result = await loadManifestFile(file.handle);
+                console.log(`Manifest ${file.name} validation:`, result.valid ? 'valid' : result.error);
+                return { ...result, fileName: file.name };
+              })
+            );
+            
+            const validManifests = manifestResults.filter(r => r.valid && r.manifest);
+            console.log('Valid manifests:', validManifests.length);
+            console.log('All manifest results:', manifestResults);
+            
+            if (validManifests.length === 0) {
+              // No valid manifests, continue with normal loading
+              const errors = manifestResults.map(r => `${r.fileName || 'unknown'}: ${r.error || 'Unknown error'}`).filter(Boolean);
+              console.error('Manifest validation failed:', errors);
+              if (errors.length > 0) {
+                showError(`Manifest file(s) found but invalid: ${errors.join('; ')}. Loading folder normally.`);
+              }
+            } else if (validManifests.length === 1) {
+              // Single manifest - load media and show dialog
+              const manifestResult = validManifests[0];
+              const mediaItems = await loadMediaFromDirectory(dirHandle, includeVideos, (current, total) => {
+                setLoadingProgress({ current, total });
+                setStatusText(`Loading "${folderName}"... (${current.toLocaleString()} / ${total.toLocaleString()} files)`);
+              });
+              
+              if (mediaItems.length === 0) {
+                showWarning(`No media files found in "${folderName}"`);
+                setIsLoadingFolders(false);
+                setStatusText('');
+                return;
+              }
+              
+              // Match manifest to media
+              const { matched, missing } = matchManifestToMedia(
+                manifestResult.manifest!,
+                mediaItems,
+                folderName
+              );
+              
+              if (matched.length === 0) {
+                showWarning('Manifest found but no files matched. Loading folder normally.');
+                // Continue with normal loading below
+              } else {
+                // Store pending manifest data and show dialog
+                setPendingManifestData({
+                  manifest: manifestResult.manifest!,
+                  fileName: manifestResult.fileName || 'manifest.json',
+                  mediaItems: matched,
+                  missingFiles: missing
+                });
+                setIsLoadingFolders(false);
+                setStatusText('');
+                setLoadingProgress(null);
+                setShowManifestDialog(true);
+                return; // Exit early, will continue in dialog handler
+              }
+            } else {
+              // Multiple manifests - show selection dialog
+              const mediaItems = await loadMediaFromDirectory(dirHandle, includeVideos);
+              const manifestOptions = await Promise.all(
+                validManifests.map(async (result) => {
+                  const { matched } = matchManifestToMedia(result.manifest!, mediaItems, folderName);
+                  return {
+                    name: result.fileName || 'manifest.json',
+                    itemCount: matched.length,
+                    manifest: result.manifest!,
+                    fileName: result.fileName || 'manifest.json'
+                  };
+                })
+              );
+              
+              // Store context for when user selects a manifest
+              setPendingManifestContext({
+                dirHandle,
+                folderName,
+                mediaItems
+              });
+              
+              setPendingManifestFiles(manifestOptions);
+              setIsLoadingFolders(false);
+              setStatusText('');
+              setLoadingProgress(null);
+              setShowManifestSelection(true);
+              return; // Exit early, will continue in selection handler
+            }
+          }
+          
+          // Normal folder loading (no manifest or manifest ignored)
           const mediaItems = await loadMediaFromDirectory(dirHandle, includeVideos, (current, total) => {
             setLoadingProgress({ current, total });
             setStatusText(`Loading "${folderName}"... (${current.toLocaleString()} / ${total.toLocaleString()} files)`);
@@ -291,6 +425,127 @@ function App() {
     }
   };
 
+  // Manifest mode handlers
+  const handleLoadManifest = useCallback(() => {
+    if (!pendingManifestData) return;
+    
+    const { manifest, fileName, mediaItems, missingFiles } = pendingManifestData;
+    
+    // Set manifest mode
+    setIsManifestMode(true);
+    setManifestData(manifest);
+    
+    // Set playlist to manifest items only
+    setPlaylist(mediaItems);
+    setCurrentIndex(0);
+    setCurrentMedia(mediaItems[0]);
+    
+    // Clear other folders (manifest mode uses only manifest items)
+    setFolders([fileName]);
+    
+    // Close dialog
+    setShowManifestDialog(false);
+    setPendingManifestData(null);
+    
+    if (missingFiles.length > 0) {
+      showWarning(`${missingFiles.length} file${missingFiles.length !== 1 ? 's' : ''} from manifest could not be found`);
+    }
+    
+    showSuccess(`Loaded playlist: ${fileName} (${mediaItems.length} items)`);
+  }, [pendingManifestData, showSuccess, showWarning]);
+  
+  const handleIgnoreManifest = useCallback(() => {
+    setShowManifestDialog(false);
+    setPendingManifestData(null);
+    // Continue with normal folder loading
+    // The folder loading will continue from where it left off
+  }, []);
+  
+  const handleSelectManifest = useCallback(async (index: number) => {
+    const selected = pendingManifestFiles[index];
+    if (!selected || !pendingManifestContext) return;
+    
+    const { dirHandle, folderName, mediaItems } = pendingManifestContext;
+    
+    // Match manifest to media
+    const { matched, missing } = matchManifestToMedia(
+      selected.manifest,
+      mediaItems,
+      folderName
+    );
+    
+    if (matched.length === 0) {
+      showWarning('No files from the selected manifest could be found.');
+      setShowManifestSelection(false);
+      setPendingManifestFiles([]);
+      setPendingManifestContext(null);
+      return;
+    }
+    
+    // Set manifest mode
+    setIsManifestMode(true);
+    setManifestData(selected.manifest);
+    
+    // Set playlist to manifest items only
+    setPlaylist(matched);
+    setCurrentIndex(0);
+    setCurrentMedia(matched[0]);
+    
+    // Store directory handle
+    const newHandles = new Map(directoryHandles);
+    newHandles.set(folderName, dirHandle);
+    setDirectoryHandles(newHandles);
+    
+    // Clear other folders (manifest mode uses only manifest items)
+    setFolders([selected.fileName]);
+    
+    // Close dialog
+    setShowManifestSelection(false);
+    setPendingManifestFiles([]);
+    setPendingManifestContext(null);
+    
+    if (missing.length > 0) {
+      showWarning(`${missing.length} file${missing.length !== 1 ? 's' : ''} from manifest could not be found`);
+    }
+    
+    showSuccess(`Loaded playlist: ${selected.fileName} (${matched.length} items)`);
+  }, [pendingManifestFiles, pendingManifestContext, directoryHandles, showSuccess, showWarning]);
+  
+  const handleIgnoreAllManifests = useCallback(() => {
+    setShowManifestSelection(false);
+    setPendingManifestFiles([]);
+    setPendingManifestContext(null);
+    // Continue with normal loading - the folder loading will continue from where it left off
+  }, []);
+  
+  const handleExitManifestMode = useCallback(() => {
+    setIsManifestMode(false);
+    setManifestData(null);
+    setPlaylist([]);
+    setCurrentIndex(-1);
+    setCurrentMedia(null);
+    setFolders([]);
+    setToolbarVisible(true);
+    setCursorHidden(false);
+    if (cursorTimeoutRef.current) {
+      clearTimeout(cursorTimeoutRef.current);
+      cursorTimeoutRef.current = null;
+    }
+    showInfo('Exited manifest mode');
+  }, [showInfo]);
+
+  const handleToggleFullscreen = useCallback(() => {
+    if (!isFullscreen) {
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen();
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  }, [isFullscreen]);
+
   const handlePlayPause = useCallback(() => {
     if (isPlaying) {
       stopSlideshow();
@@ -299,9 +554,16 @@ function App() {
       if (playlist.length > 0 && slideDelayMs > 0) {
         startSlideshow();
         setIsPlaying(true);
+        
+        // In manifest mode, auto-enter fullscreen when slideshow starts
+        if (isManifestMode && !isFullscreen) {
+          setTimeout(() => {
+            handleToggleFullscreen();
+          }, 100);
+        }
       }
     }
-  }, [isPlaying, playlist.length, slideDelayMs, startSlideshow, stopSlideshow]);
+  }, [isPlaying, playlist.length, slideDelayMs, startSlideshow, stopSlideshow, isManifestMode, isFullscreen, handleToggleFullscreen]);
 
   const handleNext = useCallback(() => {
     navigateNext();
@@ -426,18 +688,6 @@ function App() {
     }
   };
 
-  const handleToggleFullscreen = useCallback(() => {
-    if (!isFullscreen) {
-      if (document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen();
-      }
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      }
-    }
-  }, [isFullscreen]);
-
   const handleZoomReset = useCallback(() => {
     setZoomFactor(1.0);
     setIsFitToWindow(true);
@@ -550,6 +800,85 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullscreen, showPlaylist, showSettings, handlePlayPause, handleNext, handlePrevious, handleToggleFullscreen, handleZoomReset]);
 
+  // Manifest mode: Cursor hiding in fullscreen
+  useEffect(() => {
+    if (!isManifestMode || !isFullscreen) {
+      setCursorHidden(false);
+      if (cursorTimeoutRef.current) {
+        clearTimeout(cursorTimeoutRef.current);
+        cursorTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    const handleMouseMove = () => {
+      setCursorHidden(false);
+      if (cursorTimeoutRef.current) {
+        clearTimeout(cursorTimeoutRef.current);
+      }
+      cursorTimeoutRef.current = setTimeout(() => {
+        setCursorHidden(true);
+      }, 2000);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      if (cursorTimeoutRef.current) {
+        clearTimeout(cursorTimeoutRef.current);
+      }
+    };
+  }, [isManifestMode, isFullscreen]);
+
+  // Manifest mode: Toolbar visibility (show on mouse move to bottom)
+  useEffect(() => {
+    if (!isManifestMode || !isFullscreen) {
+      setToolbarVisible(true);
+      return;
+    }
+
+    // Start with toolbar hidden in manifest mode + fullscreen
+    setToolbarVisible(false);
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const windowHeight = window.innerHeight;
+      const mouseY = e.clientY;
+      const distanceFromBottom = windowHeight - mouseY;
+      
+      // Show toolbar when mouse is within 100px of bottom
+      if (distanceFromBottom < 100) {
+        setToolbarVisible(true);
+      } else {
+        setToolbarVisible(false);
+      }
+    };
+
+    // Also hide toolbar when mouse leaves the window
+    const handleMouseLeave = () => {
+      setToolbarVisible(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseleave', handleMouseLeave);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseleave', handleMouseLeave);
+    };
+  }, [isManifestMode, isFullscreen]);
+
+  // In manifest mode, restart slideshow when current item changes (for per-item delays)
+  useEffect(() => {
+    if (isManifestMode && isPlaying && currentMedia) {
+      // Restart slideshow to use the new delay for the current item
+      stopSlideshow();
+      setTimeout(() => {
+        if (isPlaying) {
+          startSlideshow();
+        }
+      }, 50);
+    }
+  }, [isManifestMode, isPlaying, currentMedia, effectiveDelay, startSlideshow, stopSlideshow]);
+
   // Show loading state
   if (isLoading) {
     return (
@@ -563,7 +892,10 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div 
+      className={`app ${isManifestMode ? 'manifest-mode' : ''} ${cursorHidden ? 'cursor-hidden' : ''}`}
+      style={cursorHidden ? { cursor: 'none' } : {}}
+    >
       <MediaDisplay
         currentMedia={currentMedia}
         zoomFactor={zoomFactor}
@@ -707,6 +1039,9 @@ function App() {
         currentIndex={currentIndex}
         totalCount={playlist.length}
         statusText={statusText}
+        isManifestMode={isManifestMode}
+        onExitManifestMode={handleExitManifestMode}
+        toolbarVisible={toolbarVisible}
       />
 
       {showPlaylist && (
@@ -784,6 +1119,24 @@ function App() {
         isOpen={showShortcutsHelp} 
         onClose={() => setShowShortcutsHelp(false)} 
       />
+
+      {showManifestDialog && pendingManifestData && (
+        <ManifestModeDialog
+          manifestName={pendingManifestData.fileName}
+          itemCount={pendingManifestData.mediaItems.length}
+          missingFiles={pendingManifestData.missingFiles}
+          onLoadManifest={handleLoadManifest}
+          onIgnore={handleIgnoreManifest}
+        />
+      )}
+
+      {showManifestSelection && pendingManifestFiles.length > 0 && (
+        <ManifestSelectionDialog
+          manifests={pendingManifestFiles.map(f => ({ name: f.name, itemCount: f.itemCount }))}
+          onSelect={handleSelectManifest}
+          onIgnore={handleIgnoreAllManifests}
+        />
+      )}
     </div>
   );
 }

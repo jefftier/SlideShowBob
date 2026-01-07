@@ -199,3 +199,50 @@
   border-color: rgba(255, 255, 255, 0.3);
 }
 
+.settings-manifest-info {
+  color: #e0e0e0;
+  font-size: 13px;
+}
+
+.settings-manifest-info h4 {
+  margin: 16px 0 8px 0;
+  font-size: 14px;
+  color: #e0e0e0;
+}
+
+.settings-manifest-info ol,
+.settings-manifest-info ul {
+  margin: 8px 0;
+  padding-left: 24px;
+  line-height: 1.6;
+}
+
+.settings-manifest-info li {
+  margin-bottom: 4px;
+}
+
+.settings-manifest-actions {
+  margin: 16px 0;
+}
+
+.settings-manifest-format {
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.settings-manifest-format ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.settings-manifest-format li {
+  margin-bottom: 8px;
+  padding-left: 8px;
+}
+
+.settings-manifest-format strong {
+  color: #0078d4;
+}
+
