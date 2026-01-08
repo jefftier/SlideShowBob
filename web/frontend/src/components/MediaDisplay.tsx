@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 import { addEvent } from '../utils/eventLog';
 import { TransitionEffect } from '../utils/settingsStorage';
 import { parseGifMetadata, parseGifMetadataFromUrl } from '../utils/gifParser';
+import { createGifPlayerOnce, GifPlayer } from '../utils/gifPlayer';
 import './MediaDisplay.css';
 
 interface MediaDisplayProps {
@@ -18,6 +19,7 @@ interface MediaDisplayProps {
   onMediaError?: (error: string) => void;
   onMediaLoadSuccess?: () => void;
   onGifCompleted?: () => void;
+  isPlaying?: boolean; // Whether slideshow is currently playing
 }
 
 const MediaDisplay: React.FC<MediaDisplayProps> = ({
@@ -31,7 +33,8 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   onEffectiveZoomChange,
   onMediaError,
   onMediaLoadSuccess,
-  onGifCompleted
+  onGifCompleted,
+  isPlaying = false
 }) => {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
@@ -54,6 +57,8 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   const gifParsingInProgressRef = useRef(false);
   const currentGifMediaRef = useRef<string | null>(null);
   const gifLoadHandledRef = useRef<Set<string>>(new Set()); // Track which GIFs have already had onLoad handled
+  const gifPlayerRef = useRef<GifPlayer | null>(null);
+  const gifCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     if (!currentMedia) {
@@ -102,7 +107,7 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
     // Note: Object URLs are now managed centrally via objectUrlRegistry
     // URLs are revoked when media items are removed from playlist, folders are removed,
     // or the app unmounts. We don't revoke here to allow URL reuse during playback.
-    // Cleanup GIF completion timeout when media changes
+    // Cleanup GIF completion timeout and player when media changes
     // Only clear if media actually changed (check by filePath)
     const previousMediaId = currentGifMediaRef.current;
     const newMediaId = currentMedia.filePath;
@@ -118,6 +123,11 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         clearTimeout(gifCompletionTimeoutRef.current);
         gifCompletionTimeoutRef.current = null;
       }
+      // Cleanup GIF player
+      if (gifPlayerRef.current) {
+        gifPlayerRef.current.stop();
+        gifPlayerRef.current = null;
+      }
       gifParsingInProgressRef.current = false;
       currentGifMediaRef.current = null;
       // Clear the load handled set when media changes
@@ -130,10 +140,125 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         clearTimeout(gifCompletionTimeoutRef.current);
         gifCompletionTimeoutRef.current = null;
       }
+      // Cleanup GIF player
+      if (gifPlayerRef.current) {
+        gifPlayerRef.current.stop();
+        gifPlayerRef.current = null;
+      }
       gifParsingInProgressRef.current = false;
       currentGifMediaRef.current = null;
     };
   }, [currentMedia]);
+
+  // Handle GIF playback using gifPlayer module
+  useEffect(() => {
+    if (!currentMedia || currentMedia.type !== MediaType.Gif || !imageSrc) {
+      // Cleanup if not a GIF
+      if (gifPlayerRef.current) {
+        gifPlayerRef.current.stop();
+        gifPlayerRef.current = null;
+      }
+      return;
+    }
+
+    if (!gifCanvasRef.current) {
+      return;
+    }
+
+    const mediaId = currentMedia.filePath;
+    
+    // Don't reinitialize if already playing the same media
+    if (gifPlayerRef.current && currentGifMediaRef.current === mediaId) {
+      return;
+    }
+
+    // Cleanup previous player
+    if (gifPlayerRef.current) {
+      gifPlayerRef.current.stop();
+      gifPlayerRef.current = null;
+    }
+
+    const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+    
+    // Create GIF player configured to play once (no looping)
+    // This ensures GIFs play once whether in slideshow mode or not
+    const player = createGifPlayerOnce(gifCanvasRef.current, {
+      autoPlay: true,
+      onComplete: () => {
+        const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+        if (isDev) {
+          console.log('[MediaDisplay] GIF player completed', {
+            mediaId: currentGifMediaRef.current,
+            isPlaying
+          });
+        }
+        // Notify completion (for slideshow advancement if playing)
+        if (onGifCompleted && currentGifMediaRef.current === mediaId) {
+          onGifCompleted();
+        }
+      },
+      onError: (error) => {
+        console.error('[MediaDisplay] GIF player error:', error);
+        if (onMediaError) {
+          onMediaError(`Failed to play GIF: ${currentMedia.fileName}`);
+        }
+      }
+    });
+
+    gifPlayerRef.current = player;
+    currentGifMediaRef.current = mediaId;
+
+    // Load and play the GIF
+    const loadGif = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Prefer File object, fallback to URL
+        if (currentMedia.file) {
+          await player.loadFromFile(currentMedia.file);
+        } else if (imageSrc) {
+          await player.loadFromUrl(imageSrc);
+        } else {
+          throw new Error('No file or URL available');
+        }
+
+        setIsLoading(false);
+        
+        // Notify successful load
+        if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
+          loadSuccessNotifiedRef.current = true;
+          onMediaLoadSuccess();
+          
+          const entry = logger.event('media_load_success', {
+            mediaType: 'gif',
+            fileName: currentMedia.fileName,
+            filePath: currentMedia.filePath,
+          });
+          addEvent(entry);
+        }
+
+        // Start playing
+        player.play();
+      } catch (error) {
+        console.error('[MediaDisplay] Failed to load GIF:', error);
+        setIsLoading(false);
+        
+        if (onMediaError) {
+          onMediaError(`Failed to load GIF: ${currentMedia.fileName}`);
+        }
+      }
+    };
+
+    loadGif();
+
+    // Cleanup on unmount or media change
+    return () => {
+      if (gifPlayerRef.current) {
+        gifPlayerRef.current.stop();
+        gifPlayerRef.current = null;
+      }
+    };
+  }, [currentMedia, imageSrc, onGifCompleted, onMediaError, onMediaLoadSuccess, isPlaying]);
 
   // Handle video playback when video source changes
   useEffect(() => {
@@ -196,11 +321,11 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
     }
 
     // Capture current element at effect start to ensure cleanup targets the same instance
-    const mediaElement = imageRef.current || videoRef.current;
+    const mediaElement = imageRef.current || videoRef.current || gifCanvasRef.current;
     
     // Define stable handler that uses captured refs
     const calculateEffectiveZoom = () => {
-      const currentMediaElement = imageRef.current || videoRef.current;
+      const currentMediaElement = imageRef.current || videoRef.current || gifCanvasRef.current;
       const currentContainer = containerRef.current;
       
       if (!currentMediaElement || !currentContainer) {
@@ -212,9 +337,11 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
       }
 
       const naturalWidth = (currentMediaElement as HTMLImageElement).naturalWidth || 
-                          (currentMediaElement as HTMLVideoElement).videoWidth || 0;
+                          (currentMediaElement as HTMLVideoElement).videoWidth ||
+                          (currentMediaElement as HTMLCanvasElement).width || 0;
       const naturalHeight = (currentMediaElement as HTMLImageElement).naturalHeight || 
-                           (currentMediaElement as HTMLVideoElement).videoHeight || 0;
+                           (currentMediaElement as HTMLVideoElement).videoHeight ||
+                           (currentMediaElement as HTMLCanvasElement).height || 0;
       
       if (naturalWidth === 0 || naturalHeight === 0) {
         setEffectiveZoom(zoomFactor);
@@ -682,7 +809,7 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   const getCursorStyle = (): string => {
     if (isDragging) return 'grabbing';
     if (!isFitToWindow && currentMedia && !isLoading) {
-      const mediaElement = imageRef.current || videoRef.current;
+      const mediaElement = imageRef.current || videoRef.current || gifCanvasRef.current;
       if (mediaElement && containerRef.current) {
         const containerRect = containerRef.current.getBoundingClientRect();
         const mediaRect = mediaElement.getBoundingClientRect();
@@ -758,208 +885,12 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
             onError={handleVideoError}
           />
         ) : currentMedia.type === MediaType.Gif && imageSrc ? (
-          // Render GIFs as images, but detect completion via animation monitoring
-          // NOTE: The new gifPlayer module is available for future canvas-based rendering
-          // Currently using <img> tag for simplicity and compatibility
-          <img
-            key={`${transitionKey}-gif`}
-            ref={imageRef}
-            src={imageSrc}
-            alt={currentMedia.fileName}
+          // Render GIFs using gifPlayer module with canvas for loop control
+          <canvas
+            key={`${transitionKey}-gif-canvas`}
+            ref={gifCanvasRef}
             className={`transition-${transitionEffect.toLowerCase()}`}
             style={mediaStyle}
-            onLoad={() => {
-              setIsLoading(false);
-              // Notify successful load (only once)
-              if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
-                loadSuccessNotifiedRef.current = true;
-                onMediaLoadSuccess();
-                
-                // Log media load success
-                if (currentMedia) {
-                  const entry = logger.event('media_load_success', {
-                    mediaType: 'gif',
-                    fileName: currentMedia.fileName,
-                    filePath: currentMedia.filePath,
-                  });
-                  addEvent(entry);
-                }
-              }
-              
-              // For GIFs, parse the actual GIF metadata to get accurate duration
-              // SINGLE SOLUTION: Parse once, set timeout once, validate before advancing
-              // FIX: Use File object directly to avoid CSP issues with blob URLs
-              if (onGifCompleted && currentMedia && currentMedia.type === MediaType.Gif) {
-                const mediaId = currentMedia.filePath;
-                
-                // CRITICAL: Prevent onLoad from firing multiple times and setting multiple timeouts
-                // This is the root cause of GIFs looping multiple times
-                if (gifLoadHandledRef.current.has(mediaId)) {
-                  const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
-                  if (isDev) {
-                    console.log('[MediaDisplay] GIF onLoad already handled for this media, skipping', mediaId);
-                  }
-                  return;
-                }
-                
-                // Guard: Prevent multiple parsing/timeout setups for the same media
-                // CRITICAL: Check if we already have a timeout for this exact media
-                if (gifCompletionTimeoutRef.current && currentGifMediaRef.current === mediaId) {
-                  const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
-                  if (isDev) {
-                    console.warn('[MediaDisplay] GIF timeout already exists for this media! This should not happen. Clearing old timeout.', {
-                      mediaId,
-                      currentMediaId: currentGifMediaRef.current
-                    });
-                  }
-                  // Clear the existing timeout to prevent multiple timeouts
-                  clearTimeout(gifCompletionTimeoutRef.current);
-                  gifCompletionTimeoutRef.current = null;
-                }
-                if (gifParsingInProgressRef.current && currentGifMediaRef.current === mediaId) {
-                  const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
-                  if (isDev) {
-                    console.warn('[MediaDisplay] GIF parsing already in progress for this media! This should not happen.', {
-                      mediaId,
-                      currentMediaId: currentGifMediaRef.current
-                    });
-                  }
-                  return;
-                }
-                
-                // Mark this GIF's onLoad as handled
-                gifLoadHandledRef.current.add(mediaId);
-                
-                // Store current media ID to validate in timeout callback
-                // (mediaId already set above)
-                currentGifMediaRef.current = mediaId;
-                gifParsingInProgressRef.current = true;
-                
-                // Parse GIF to get actual duration
-                // Prefer File object (avoids CSP issues), fallback to URL fetch
-                const parsePromise = currentMedia.file
-                  ? parseGifMetadata(currentMedia.file)
-                  : imageSrc
-                  ? parseGifMetadataFromUrl(imageSrc)
-                  : Promise.reject(new Error('No file or URL available'));
-                
-                parsePromise
-                  .then((metadata) => {
-                    // Validate: Only proceed if this is still the current media
-                    if (currentGifMediaRef.current !== mediaId) {
-                      gifParsingInProgressRef.current = false;
-                      return;
-                    }
-                    
-                    // Use the actual GIF duration for accurate completion detection
-                    // For looping GIFs, we play one cycle (totalDuration)
-                    // Add a small buffer (100ms) to ensure the animation completes
-                    const playDuration = metadata.totalDuration + 100;
-                    
-                    // Minimum play time: 500ms (prevents very short GIFs from flashing)
-                    // Maximum play time: 30 seconds (safety limit)
-                    const minPlayTime = 500;
-                    const maxPlayTime = 30000;
-                    const finalDuration = Math.max(minPlayTime, Math.min(playDuration, maxPlayTime));
-                    
-                    // Set timeout based on actual GIF duration
-                    // CRITICAL: Validate media is still current before calling onGifCompleted
-                    const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
-                    if (isDev) {
-                      console.log(`[MediaDisplay] Setting GIF completion timeout: ${finalDuration}ms for ${currentMedia.fileName}`);
-                    }
-                    gifCompletionTimeoutRef.current = window.setTimeout(() => {
-                      const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
-                      if (isDev) {
-                        console.log('[MediaDisplay] GIF completion timeout fired', {
-                          currentMediaId: currentGifMediaRef.current,
-                          expectedMediaId: mediaId,
-                          matches: currentGifMediaRef.current === mediaId,
-                          hasCallback: !!onGifCompleted
-                        });
-                      }
-                      // Validate: Only advance if this is still the current media
-                      if (currentGifMediaRef.current === mediaId && onGifCompleted) {
-                        gifCompletionTimeoutRef.current = null;
-                        gifParsingInProgressRef.current = false;
-                        // DO NOT delete from handled set - keep it to prevent onLoad from firing again
-                        // The set will be cleared when media actually changes
-                        if (isDev) {
-                          console.log('[MediaDisplay] Calling onGifCompleted()');
-                        }
-                        onGifCompleted();
-                      } else {
-                        // Media changed, don't advance
-                        if (isDev) {
-                          console.log('[MediaDisplay] GIF timeout fired but media changed, not advancing');
-                        }
-                        gifCompletionTimeoutRef.current = null;
-                        gifParsingInProgressRef.current = false;
-                        // Media changed, so it's safe to remove from handled set
-                        gifLoadHandledRef.current.delete(mediaId);
-                      }
-                    }, finalDuration);
-                    
-                    // Log GIF metadata for debugging
-                    if (isDev) {
-                      console.log('[MediaDisplay] GIF metadata parsed:', {
-                        fileName: currentMedia.fileName,
-                        mediaId,
-                        totalDuration: metadata.totalDuration,
-                        frameCount: metadata.frameCount,
-                        loopCount: metadata.loopCount,
-                        playDuration: finalDuration,
-                        source: currentMedia.file ? 'File object' : 'URL'
-                      });
-                    }
-                  })
-                  .catch((error) => {
-                    // Validate: Only proceed if this is still the current media
-                    if (currentGifMediaRef.current !== mediaId) {
-                      gifParsingInProgressRef.current = false;
-                      return;
-                    }
-                    
-                    // If parsing fails, use a reasonable fallback duration
-                    console.warn('[MediaDisplay] Failed to parse GIF metadata, using fallback:', error);
-                    // Fallback: 3 seconds
-                    const fallbackDuration = 3000;
-                    const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
-                    if (isDev) {
-                      console.log(`[MediaDisplay] Setting GIF fallback timeout: ${fallbackDuration}ms for ${currentMedia.fileName}`);
-                    }
-                    gifCompletionTimeoutRef.current = window.setTimeout(() => {
-                      const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
-                      if (isDev) {
-                        console.log('[MediaDisplay] GIF fallback timeout fired', {
-                          currentMediaId: currentGifMediaRef.current,
-                          expectedMediaId: mediaId,
-                          matches: currentGifMediaRef.current === mediaId
-                        });
-                      }
-                      // Validate: Only advance if this is still the current media
-                      if (currentGifMediaRef.current === mediaId && onGifCompleted) {
-                        gifCompletionTimeoutRef.current = null;
-                        gifParsingInProgressRef.current = false;
-                        // DO NOT delete from handled set - keep it to prevent onLoad from firing again
-                        if (isDev) {
-                          console.log('[MediaDisplay] Calling onGifCompleted() from fallback');
-                        }
-                        onGifCompleted();
-                      } else {
-                        if (isDev) {
-                          console.log('[MediaDisplay] Fallback timeout fired but media changed, not advancing');
-                        }
-                        gifCompletionTimeoutRef.current = null;
-                        gifParsingInProgressRef.current = false;
-                        // Media changed, so it's safe to remove from handled set
-                        gifLoadHandledRef.current.delete(mediaId);
-                      }
-                    }, fallbackDuration);
-                  });
-              }
-            }}
-            onError={handleImageError}
           />
         ) : imageSrc ? (
           <img

@@ -1172,6 +1172,7 @@ function App() {
         onVideoEnded={onVideoEnded}
         onImageClick={handleNext}
         onEffectiveZoomChange={setEffectiveZoom}
+        isPlaying={isPlaying}
         onMediaError={(error) => {
           if (!currentMedia) return;
           
