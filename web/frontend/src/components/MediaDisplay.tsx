@@ -78,9 +78,12 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
     const mediaUrl = currentMedia.objectUrl || currentMedia.filePath;
     
     // Dev-only: Simulate failures based on URL parameter
-    const urlParams = new URLSearchParams(window.location.search);
-    const failRate = urlParams.get('failRate');
-    const shouldSimulateFailure = failRate && !isNaN(parseFloat(failRate)) && Math.random() < parseFloat(failRate);
+    const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+    const shouldSimulateFailure = isDev && (() => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const failRate = urlParams.get('failRate');
+      return failRate && !isNaN(parseFloat(failRate)) && Math.random() < parseFloat(failRate);
+    })();
     
     if (shouldSimulateFailure) {
       // Simulate failure by using invalid URL
