@@ -3,11 +3,15 @@
  * 
  * Parses animated GIF files to extract frame information, duration, and loop count.
  * This enables accurate detection of when a GIF animation completes.
+ * 
+ * Now uses the built-from-scratch GIF player module instead of external dependencies.
  */
 
-// Import gifuct-js - it uses CommonJS exports, so we need to import the whole module
-import * as gifuct from 'gifuct-js';
+import { GifParser, GifMetadata as FullGifMetadata } from './gifPlayer';
 
+/**
+ * Backward-compatible metadata interface matching the old API
+ */
 export interface GifMetadata {
   totalDuration: number; // Total duration in milliseconds
   frameCount: number;
@@ -16,88 +20,57 @@ export interface GifMetadata {
 }
 
 /**
+ * Converts full metadata from gifPlayer to backward-compatible format
+ */
+function convertMetadata(fullMetadata: FullGifMetadata): GifMetadata {
+  return {
+    totalDuration: fullMetadata.totalDuration,
+    frameCount: fullMetadata.frameCount,
+    loopCount: fullMetadata.loopCount,
+    frameDelays: fullMetadata.frameDelays
+  };
+}
+
+/**
  * Parses a GIF file and extracts metadata including duration and frame information.
+ * Uses the built-from-scratch GIF parser module.
  * 
  * @param file - The GIF file to parse
  * @returns Promise resolving to GIF metadata
  */
 export async function parseGifMetadata(file: File): Promise<GifMetadata> {
-  const arrayBuffer = await file.arrayBuffer();
-  const gif = gifuct.parseGIF(arrayBuffer);
-  const frames = gifuct.decompressFrames(gif, true);
-  
-  // Calculate total duration by summing frame delays
-  const frameDelays: number[] = [];
-  let totalDuration = 0;
-  
-  frames.forEach((frame) => {
-    // Frame delay is in hundredths of a second, convert to milliseconds
-    // Default to 10 (100ms) if delay is 0 or undefined
-    const delay = frame.delay || 10;
-    const delayMs = delay * 10;
-    frameDelays.push(delayMs);
-    totalDuration += delayMs;
-  });
-  
-  // Get loop count from application extension (Netscape extension)
-  // 0 means infinite loop, >0 means number of loops
-  let loopCount = 0;
-  if (gif.application && gif.application.length > 0) {
-    const netscapeExt = gif.application.find((app: any) => 
-      app.application && app.application === 'NETSCAPE2.0'
-    );
-    if (netscapeExt && netscapeExt.data) {
-      // Loop count is in the first two bytes of the data
-      loopCount = netscapeExt.data[0] | (netscapeExt.data[1] << 8);
-    }
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const parser = new GifParser(new Uint8Array(arrayBuffer));
+    const fullMetadata = parser.parse();
+    return convertMetadata(fullMetadata);
+  } catch (error) {
+    console.error('Error parsing GIF metadata:', error);
+    throw error;
   }
-  
-  return {
-    totalDuration,
-    frameCount: frames.length,
-    loopCount,
-    frameDelays
-  };
 }
 
 /**
  * Parses a GIF from a URL (object URL or data URL).
+ * Uses the built-from-scratch GIF parser module.
  * 
  * @param url - URL to the GIF file
  * @returns Promise resolving to GIF metadata
  */
 export async function parseGifMetadataFromUrl(url: string): Promise<GifMetadata> {
-  const response = await fetch(url);
-  const arrayBuffer = await response.arrayBuffer();
-  const gif = gifuct.parseGIF(arrayBuffer);
-  const frames = gifuct.decompressFrames(gif, true);
-  
-  const frameDelays: number[] = [];
-  let totalDuration = 0;
-  
-  frames.forEach((frame) => {
-    const delay = frame.delay || 10;
-    const delayMs = delay * 10;
-    frameDelays.push(delayMs);
-    totalDuration += delayMs;
-  });
-  
-  let loopCount = 0;
-  if (gif.application && gif.application.length > 0) {
-    const netscapeExt = gif.application.find((app: any) => 
-      app.application && app.application === 'NETSCAPE2.0'
-    );
-    if (netscapeExt && netscapeExt.data) {
-      loopCount = netscapeExt.data[0] | (netscapeExt.data[1] << 8);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch GIF: ${response.statusText}`);
     }
+    const arrayBuffer = await response.arrayBuffer();
+    const parser = new GifParser(new Uint8Array(arrayBuffer));
+    const fullMetadata = parser.parse();
+    return convertMetadata(fullMetadata);
+  } catch (error) {
+    console.error('Error parsing GIF metadata from URL:', error);
+    throw error;
   }
-  
-  return {
-    totalDuration,
-    frameCount: frames.length,
-    loopCount,
-    frameDelays
-  };
 }
 
 /**

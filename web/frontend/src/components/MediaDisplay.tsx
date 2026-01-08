@@ -759,6 +759,8 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
           />
         ) : currentMedia.type === MediaType.Gif && imageSrc ? (
           // Render GIFs as images, but detect completion via animation monitoring
+          // NOTE: The new gifPlayer module is available for future canvas-based rendering
+          // Currently using <img> tag for simplicity and compatibility
           <img
             key={`${transitionKey}-gif`}
             ref={imageRef}
