@@ -533,6 +533,7 @@ export class GifPlayer {
   private startTime: number = 0;
   private pausedTime: number = 0;
   private accumulatedPauseTime: number = 0;
+  private previousFrameCanvas: HTMLCanvasElement | null = null; // For disposal method 3
 
   constructor(options: GifPlayerOptions = {}) {
     this.options = {
@@ -855,39 +856,79 @@ export class GifPlayer {
       return;
     }
 
-    // Handle frame disposal
+    // Get background color from global color table or frame's local color table
+    const globalColorTable = (this.metadata as any).globalColorTable as number[][];
+    const bgColorIndex = this.metadata.backgroundColorIndex ?? 0;
+    const bgColor = globalColorTable?.[bgColorIndex] || colorTable[bgColorIndex] || [0, 0, 0];
+
+    // Handle frame disposal from previous frame
     if (frameIndex > 0) {
       const prevFrame = this.metadata.frames[frameIndex - 1];
       if (prevFrame) {
         switch (prevFrame.disposal) {
-          case 2: // Restore to background
-            this.ctx.clearRect(
+          case 0: // No disposal specified - keep previous frame (do nothing)
+          case 1: // Do not dispose - keep previous frame (do nothing)
+            // Previous frame remains, new frame will composite on top
+            // No action needed - canvas already has previous frame
+            break;
+          case 2: // Restore to background color
+            // Fill previous frame area with background color
+            this.ctx.fillStyle = `rgb(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]})`;
+            this.ctx.fillRect(
               prevFrame.left,
               prevFrame.top,
               prevFrame.width,
               prevFrame.height
             );
             break;
-          case 3: // Restore to previous
-            // This would require storing previous frame state
-            // For simplicity, we'll just clear
-            this.ctx.clearRect(
-              prevFrame.left,
-              prevFrame.top,
-              prevFrame.width,
-              prevFrame.height
-            );
+          case 3: // Restore to previous (before last disposal)
+            // Restore from saved previous frame canvas if available
+            if (this.previousFrameCanvas) {
+              this.ctx.drawImage(this.previousFrameCanvas, 0, 0);
+            } else {
+              // Fallback: restore to background
+              this.ctx.fillStyle = `rgb(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]})`;
+              this.ctx.fillRect(
+                prevFrame.left,
+                prevFrame.top,
+                prevFrame.width,
+                prevFrame.height
+              );
+            }
             break;
         }
       }
     } else {
-      // First frame - clear canvas
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      // First frame - clear canvas and fill with background color
+      this.ctx.fillStyle = `rgb(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]})`;
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+
+    // Save canvas state before disposal method 2 (for disposal method 3)
+    if (frame.disposal === 2 && frameIndex < this.metadata.frames.length - 1) {
+      // Save current canvas state before disposal
+      if (!this.previousFrameCanvas) {
+        this.previousFrameCanvas = document.createElement('canvas');
+        this.previousFrameCanvas.width = this.canvas.width;
+        this.previousFrameCanvas.height = this.canvas.height;
+      }
+      const prevCtx = this.previousFrameCanvas.getContext('2d');
+      if (prevCtx) {
+        prevCtx.drawImage(this.canvas, 0, 0);
+      }
+    }
+
+    // Create a temporary canvas for this frame to enable proper alpha compositing
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = frame.width;
+    tempCanvas.height = frame.height;
+    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: false });
+    if (!tempCtx) {
+      return;
     }
 
     // Create ImageData for this frame
-    const imageData = this.ctx.createImageData(frame.width, frame.height);
-    const bgColor = colorTable[this.metadata.backgroundColorIndex] || [0, 0, 0];
+    const imageData = tempCtx.createImageData(frame.width, frame.height);
 
     for (let i = 0; i < pixelData.length; i++) {
       const colorIndex = pixelData[i];
@@ -908,8 +949,13 @@ export class GifPlayer {
       }
     }
 
-    // Draw frame to canvas
-    this.ctx.putImageData(imageData, frame.left, frame.top);
+    // Put ImageData to temporary canvas
+    tempCtx.putImageData(imageData, 0, 0);
+
+    // Draw temporary canvas to main canvas with proper alpha compositing
+    // This ensures transparent pixels properly show what's underneath
+    this.ctx.globalCompositeOperation = 'source-over';
+    this.ctx.drawImage(tempCanvas, frame.left, frame.top);
   }
 }
 
