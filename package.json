@@ -4,7 +4,7 @@
   "description": "SlideShowBob - Desktop and Web slideshow application",
   "private": true,
   "scripts": {
-    "start": "npm run dev",
+    "start": "cd web/frontend && npm run start",
     "dev": "cd web/frontend && npm run dev",
     "dev:frontend": "cd web/frontend && npm run dev",
     "dev:backend": "cd web/backend && npm run dev",

@@ -2,8 +2,23 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Railway and other hosts set PORT; bind on all interfaces so the container is reachable.
+const portFromEnv = Number(process.env.PORT)
+const usePlatformPort =
+  Number.isFinite(portFromEnv) && portFromEnv > 0 ? portFromEnv : null
+
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    host: true,
+    port: usePlatformPort ?? 5173,
+    strictPort: usePlatformPort !== null,
+  },
+  preview: {
+    host: true,
+    port: usePlatformPort ?? 4173,
+    strictPort: usePlatformPort !== null,
+  },
   plugins: [
     react(),
     VitePWA({
