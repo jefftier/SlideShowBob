@@ -1,22 +1,39 @@
 {
   "name": "slideshowbob",
-  "version": "1.0.0",
-  "description": "SlideShowBob - Desktop and Web slideshow application",
   "private": true,
+  "version": "1.0.0",
+  "description": "SlideShowBob — browser slideshow (React + Vite)",
+  "type": "module",
   "scripts": {
-    "start": "cd web/frontend && npm run start",
-    "dev": "cd web/frontend && npm run dev",
-    "dev:frontend": "cd web/frontend && npm run dev",
-    "dev:backend": "cd web/backend && npm run dev",
-    "build": "cd web/frontend && npm run build",
-    "build:frontend": "cd web/frontend && npm run build",
-    "preview": "cd web/frontend && npm run preview",
-    "test": "cd web/frontend && npm run test",
-    "install:all": "npm install && cd web/frontend && npm install && cd ../backend && npm install"
+    "start": "vite preview",
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:ui": "vitest --ui"
   },
-  "workspaces": [
-    "web/frontend",
-    "web/backend"
-  ]
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^25.0.3",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.23",
+    "jsdom": "^25.0.1",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.0",
+    "vite-plugin-pwa": "^1.2.0",
+    "vitest": "^4.0.16"
+  },
+  "dependencies": {
+    "file-system-access": "^1.0.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
 }
-

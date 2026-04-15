@@ -2,29 +2,15 @@
 	"folders": [
 		{
 			"path": ".",
-			"name": "SlideShowBob Root"
-		},
-		{
-			"path": "./desktop",
-			"name": "Desktop App (WPF)"
-		},
-		{
-			"path": "./web/frontend",
-			"name": "Web Frontend (React)"
-		},
-		{
-			"path": "./web/backend",
-			"name": "Web Backend (Node.js)"
+			"name": "SlideShowBob"
 		}
 	],
 	"settings": {
 		"files.exclude": {
-			"**/node_modules": true,
-			"**/bin": true,
-			"**/obj": true
+			"**/node_modules": true
 		},
 		"github-actions.workflows.pinned.workflows": [
-			".github/workflows/release.yml"
+			".github/workflows/ci.yml"
 		]
 	}
 }

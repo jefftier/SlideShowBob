@@ -3,7 +3,7 @@
 **/obj/
 **/publish/
 
-## VS files
+## VS / .NET (harmless if unused)
 .vs/
 *.user
 *.suo
@@ -17,6 +17,12 @@ packages/
 
 ## Logs
 *.log
+logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
 ## Others
 *.dbmdl
@@ -30,30 +36,31 @@ packages/
 _ReSharper*/
 *.DotSettings.user
 
-## FFMPEG (large binaries, should not be in repo)
+## FFMPEG (large binaries)
 ffmpeg/
 FFMPEG/
-# Web App
-web/frontend/node_modules/
-web/frontend/dist/
-web/frontend/build/
-web/frontend/.next/
-web/frontend/.vite/
-web/backend/node_modules/
-web/backend/dist/
-web/backend/build/
-web/shared/node_modules/
-web/shared/dist/
+
+## Vite / Node (repo root)
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+.next/
+build/
 
 # Environment files
-web/**/.env
-web/**/.env.local
-web/**/.env.*.local
+.env
+.env.local
+.env.*.local
 
-# Logs
-web/**/npm-debug.log*
-web/**/yarn-debug.log*
-web/**/yarn-error.log*
-web/**/pnpm-debug.log*
-
-node_modules
+## Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
