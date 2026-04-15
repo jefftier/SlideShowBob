@@ -147,9 +147,17 @@ describe('unifiedPlaybackController', () => {
 
   describe('shouldAdvanceGif', () => {
     it('should never advance via timer', () => {
-      const decision = shouldAdvanceGif();
+      const state: PlaybackState & { gifIsAnimated?: boolean } = {
+        mediaType: MediaType.Gif,
+        delayMs: 4000,
+        isLoaded: true,
+        isRetrying: false,
+        isPlaying: true,
+        gifIsAnimated: true,
+      };
+      const decision = shouldAdvanceGif(state);
       expect(decision.shouldAdvance).toBe(false);
-      expect(decision.reason).toBe('gifs_advance_on_completion_only');
+      expect(decision.reason).toBe('animated_gifs_advance_on_completion_only');
       expect(decision.condition?.type).toBe('event');
     });
   });
@@ -193,7 +201,7 @@ describe('unifiedPlaybackController', () => {
       };
       const decision = shouldAdvance(state, Date.now());
       expect(decision.shouldAdvance).toBe(false);
-      expect(decision.reason).toBe('gifs_advance_on_completion_only');
+      expect(decision.reason).toBe('animated_gifs_advance_on_completion_only');
     });
 
     it('should handle unknown media type', () => {

@@ -94,8 +94,6 @@ export type GifPlayerState = 'idle' | 'loading' | 'ready' | 'playing' | 'paused'
 class ByteReader {
   private data: Uint8Array;
   private position: number;
-  private bitBuffer: number = 0;
-  private bitCount: number = 0;
 
   constructor(data: Uint8Array) {
     this.data = data;
@@ -201,7 +199,6 @@ class LZWDecoder {
     const clearCode = 1 << minCodeSize;
     const endCode = clearCode + 1;
     let codeSize = minCodeSize + 1;
-    let codeMask = (1 << codeSize) - 1;
 
     const output: number[] = [];
     const dictionary: number[][] = [];
@@ -222,7 +219,6 @@ class LZWDecoder {
       if (code === clearCode) {
         // Reset dictionary
         codeSize = minCodeSize + 1;
-        codeMask = (1 << codeSize) - 1;
         nextCode = endCode + 1;
         oldCode = -1;
         continue;
@@ -263,7 +259,6 @@ class LZWDecoder {
         nextCode++;
         if (nextCode >= (1 << codeSize) && codeSize < 12) {
           codeSize++;
-          codeMask = (1 << codeSize) - 1;
         }
       }
 
@@ -311,8 +306,6 @@ export class GifParser {
     
     const packed = this.reader.readByte();
     const hasGlobalColorTable = (packed & 0x80) !== 0;
-    const colorResolution = ((packed & 0x70) >> 4) + 1;
-    const sortFlag = (packed & 0x08) !== 0;
     const globalColorTableSize = 2 << (packed & 0x07);
     
     const backgroundColorIndex = this.reader.readByte();
@@ -414,7 +407,6 @@ export class GifParser {
         const packed = this.reader.readByte();
         const hasLocalColorTable = (packed & 0x80) !== 0;
         const interlace = (packed & 0x40) !== 0;
-        const sortFlag = (packed & 0x20) !== 0;
         const localColorTableSize = 2 << (packed & 0x07);
 
         // Use local color table if present, otherwise global
@@ -530,7 +522,6 @@ export class GifPlayer {
   private state: GifPlayerState = 'idle';
   private options: Required<GifPlayerOptions>;
   private animationFrameId: number | null = null;
-  private startTime: number = 0;
   private pausedTime: number = 0;
   private accumulatedPauseTime: number = 0;
   private previousFrameCanvas: HTMLCanvasElement | null = null; // For disposal method 3
@@ -665,7 +656,6 @@ export class GifPlayer {
     } else {
       // Start from beginning or current frame
       this.accumulatedPauseTime = 0;
-      this.startTime = performance.now();
     }
 
     this.setState('playing');
@@ -814,7 +804,6 @@ export class GifPlayer {
         // Loop animation
         this.currentFrame = 0;
         this.accumulatedPauseTime = 0;
-        this.startTime = performance.now();
         this.scheduleNextFrame();
       } else {
         // Animation complete

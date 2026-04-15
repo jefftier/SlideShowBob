@@ -95,7 +95,7 @@ export function shouldAdvanceVideo(): PlaybackDecision {
  */
 export function shouldAdvanceGif(
   state: PlaybackState,
-  now: number,
+  _now: number,
   isCompleted?: boolean // True if GIF animation completed (detected via image events)
 ): PlaybackDecision {
   // Gate: Don't advance during retry
@@ -172,7 +172,7 @@ export function shouldRunTimer(mediaType: MediaType): boolean {
  * For images/GIFs, check frequently (every 100ms) to catch min delay accurately.
  * This ensures we don't miss the exact moment when delay is met.
  */
-export function getTimerCheckInterval(mediaType: MediaType): number {
+export function getTimerCheckInterval(_mediaType: MediaType): number {
   // Check every 100ms for accurate timing
   // This is more frequent than typical delay values, ensuring we catch
   // the exact moment when delay is met without significant overhead

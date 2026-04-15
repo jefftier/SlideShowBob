@@ -1,6 +1,50 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  IconPrevious,
+  IconNext,
+  IconPlay,
+  IconPause,
+  IconRestart,
+  IconFullscreen,
+  IconFullscreenExit,
+  IconMore,
+  IconChevronDown,
+  IconChevronUp,
+  IconFolder,
+  IconList,
+  IconSort,
+  IconDisplay,
+  IconSettings,
+  IconHelp,
+  IconSpeakerOn,
+  IconSpeakerOff,
+  IconZoomIn,
+  IconZoomOut,
+  IconFit,
+  IconVideo,
+  IconGrip,
+} from './ToolbarIcons';
 import './Toolbar.css';
+
+const TOOLBAR_POSITION_KEY = 'slideshow-toolbar-position';
+
+function loadToolbarPosition(): { left: number; top: number } {
+  try {
+    const s = localStorage.getItem(TOOLBAR_POSITION_KEY);
+    if (s) {
+      const { left, top } = JSON.parse(s);
+      if (typeof left === 'number' && typeof top === 'number') return { left, top };
+    }
+  } catch (_) {}
+  return { left: -1, top: -1 }; // use CSS default (bottom center)
+}
+
+function saveToolbarPosition(left: number, top: number) {
+  try {
+    localStorage.setItem(TOOLBAR_POSITION_KEY, JSON.stringify({ left, top }));
+  } catch (_) {}
+}
 
 interface ToolbarProps {
   isPlaying: boolean;
@@ -69,454 +113,353 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onExitManifestMode,
   toolbarVisible = true,
   isKioskMode = false,
-  onEnterKiosk
+  onEnterKiosk,
 }) => {
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
-  const sortMenuRef = useRef<HTMLDivElement>(null);
-  const sortButtonRef = useRef<HTMLButtonElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
 
-  // Calculate menu position when it opens
-  useEffect(() => {
-    if (showSortMenu && sortButtonRef.current) {
-      const rect = sortButtonRef.current.getBoundingClientRect();
-      // Position menu above the button
-      const menuHeight = 200; // Approximate menu height
-      setMenuPosition({
-        top: rect.top - menuHeight - 8, // Position above button with 8px gap
-        left: rect.left
-      });
-    }
-  }, [showSortMenu]);
+  // Draggable toolbar position (pixels; -1 means use CSS default)
+  const [position, setPosition] = useState(loadToolbarPosition);
+  const dragRef = useRef({ isDragging: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 });
+  const shellRef = useRef<HTMLDivElement>(null);
 
-  // Close sort menu when clicking outside
+  // Close menus when clicking outside
   useEffect(() => {
-    if (!showSortMenu) return;
-
+    if (!showSortMenu && !showMoreMenu) return;
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
-      // Check if click is on the menu or button
-      const menuElement = document.querySelector('.sort-menu');
-      if (menuElement && (menuElement.contains(target) || sortButtonRef.current?.contains(target))) {
-        return; // Don't close if clicking on menu or button
-      }
-      // Close menu if clicking outside
-      setShowSortMenu(false);
+      const inSort = document.querySelector('.sort-menu')?.contains(target);
+      const inMore = moreMenuRef.current?.contains(target) || moreButtonRef.current?.contains(target);
+      if (!inSort) setShowSortMenu(false);
+      if (!inMore) setShowMoreMenu(false);
     };
-
-    // Use click instead of mousedown to allow onClick handlers to fire first
-    const timeoutId = setTimeout(() => {
-      document.addEventListener('click', handleClickOutside, true); // Use capture phase
-    }, 0);
-    
+    const t = setTimeout(() => document.addEventListener('click', handleClickOutside, true), 0);
     return () => {
-      clearTimeout(timeoutId);
+      clearTimeout(t);
       document.removeEventListener('click', handleClickOutside, true);
     };
-  }, [showSortMenu]);
+  }, [showSortMenu, showMoreMenu]);
+
+  // Position More menu above the button
+  useEffect(() => {
+    if (showMoreMenu && moreButtonRef.current) {
+      const rect = moreButtonRef.current.getBoundingClientRect();
+      setMenuPosition({
+        top: rect.top - 8,
+        left: rect.left,
+      });
+    }
+  }, [showMoreMenu]);
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      const t = e.target as HTMLElement;
+      if (t.closest('button') || t.closest('.sort-menu') || t.closest('.more-menu')) return;
+      dragRef.current = {
+        isDragging: true,
+        startX: e.clientX,
+        startY: e.clientY,
+        startLeft: position.left,
+        startTop: position.top,
+      };
+    },
+    [position]
+  );
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragRef.current.isDragging) return;
+      const dx = e.clientX - dragRef.current.startX;
+      const dy = e.clientY - dragRef.current.startY;
+      let left = dragRef.current.startLeft + dx;
+      let top = dragRef.current.startTop + dy;
+      if (dragRef.current.startLeft < 0) {
+        const shell = shellRef.current;
+        if (shell) {
+          const r = shell.getBoundingClientRect();
+          left = r.left + dx;
+          top = r.top + dy;
+        }
+      }
+      const padding = 8;
+      left = Math.max(padding, Math.min(window.innerWidth - (shellRef.current?.offsetWidth ?? 400) - padding, left));
+      top = Math.max(padding, Math.min(window.innerHeight - (shellRef.current?.offsetHeight ?? 80) - padding, top));
+      setPosition({ left, top });
+    };
+    const onUp = () => {
+      if (dragRef.current.isDragging) {
+        const { startLeft, startTop } = dragRef.current;
+        if (startLeft >= 0 && startTop >= 0) {
+          saveToolbarPosition(position.left, position.top);
+        } else if (shellRef.current) {
+          const r = shellRef.current.getBoundingClientRect();
+          saveToolbarPosition(r.left, r.top);
+          setPosition({ left: r.left, top: r.top });
+        }
+        dragRef.current.isDragging = false;
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [position]);
 
   const displayIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
 
-  // Don't render toolbar at all in kiosk mode
-  if (isKioskMode) {
-    return null;
-  }
+  if (isKioskMode) return null;
+
+  const hidden = isManifestMode && !toolbarVisible;
+  const shellStyle =
+    position.left >= 0 && position.top >= 0
+      ? { left: position.left, top: position.top, bottom: 'auto', transform: 'translateX(0)' }
+      : undefined;
+
+  const sortMenuPortal = showSortMenu &&
+    createPortal(
+      <div
+        className="sort-menu glass-menu"
+        role="menu"
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: 'fixed',
+          top: `${menuPosition.top}px`,
+          left: `${menuPosition.left}px`,
+          transform: 'translateY(-100%)',
+        }}
+      >
+        {[
+          { mode: 'NameAZ' as const, label: 'Name (A–Z)' },
+          { mode: 'NameZA' as const, label: 'Name (Z–A)' },
+          { mode: 'DateOldest' as const, label: 'Date (Oldest First)' },
+          { mode: 'DateNewest' as const, label: 'Date (Newest First)' },
+          { mode: 'Random' as const, label: 'Random' },
+        ].map(({ mode, label }) => (
+          <button
+            key={mode}
+            role="menuitem"
+            className={currentSortMode === mode ? 'glass-menu-item-active' : ''}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onSort(mode);
+              setShowSortMenu(false);
+            }}
+          >
+            {label} {currentSortMode === mode && '✓'}
+          </button>
+        ))}
+      </div>,
+      document.body
+    );
+
+  const moreMenuPortal = showMoreMenu &&
+    createPortal(
+      <div
+        ref={moreMenuRef}
+        className="more-menu glass-menu"
+        role="menu"
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: 'fixed',
+          top: `${menuPosition.top}px`,
+          left: `${menuPosition.left}px`,
+          transform: 'translateY(-100%)',
+          minWidth: '220px',
+        }}
+      >
+        <button role="menuitem" className="glass-menu-item" onClick={() => { onRestart(); setShowMoreMenu(false); }}>
+          <IconRestart /> Restart from beginning
+        </button>
+        <button
+          role="menuitem"
+          className={`glass-menu-item ${isFitToWindow ? 'glass-menu-item-active' : ''}`}
+          onClick={() => { onFitToWindowChange(!isFitToWindow); setShowMoreMenu(false); }}
+        >
+          <IconFit /> Fit to window
+        </button>
+        <div className="glass-menu-row">
+          <span className="glass-menu-label">Zoom</span>
+          <span className="glass-menu-actions">
+            <button type="button" className="glass-menu-icon-btn" onClick={() => onZoomChange(Math.max(zoomFactor - 0.1, 0.1))} aria-label="Zoom out"><IconZoomOut /></button>
+            <span className="glass-menu-value">{Math.round((effectiveZoom !== undefined ? effectiveZoom : zoomFactor) * 100)}%</span>
+            <button type="button" className="glass-menu-icon-btn" onClick={() => onZoomChange(Math.min(zoomFactor + 0.1, 5))} aria-label="Zoom in"><IconZoomIn /></button>
+          </span>
+        </div>
+        <button
+          role="menuitem"
+          className={`glass-menu-item ${includeVideos ? 'glass-menu-item-active' : ''}`}
+          onClick={() => { onIncludeVideosChange(!includeVideos); setShowMoreMenu(false); }}
+        >
+          <IconVideo /> Include GIF / MP4
+        </button>
+        <button role="menuitem" className="glass-menu-item" onClick={() => { onMuteToggle(); setShowMoreMenu(false); }}>
+          {isMuted ? <IconSpeakerOff /> : <IconSpeakerOn />} {isMuted ? 'Unmute' : 'Mute'}
+        </button>
+        <div className="glass-menu-divider" />
+        <button role="menuitem" className="glass-menu-item" onClick={() => { onAddFolder(); setShowMoreMenu(false); }}>
+          <IconFolder /> Change folder
+        </button>
+        <button role="menuitem" className="glass-menu-item" onClick={() => { onOpenPlaylist(); setShowMoreMenu(false); }}>
+          <IconList /> Playlist editor
+        </button>
+        <button
+          role="menuitem"
+          className="glass-menu-item"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (moreButtonRef.current) {
+              const r = moreButtonRef.current.getBoundingClientRect();
+              setMenuPosition({ top: r.top, left: r.left });
+            }
+            setShowMoreMenu(false);
+            setShowSortMenu(true);
+          }}
+        >
+          <IconSort /> Sort
+        </button>
+        {!isKioskMode && onEnterKiosk && (
+          <button role="menuitem" className="glass-menu-item" onClick={() => { onEnterKiosk(); setShowMoreMenu(false); }}>
+            <IconDisplay /> Kiosk mode
+          </button>
+        )}
+        <button role="menuitem" className="glass-menu-item" onClick={() => { onOpenSettings(); setShowMoreMenu(false); }}>
+          <IconSettings /> Settings
+        </button>
+        {onOpenShortcutsHelp && (
+          <button role="menuitem" className="glass-menu-item" onClick={() => { onOpenShortcutsHelp(); setShowMoreMenu(false); }}>
+            <IconHelp /> Keyboard shortcuts
+          </button>
+        )}
+        <div className="glass-menu-row">
+          <span className="glass-menu-label">Slide delay (ms)</span>
+          <input
+            type="number"
+            className="glass-menu-input"
+            value={slideDelayMs}
+            onChange={(e) => onSlideDelayChange(parseInt(e.target.value) || 0)}
+            min={0}
+            step={100}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+        {isManifestMode && onExitManifestMode && (
+          <>
+            <div className="glass-menu-divider" />
+            <button role="menuitem" className="glass-menu-item" onClick={() => { onExitManifestMode(); setShowMoreMenu(false); }}>
+              <IconFullscreenExit /> Exit manifest mode
+            </button>
+          </>
+        )}
+      </div>,
+      document.body
+    );
 
   return (
     <>
-      {!isMinimized ? (
-        <div className={`toolbar-expanded ${(isManifestMode && !toolbarVisible) ? 'hidden' : ''}`}>
-          <div className="toolbar-content">
-            <button
-              className="toolbar-btn"
-              onClick={onPrevious}
-              title="Previous"
-              aria-label="Previous slide"
-            >
-              ⏮
-            </button>
-            <div className="toolbar-separator"></div>
-            
-            {!isPlaying ? (
-              <button
-                className="toolbar-btn"
-                onClick={onPlayPause}
-                title="Start slideshow"
-                aria-label="Start slideshow"
-              >
-                ▶
+      <div
+        ref={shellRef}
+        className={`toolbar-shell ${hidden ? 'hidden' : ''}`}
+        style={shellStyle}
+        onMouseDown={handleMouseDown}
+      >
+        <div className="toolbar-grip" aria-hidden><IconGrip /></div>
+        {!isMinimized ? (
+          <div className="toolbar-expanded glass-bar">
+            <div className="toolbar-content">
+              <button type="button" className="toolbar-btn glass-btn" onClick={onPrevious} title="Previous" aria-label="Previous slide">
+                <IconPrevious />
               </button>
-            ) : (
-              <button
-                className="toolbar-btn"
-                onClick={onPlayPause}
-                title="Pause slideshow"
-                aria-label="Pause slideshow"
-              >
-                ⏸
-              </button>
-            )}
-            
-            <div className="toolbar-separator"></div>
-            
-            <button
-              className="toolbar-btn"
-              onClick={onNext}
-              title="Next"
-              aria-label="Next slide"
-            >
-              ⏭
-            </button>
-            
-            <div className="toolbar-separator"></div>
-            
-            <button
-              className="toolbar-btn"
-              onClick={onRestart}
-              title="Restart slideshow from beginning"
-              aria-label="Restart slideshow from beginning"
-            >
-              ↺
-            </button>
-            
-            <div className="toolbar-separator"></div>
-            
-            <button
-              className={`toolbar-btn-toggle ${isFitToWindow ? 'active' : ''}`}
-              onClick={() => onFitToWindowChange(!isFitToWindow)}
-              title="Fit to window"
-              aria-label="Fit to window"
-            >
-              Fit
-            </button>
-            
-            <div className="toolbar-separator"></div>
-            
-            <span className="toolbar-label">Zoom</span>
-            <button
-              className="toolbar-btn-small"
-              onClick={() => onZoomChange(Math.max(zoomFactor - 0.1, 0.1))}
-              title="Zoom out"
-              aria-label="Zoom out"
-            >
-              −
-            </button>
-            <span className="toolbar-value">{Math.round((effectiveZoom !== undefined ? effectiveZoom : zoomFactor) * 100)}%</span>
-            <button
-              className="toolbar-btn-small"
-              onClick={() => onZoomChange(Math.min(zoomFactor + 0.1, 5))}
-              title="Zoom in"
-              aria-label="Zoom in"
-            >
-              +
-            </button>
-            
-            <div className="toolbar-separator"></div>
-            
-            <button
-              className={`toolbar-btn-toggle ${includeVideos ? 'active' : ''}`}
-              onClick={() => onIncludeVideosChange(!includeVideos)}
-              title="Include videos and GIFs"
-              aria-label="Include videos and GIFs"
-            >
-              GIF / MP4
-            </button>
-            
-            <div className="toolbar-separator"></div>
-            
-            <button
-              className="toolbar-btn"
-              onClick={onMuteToggle}
-              title={isMuted ? 'Unmute' : 'Mute'}
-              aria-label={isMuted ? 'Unmute' : 'Mute'}
-            >
-              {isMuted ? '🔇' : '🔊'}
-            </button>
-            
-            <div className="toolbar-separator"></div>
-            
-            {!isFullscreen ? (
-              <button
-                className="toolbar-btn"
-                onClick={onFullscreenToggle}
-                title="Toggle fullscreen"
-                aria-label="Toggle fullscreen"
-              >
-                ⛶
-              </button>
-            ) : (
-              <button
-                className="toolbar-btn"
-                onClick={onFullscreenToggle}
-                title="Exit fullscreen"
-                aria-label="Exit fullscreen"
-              >
-                ⛶
-              </button>
-            )}
-            
-            <div className="toolbar-separator"></div>
-            
-            <button
-              className="toolbar-btn"
-              onClick={onAddFolder}
-              title="Change folder"
-              aria-label="Change folder"
-            >
-              📁
-            </button>
-            
-            <div className="toolbar-separator"></div>
-            
-            <button
-              className="toolbar-btn"
-              onClick={onOpenPlaylist}
-              title="Playlist editor"
-              aria-label="Playlist editor"
-            >
-              ☰
-            </button>
-            
-            <div className="toolbar-separator"></div>
-            
-            <div className="toolbar-sort-container" ref={sortMenuRef}>
-              <button
-                ref={sortButtonRef}
-                className="toolbar-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  console.log('Sort button clicked, current state:', showSortMenu);
-                  setShowSortMenu(!showSortMenu);
-                }}
-                title="Sort options"
-                aria-label="Sort options"
-              >
-                ⇅
-              </button>
-              {showSortMenu && createPortal(
-                <div 
-                  className="sort-menu" 
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{
-                    position: 'fixed',
-                    top: `${menuPosition.top}px`,
-                    left: `${menuPosition.left}px`
-                  }}
-                >
-                  <button 
-                    className={currentSortMode === 'NameAZ' ? 'sort-menu-item-active' : ''}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onClick={(e) => { 
-                      e.preventDefault();
-                      e.stopPropagation();
-                      console.log('Sort button clicked: NameAZ, onSort type:', typeof onSort);
-                      if (onSort) {
-                        onSort('NameAZ');
-                      }
-                      setShowSortMenu(false); 
-                    }}
-                  >
-                    Name (A-Z) {currentSortMode === 'NameAZ' && '✓'}
-                  </button>
-                  <button 
-                    className={currentSortMode === 'NameZA' ? 'sort-menu-item-active' : ''}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onClick={(e) => { 
-                      e.preventDefault();
-                      e.stopPropagation();
-                      console.log('Sort button clicked: NameZA');
-                      if (onSort) {
-                        onSort('NameZA');
-                      }
-                      setShowSortMenu(false); 
-                    }}
-                  >
-                    Name (Z-A) {currentSortMode === 'NameZA' && '✓'}
-                  </button>
-                  <button 
-                    className={currentSortMode === 'DateOldest' ? 'sort-menu-item-active' : ''}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onClick={(e) => { 
-                      e.preventDefault();
-                      e.stopPropagation();
-                      console.log('Sort button clicked: DateOldest');
-                      if (onSort) {
-                        onSort('DateOldest');
-                      }
-                      setShowSortMenu(false); 
-                    }}
-                  >
-                    Date (Oldest First) {currentSortMode === 'DateOldest' && '✓'}
-                  </button>
-                  <button 
-                    className={currentSortMode === 'DateNewest' ? 'sort-menu-item-active' : ''}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onClick={(e) => { 
-                      e.preventDefault();
-                      e.stopPropagation();
-                      console.log('Sort button clicked: DateNewest');
-                      if (onSort) {
-                        onSort('DateNewest');
-                      }
-                      setShowSortMenu(false); 
-                    }}
-                  >
-                    Date (Newest First) {currentSortMode === 'DateNewest' && '✓'}
-                  </button>
-                  <button 
-                    className={currentSortMode === 'Random' ? 'sort-menu-item-active' : ''}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onClick={(e) => { 
-                      e.preventDefault();
-                      e.stopPropagation();
-                      console.log('Sort button clicked: Random');
-                      if (onSort) {
-                        onSort('Random');
-                      }
-                      setShowSortMenu(false); 
-                    }}
-                  >
-                    Random {currentSortMode === 'Random' && '✓'}
-                  </button>
-                </div>,
-                document.body
+              <div className="toolbar-separator" />
+              {!isPlaying ? (
+                <button type="button" className="toolbar-btn glass-btn" onClick={onPlayPause} title="Start slideshow" aria-label="Start slideshow">
+                  <IconPlay />
+                </button>
+              ) : (
+                <button type="button" className="toolbar-btn glass-btn" onClick={onPlayPause} title="Pause" aria-label="Pause slideshow">
+                  <IconPause />
+                </button>
               )}
+              <div className="toolbar-separator" />
+              <button type="button" className="toolbar-btn glass-btn" onClick={onNext} title="Next" aria-label="Next slide">
+                <IconNext />
+              </button>
+              <div className="toolbar-separator" />
+              <button type="button" className="toolbar-btn glass-btn" onClick={onFullscreenToggle} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+                {isFullscreen ? <IconFullscreenExit /> : <IconFullscreen />}
+              </button>
+              <div className="toolbar-separator" />
+              <button
+                ref={moreButtonRef}
+                type="button"
+                className="toolbar-btn glass-btn"
+                onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); setShowSortMenu(false); }}
+                title="More options"
+                aria-label="More options"
+                aria-expanded={showMoreMenu}
+              >
+                <IconMore />
+              </button>
+              <div className="toolbar-separator" />
+              <button
+                type="button"
+                className="toolbar-btn glass-btn"
+                onClick={() => setIsMinimized(true)}
+                title="Minimize toolbar"
+                aria-label="Minimize toolbar"
+              >
+                <IconChevronDown />
+              </button>
             </div>
-            
-            <div className="toolbar-separator"></div>
-            
-            {!isKioskMode && onEnterKiosk && (
-              <>
-                <button
-                  className="toolbar-btn"
-                  onClick={onEnterKiosk}
-                  title="Enter Kiosk Mode (fullscreen + hide UI)"
-                  aria-label="Enter kiosk mode"
-                >
-                  🖥
-                </button>
-                <div className="toolbar-separator"></div>
-              </>
-            )}
-            
-            <button
-              className="toolbar-btn"
-              onClick={onOpenSettings}
-              title="App Settings"
-              aria-label="App settings"
-            >
-              ⚙
+          </div>
+        ) : (
+          <div className="toolbar-minimized glass-bar">
+            <button type="button" className="toolbar-btn glass-btn" onClick={onPrevious} title="Previous" aria-label="Previous slide"><IconPrevious /></button>
+            <div className="toolbar-separator" />
+            <button type="button" className="toolbar-btn glass-btn" onClick={onPlayPause} title={isPlaying ? 'Pause' : 'Play'} aria-label={isPlaying ? 'Pause' : 'Play'}>
+              {isPlaying ? <IconPause /> : <IconPlay />}
             </button>
-            
-            {onOpenShortcutsHelp && (
-              <>
-                <div className="toolbar-separator"></div>
-                <button
-                  className="toolbar-btn"
-                  onClick={onOpenShortcutsHelp}
-                  title="Keyboard Shortcuts (?)"
-                  aria-label="Keyboard shortcuts"
-                >
-                  ?
-                </button>
-              </>
-            )}
-            
-            {isManifestMode && onExitManifestMode && (
-              <>
-                <div className="toolbar-separator"></div>
-                <button
-                  className="toolbar-btn"
-                  onClick={onExitManifestMode}
-                  title="Exit Manifest Mode"
-                  aria-label="Exit manifest mode"
-                >
-                  ⛶
-                </button>
-              </>
-            )}
-            
-            <div className="toolbar-separator"></div>
-            
-            <span className="toolbar-label">Delay</span>
-            <input
-              type="number"
-              className="toolbar-input"
-              value={slideDelayMs}
-              onChange={(e) => onSlideDelayChange(parseInt(e.target.value) || 0)}
-              min="0"
-              step="100"
-            />
-            
-            <div className="toolbar-separator"></div>
-            
+            <div className="toolbar-separator" />
+            <button type="button" className="toolbar-btn glass-btn" onClick={onNext} title="Next" aria-label="Next slide"><IconNext /></button>
+            <div className="toolbar-separator" />
+            <button type="button" className="toolbar-btn glass-btn" onClick={onFullscreenToggle} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+              {isFullscreen ? <IconFullscreenExit /> : <IconFullscreen />}
+            </button>
+            <div className="toolbar-separator" />
             <button
-              className="toolbar-btn"
-              onClick={() => setIsMinimized(true)}
-              title="Minimize toolbar"
-              aria-label="Minimize toolbar"
+              ref={moreButtonRef}
+              type="button"
+              className="toolbar-btn glass-btn"
+              onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }}
+              title="More options"
+              aria-label="More options"
+              aria-expanded={showMoreMenu}
             >
-              ▾
+              <IconMore />
+            </button>
+            <div className="toolbar-separator" />
+            <button type="button" className="toolbar-btn glass-btn" onClick={() => setIsMinimized(false)} title="Expand toolbar" aria-label="Expand toolbar">
+              <IconChevronUp />
             </button>
           </div>
+        )}
+        <div className="toolbar-footer">
+          <span className="toolbar-status">{statusText}</span>
+          <span className="toolbar-count">{displayIndex} / {totalCount}</span>
         </div>
-      ) : (
-        <div className={`toolbar-minimized ${(isManifestMode && !toolbarVisible) ? 'hidden' : ''}`}>
-          <button className="toolbar-btn" onClick={onPrevious} title="Previous" aria-label="Previous slide">⏮</button>
-          <div className="toolbar-separator"></div>
-          <button 
-            className="toolbar-btn" 
-            onClick={onPlayPause} 
-            title={isPlaying ? "Pause slideshow" : "Play slideshow"}
-            aria-label={isPlaying ? "Pause slideshow" : "Play slideshow"}
-          >
-            {isPlaying ? '⏸' : '▶'}
-          </button>
-          <div className="toolbar-separator"></div>
-          <button className="toolbar-btn" onClick={onNext} title="Next" aria-label="Next slide">⏭</button>
-          <div className="toolbar-separator"></div>
-          <button 
-            className="toolbar-btn" 
-            onClick={onFullscreenToggle} 
-            title={isFullscreen ? "Exit fullscreen" : "Toggle fullscreen"}
-            aria-label={isFullscreen ? "Exit fullscreen" : "Toggle fullscreen"}
-          >
-            ⛶
-          </button>
-          <div className="toolbar-separator"></div>
-          <button className="toolbar-btn" onClick={onOpenPlaylist} title="Playlist editor" aria-label="Playlist editor">☰</button>
-          <div className="toolbar-separator"></div>
-          <button className="toolbar-btn" onClick={() => setIsMinimized(false)} title="Expand toolbar" aria-label="Expand toolbar">▴</button>
-        </div>
-      )}
-      
-      <div className="status-bar">
-        <span>{statusText}</span>
       </div>
-      
-      <div className="title-count">
-        {displayIndex} / {totalCount}
-      </div>
+      {showMoreMenu && moreMenuPortal}
+      {showSortMenu && !showMoreMenu && sortMenuPortal}
     </>
   );
 };
 
 export default Toolbar;
-

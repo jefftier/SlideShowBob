@@ -4,20 +4,24 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 10001;
-  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 20px));
+  backdrop-filter: blur(var(--glass-blur, 20px));
 }
 
 .manifest-dialog {
-  background: #1a1a1a;
-  border-radius: 8px;
+  background: var(--glass-bg-elevated, rgba(44, 44, 46, 0.88));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 20px));
+  backdrop-filter: blur(var(--glass-blur, 20px));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--glass-radius-large, 20px);
   width: 90%;
   max-width: 500px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
 }
@@ -45,7 +49,7 @@
 }
 
 .manifest-dialog-content strong {
-  color: #0078d4;
+  color: var(--accent, #0A84FF);
 }
 
 .manifest-dialog-warning {
@@ -75,9 +79,9 @@
 .manifest-dialog-info {
   margin-top: 16px;
   padding: 12px;
-  background: rgba(0, 120, 212, 0.1);
-  border-left: 3px solid #0078d4;
-  border-radius: 4px;
+  background: var(--accent-muted, rgba(10, 132, 255, 0.15));
+  border-left: 3px solid var(--accent, #0A84FF);
+  border-radius: var(--glass-radius-button, 10px);
 }
 
 .manifest-dialog-info p {
@@ -113,14 +117,14 @@
 }
 
 .manifest-dialog-btn-primary {
-  background: #0078d4;
+  background: var(--accent, #0A84FF);
   color: #fff;
-  border-color: #0078d4;
+  border-color: var(--accent, #0A84FF);
 }
 
 .manifest-dialog-btn-primary:hover {
-  background: #106ebe;
-  border-color: #106ebe;
+  background: var(--accent-hover, #409CFF);
+  border-color: var(--accent-hover, #409CFF);
 }
 
 .manifest-dialog-btn-secondary {

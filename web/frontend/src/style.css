@@ -2,19 +2,61 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Apple Liquid Glass design tokens (iOS 26 / macOS Tahoe–inspired) */
 :root {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
   color-scheme: dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #1a1a1a;
+  color: rgba(255, 255, 255, 0.9);
+  background-color: #0a0a0a;
+  --app-bg: #0a0a0a;
+
+  /* Liquid Glass: translucent surfaces */
+  --glass-bg: rgba(28, 28, 30, 0.72);
+  --glass-bg-elevated: rgba(44, 44, 46, 0.88);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-border-strong: rgba(255, 255, 255, 0.18);
+  --glass-blur: 20px;
+  --glass-blur-strong: 40px;
+  --glass-radius: 14px;
+  --glass-radius-large: 20px;
+  --glass-radius-button: 10px;
+
+  /* System accent (Apple blue) */
+  --accent: #0A84FF;
+  --accent-hover: #409CFF;
+  --accent-muted: rgba(10, 132, 255, 0.25);
+
+  /* Surfaces and text */
+  --text-primary: rgba(255, 255, 255, 0.9);
+  --text-secondary: rgba(255, 255, 255, 0.6);
+  --text-tertiary: rgba(255, 255, 255, 0.45);
+  --fill-secondary: rgba(255, 255, 255, 0.08);
+  --fill-tertiary: rgba(255, 255, 255, 0.04);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --app-bg: #f5f5f7;
+    --glass-bg: rgba(255, 255, 255, 0.72);
+    --glass-bg-elevated: rgba(255, 255, 255, 0.88);
+    --glass-border: rgba(0, 0, 0, 0.1);
+    --glass-border-strong: rgba(0, 0, 0, 0.15);
+    color: rgba(0, 0, 0, 0.85);
+    background-color: #f5f5f7;
+    --text-primary: rgba(0, 0, 0, 0.9);
+    --text-secondary: rgba(0, 0, 0, 0.6);
+    --text-tertiary: rgba(0, 0, 0, 0.45);
+    --fill-secondary: rgba(0, 0, 0, 0.06);
+    --fill-tertiary: rgba(0, 0, 0, 0.04);
+  }
 }
 
 * {
@@ -40,14 +82,13 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid #0078d4;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* Ensure focus is visible on custom interactive elements */
 [role="button"]:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid #0078d4;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 

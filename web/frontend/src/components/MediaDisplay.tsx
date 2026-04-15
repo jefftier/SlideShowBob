@@ -3,7 +3,6 @@ import { MediaItem, MediaType } from '../types/media';
 import { logger } from '../utils/logger';
 import { addEvent } from '../utils/eventLog';
 import { TransitionEffect } from '../utils/settingsStorage';
-import { parseGifMetadata, parseGifMetadataFromUrl } from '../utils/gifParser';
 import { createGifPlayerOnce, GifPlayer } from '../utils/gifPlayer';
 import './MediaDisplay.css';
 
@@ -181,8 +180,6 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
       gifPlayerRef.current = null;
     }
 
-    const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
-    
     // Create GIF player configured to play once (no looping)
     // This ensures GIFs play once whether in slideshow mode or not
     const player = createGifPlayerOnce(gifCanvasRef.current, {

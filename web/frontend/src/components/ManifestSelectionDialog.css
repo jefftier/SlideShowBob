@@ -4,21 +4,25 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 10001;
-  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 20px));
+  backdrop-filter: blur(var(--glass-blur, 20px));
 }
 
 .manifest-selection-dialog {
-  background: #1a1a1a;
-  border-radius: 8px;
+  background: var(--glass-bg-elevated, rgba(44, 44, 46, 0.88));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 20px));
+  backdrop-filter: blur(var(--glass-blur, 20px));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+  border-radius: var(--glass-radius-large, 20px);
   width: 90%;
   max-width: 500px;
   max-height: 80vh;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
 }
@@ -67,8 +71,8 @@
 }
 
 .manifest-selection-item:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: #0078d4;
+  background: var(--fill-secondary, rgba(255, 255, 255, 0.1));
+  border-color: var(--accent, #0A84FF);
 }
 
 .manifest-selection-item-name {

@@ -29,10 +29,14 @@ async function scanDirectory(
   let totalFiles = 0;
   let processedFiles = 0;
 
+  // Skip macOS AppleDouble/resource-fork files (._*) - they are not playable media
+  const isAppleDouble = (fileName: string) => fileName.startsWith('._');
+
   // First pass: count total files (for progress tracking)
   try {
-    for await (const [, handle] of dirHandle.entries()) {
+    for await (const [name, handle] of dirHandle.entries()) {
       if (handle.kind === 'file') {
+        if (isAppleDouble(name)) continue;
         totalFiles++;
       } else if (handle.kind === 'directory') {
         // Count files in subdirectories recursively
@@ -50,6 +54,7 @@ async function scanDirectory(
   try {
     for await (const [name, handle] of dirHandle.entries()) {
       if (handle.kind === 'file') {
+        if (isAppleDouble(name)) continue;
         const fileHandle = handle as FileSystemFileHandle;
         const ext = '.' + name.split('.').pop()?.toLowerCase();
         
