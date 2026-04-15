@@ -18,6 +18,7 @@ export default defineConfig({
     host: true,
     port: usePlatformPort ?? 4173,
     strictPort: usePlatformPort !== null,
+    allowedHosts: ['slideshowbob-production.up.railway.app'],
   },
   plugins: [
     react(),
