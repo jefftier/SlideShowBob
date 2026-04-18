@@ -50,8 +50,9 @@
   border: 1px solid var(--glass-border);
   border-radius: var(--glass-radius);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
-  padding: 6px 8px;
+  padding: 6px 8px 2px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   max-width: 100vw;
   overflow: visible;
@@ -120,26 +121,15 @@
   flex-shrink: 0;
 }
 
-/* Footer: removed - count is now in notch */
-
-.toolbar-count-notch {
-  display: flex;
-  justify-content: center;
-  width: 100%;
-}
+/* Count inside glass-bar */
 
 .toolbar-count {
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: 11px;
+  color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
-  border-top: none;
-  border-radius: 0 0 10px 10px;
-  padding: 2px 12px;
   white-space: nowrap;
+  line-height: 1;
+  padding: 0 0 2px;
 }
 
 /* Glass menus (More, Sort) */

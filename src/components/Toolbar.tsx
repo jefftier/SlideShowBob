@@ -398,8 +398,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
               <IconMore />
             </button>
           </div>
-        </div>
-        <div className="toolbar-count-notch">
           <span className="toolbar-count">{displayIndex} / {totalCount}</span>
         </div>
       </div>
