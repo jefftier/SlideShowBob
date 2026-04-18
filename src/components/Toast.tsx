@@ -8,6 +8,10 @@ export interface Toast {
   message: string;
   type: ToastType;
   duration?: number;
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
 }
 
 interface ToastProps {
@@ -40,11 +44,24 @@ const ToastComponent: React.FC<ToastProps> = ({ toast, onClose }) => {
     }
   };
 
+  const handleAction = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (toast.action) {
+      toast.action.onClick();
+      onClose(toast.id);
+    }
+  };
+
   return (
     <div className={`toast toast-${toast.type}`} onClick={() => onClose(toast.id)}>
       <span className="toast-icon">{getIcon()}</span>
       <span className="toast-message">{toast.message}</span>
-      <button className="toast-close" onClick={() => onClose(toast.id)} title="Close" aria-label="Close notification">
+      {toast.action && (
+        <button className="toast-action" onClick={handleAction} aria-label={toast.action.label}>
+          {toast.action.label}
+        </button>
+      )}
+      <button className="toast-close" onClick={(e) => { e.stopPropagation(); onClose(toast.id); }} title="Close" aria-label="Close notification">
         ×
       </button>
     </div>

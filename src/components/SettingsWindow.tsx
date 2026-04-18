@@ -1,14 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './SettingsWindow.css';
 import { loadSettings, saveSettings, AppSettings, getDefaultSettings } from '../utils/settingsStorage';
-import { createSampleManifest } from '../utils/manifestLoader';
 import { useToast } from '../hooks/useToast';
+
+type SettingsSection = 'playback' | 'display' | 'persistence';
 
 interface SettingsWindowProps {
   onClose: () => void;
   onSave?: () => void;
   onOpenDiagnostics?: () => void;
 }
+
+const SECTIONS: { id: SettingsSection; label: string }[] = [
+  { id: 'playback', label: 'Playback' },
+  { id: 'display', label: 'Display' },
+  { id: 'persistence', label: 'Persistence' },
+];
+
+const FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])';
 
 const SettingsWindow: React.FC<SettingsWindowProps> = ({
   onClose,
@@ -17,22 +26,25 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
 }) => {
   const [settings, setSettings] = useState<AppSettings>(getDefaultSettings());
   const [hasChanges, setHasChanges] = useState(false);
-  const [tooltip, setTooltip] = useState<{ content: React.ReactNode; x: number; y: number } | null>(null);
+  const [activeSection, setActiveSection] = useState<SettingsSection>('playback');
   const { showError, showWarning } = useToast();
-  const tooltipTimeoutRef = useRef<number | null>(null);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const loaded = loadSettings({ showError, showWarning });
     setSettings(loaded);
   }, [showError, showWarning]);
 
-  const handleSaveFlagChange = (key: keyof AppSettings, value: boolean) => {
-    setSettings(prev => {
-      const updated = { ...prev, [key]: value };
-      setHasChanges(true);
-      return updated;
-    });
-  };
+  // Focus first interactive element on mount (Requirement 7.5)
+  useEffect(() => {
+    if (modalRef.current) {
+      const firstFocusable = modalRef.current.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+      if (firstFocusable) {
+        firstFocusable.focus();
+      }
+    }
+  }, []);
 
   const handleSave = () => {
     try {
@@ -54,273 +66,384 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
     onClose();
   };
 
-  const showTooltip = (content: string | React.ReactNode, event: React.MouseEvent) => {
-    if (tooltipTimeoutRef.current) {
-      clearTimeout(tooltipTimeoutRef.current);
+  // Focus trapping and Escape key handler (Requirements 7.2, 7.4)
+  const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancel();
+      return;
     }
-    setTooltip({ content, x: event.clientX, y: event.clientY });
+
+    if (e.key === 'Tab' && modalRef.current) {
+      const focusableElements = Array.from(
+        modalRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+      ).filter(el => el.offsetParent !== null); // filter out hidden elements
+
+      if (focusableElements.length === 0) return;
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+
+      if (e.shiftKey) {
+        // Shift+Tab: wrap from first to last
+        if (document.activeElement === firstElement) {
+          e.preventDefault();
+          lastElement.focus();
+        }
+      } else {
+        // Tab: wrap from last to first
+        if (document.activeElement === lastElement) {
+          e.preventDefault();
+          firstElement.focus();
+        }
+      }
+    }
   };
 
-  const hideTooltip = () => {
-    tooltipTimeoutRef.current = window.setTimeout(() => {
-      setTooltip(null);
-    }, 100);
+  const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
+    let nextIndex: number | null = null;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      nextIndex = (index + 1) % SECTIONS.length;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      nextIndex = (index - 1 + SECTIONS.length) % SECTIONS.length;
+    }
+    if (nextIndex !== null) {
+      const nextTab = tabRefs.current[nextIndex];
+      if (nextTab) {
+        nextTab.focus();
+        setActiveSection(SECTIONS[nextIndex].id);
+      }
+    }
   };
 
-  const InfoIcon: React.FC<{ text: string | React.ReactNode }> = ({ text }) => {
-    return (
-      <span
-        className="info-icon"
-        onMouseEnter={(e) => showTooltip(text, e)}
-        onMouseLeave={hideTooltip}
-        onMouseMove={(e) => setTooltip(prev => prev ? { content: text, x: e.clientX, y: e.clientY } : null)}
-      >
-        ⓘ
-      </span>
-    );
-  };
+  const renderPlaybackSection = () => (
+    <div
+      role="tabpanel"
+      id="settings-tabpanel-playback"
+      aria-labelledby="settings-tab-playback"
+      hidden={activeSection !== 'playback'}
+    >
+      <div className="settings-section-content">
+        <div className="settings-row">
+          <div className="settings-label-group">
+            <label className="settings-label">Transition Style</label>
+            <span className="settings-description">Choose the animation used between slides</span>
+          </div>
+          <select
+            value={settings.transitionEffect}
+            onChange={(e) => {
+              setSettings(prev => ({
+                ...prev,
+                transitionEffect: e.target.value as 'Fade' | 'Push' | 'Wipe' | 'Morph' | 'Zoom'
+              }));
+              setHasChanges(true);
+            }}
+            className="settings-select"
+          >
+            <option value="Fade">Fade</option>
+            <option value="Push">Push</option>
+            <option value="Wipe">Wipe</option>
+            <option value="Morph">Morph</option>
+            <option value="Zoom">Zoom</option>
+          </select>
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-label-group">
+            <label className="settings-label" htmlFor="settings-slide-timing">Slide Timing</label>
+            <span className="settings-description">How long each slide is displayed (in milliseconds)</span>
+          </div>
+          <input
+            id="settings-slide-timing"
+            type="number"
+            min={500}
+            max={30000}
+            step={100}
+            value={settings.slideDelayMs}
+            onChange={(e) => {
+              const val = Math.max(500, Math.min(30000, Number(e.target.value)));
+              setSettings(prev => ({ ...prev, slideDelayMs: val }));
+              setHasChanges(true);
+            }}
+            className="settings-number-input"
+          />
+        </div>
+
+        <div className="settings-toggle-row">
+          <div className="settings-toggle-label">
+            <div className="settings-label-group">
+              <span>Include Videos</span>
+              <span className="settings-description">Show video files alongside images in the slideshow</span>
+            </div>
+          </div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={settings.includeVideos}
+              onChange={(e) => {
+                setSettings(prev => ({ ...prev, includeVideos: e.target.checked }));
+                setHasChanges(true);
+              }}
+            />
+            <span className="settings-toggle-slider"></span>
+          </label>
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-label-group">
+            <label className="settings-label">Sort Order</label>
+            <span className="settings-description">Set the order in which slides are presented</span>
+          </div>
+          <select
+            value={settings.sortMode}
+            onChange={(e) => {
+              setSettings(prev => ({
+                ...prev,
+                sortMode: e.target.value as AppSettings['sortMode']
+              }));
+              setHasChanges(true);
+            }}
+            className="settings-select"
+          >
+            <option value="NameAZ">Name (A–Z)</option>
+            <option value="NameZA">Name (Z–A)</option>
+            <option value="DateOldest">Date (Oldest first)</option>
+            <option value="DateNewest">Date (Newest first)</option>
+            <option value="Random">Random</option>
+          </select>
+        </div>
+
+        <div className="settings-toggle-row">
+          <div className="settings-toggle-label">
+            <div className="settings-label-group">
+              <span>Mute Audio</span>
+              <span className="settings-description">Silence audio playback for videos</span>
+            </div>
+          </div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={settings.isMuted}
+              onChange={(e) => {
+                setSettings(prev => ({ ...prev, isMuted: e.target.checked }));
+                setHasChanges(true);
+              }}
+            />
+            <span className="settings-toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderDisplaySection = () => (
+    <div
+      role="tabpanel"
+      id="settings-tabpanel-display"
+      aria-labelledby="settings-tab-display"
+      hidden={activeSection !== 'display'}
+    >
+      <div className="settings-section-content">
+        <div className="settings-toggle-row">
+          <div className="settings-toggle-label">
+            <div className="settings-label-group">
+              <span>Background Blur</span>
+              <span className="settings-description">Apply a soft blur effect behind the current slide</span>
+            </div>
+          </div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={settings.backgroundBlur}
+              onChange={(e) => {
+                setSettings(prev => ({ ...prev, backgroundBlur: e.target.checked }));
+                setHasChanges(true);
+              }}
+            />
+            <span className="settings-toggle-slider"></span>
+          </label>
+        </div>
+
+        <div className="settings-toggle-row">
+          <div className="settings-toggle-label">
+            <div className="settings-label-group">
+              <span>Scale to Fit</span>
+              <span className="settings-description">Resize media to fill the window without cropping</span>
+            </div>
+          </div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={settings.isFitToWindow}
+              onChange={(e) => {
+                setSettings(prev => ({ ...prev, isFitToWindow: e.target.checked }));
+                setHasChanges(true);
+              }}
+            />
+            <span className="settings-toggle-slider"></span>
+          </label>
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-label-group">
+            <label className="settings-label" htmlFor="settings-zoom-level">Zoom Level</label>
+            <span className="settings-description">Adjust the magnification of the displayed media</span>
+          </div>
+          <div className="settings-range-group">
+            <input
+              id="settings-zoom-level"
+              type="range"
+              min={0.5}
+              max={3.0}
+              step={0.1}
+              value={settings.zoomFactor}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setSettings(prev => ({ ...prev, zoomFactor: val }));
+                setHasChanges(true);
+              }}
+              className="settings-range-input"
+            />
+            <span className="settings-range-value">{settings.zoomFactor.toFixed(1)}×</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderPersistenceSection = () => (
+    <div
+      role="tabpanel"
+      id="settings-tabpanel-persistence"
+      aria-labelledby="settings-tab-persistence"
+      hidden={activeSection !== 'persistence'}
+    >
+      <div className="settings-section-content">
+        <div className="settings-toggle-row">
+          <div className="settings-toggle-label">
+            <div className="settings-label-group">
+              <span>Remember My Settings</span>
+              <span className="settings-description">Save your preferences so they're restored next time you open the app</span>
+            </div>
+          </div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={settings.masterPersistenceEnabled}
+              onChange={(e) => {
+                setSettings(prev => ({ ...prev, masterPersistenceEnabled: e.target.checked }));
+                setHasChanges(true);
+              }}
+            />
+            <span className="settings-toggle-slider"></span>
+          </label>
+        </div>
+
+        {settings.masterPersistenceEnabled && (
+          <div className="settings-group">
+            <div className="settings-group-title">Individual Preferences</div>
+            <div className="settings-group-content">
+              {[
+                { key: 'saveSlideDelay' as const, label: 'Slide Delay', description: 'Remember how long each slide is displayed' },
+                { key: 'saveIncludeVideos' as const, label: 'Include Videos', description: 'Remember whether videos are shown in the slideshow' },
+                { key: 'saveSortMode' as const, label: 'Sort Order', description: 'Remember the order slides are presented' },
+                { key: 'saveIsMuted' as const, label: 'Mute Audio', description: 'Remember your audio mute preference' },
+                { key: 'saveIsFitToWindow' as const, label: 'Scale to Fit', description: 'Remember your scaling preference' },
+                { key: 'saveZoomFactor' as const, label: 'Zoom Level', description: 'Remember your zoom magnification' },
+                { key: 'saveTransitionEffect' as const, label: 'Transition Style', description: 'Remember which transition animation is used' },
+                { key: 'saveFolders' as const, label: 'Loaded Folders', description: 'Remember which folders were loaded into the playlist' },
+              ].map(({ key, label, description }) => (
+                <div className="settings-toggle-row" key={key}>
+                  <div className="settings-toggle-label">
+                    <div className="settings-label-group">
+                      <span>{label}</span>
+                      <span className="settings-description">{description}</span>
+                    </div>
+                  </div>
+                  <label className="settings-toggle">
+                    <input
+                      type="checkbox"
+                      checked={settings[key]}
+                      onChange={(e) => {
+                        setSettings(prev => ({ ...prev, [key]: e.target.checked }));
+                        setHasChanges(true);
+                      }}
+                    />
+                    <span className="settings-toggle-slider"></span>
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="settings-window-overlay" onClick={onClose}>
-      <div className="settings-window" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="settings-window"
+        ref={modalRef}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleModalKeyDown}
+      >
         <div className="settings-header">
           <h2>Settings</h2>
           <button className="close-btn" onClick={handleCancel} aria-label="Close">×</button>
         </div>
-        
-        <div className="settings-content">
-          <div className="settings-row">
-            <label className="settings-label">
-              Transition Effect
-              <InfoIcon text="Animation style when slides change" />
-            </label>
-            <select
-              value={settings.transitionEffect}
-              onChange={(e) => {
-                setSettings(prev => ({
-                  ...prev,
-                  transitionEffect: e.target.value as 'Fade' | 'Push' | 'Wipe' | 'Morph' | 'Zoom'
-                }));
-                setHasChanges(true);
-              }}
-              className="settings-select"
-            >
-              <option value="Fade">Fade</option>
-              <option value="Push">Push</option>
-              <option value="Wipe">Wipe</option>
-              <option value="Morph">Morph</option>
-              <option value="Zoom">Zoom</option>
-            </select>
-          </div>
 
-          <div className="settings-toggle-row">
-            <div className="settings-toggle-label">
-              <span>Background Blur</span>
-              <InfoIcon text="Show a blurred version of the media behind letterbox/pillarbox bars" />
-            </div>
-            <label className="settings-toggle">
-              <input
-                type="checkbox"
-                checked={settings.backgroundBlur}
-                onChange={(e) => {
-                  setSettings(prev => ({ ...prev, backgroundBlur: e.target.checked }));
-                  setHasChanges(true);
-                }}
-              />
-              <span className="settings-toggle-slider"></span>
-            </label>
-          </div>
-
-          <div className="settings-divider"></div>
-
-          <div className="settings-group">
-            <div className="settings-group-title">Save Preferences</div>
-            <div className="settings-group-content">
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Slide Delay</span>
-                  <InfoIcon text="Remember the time between slides" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveSlideDelay}
-                    onChange={(e) => handleSaveFlagChange('saveSlideDelay', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Include Videos</span>
-                  <InfoIcon text="Remember video inclusion setting" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveIncludeVideos}
-                    onChange={(e) => handleSaveFlagChange('saveIncludeVideos', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Sort Mode</span>
-                  <InfoIcon text="Remember how files are sorted" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveSortMode}
-                    onChange={(e) => handleSaveFlagChange('saveSortMode', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Mute State</span>
-                  <InfoIcon text="Remember audio mute preference" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveIsMuted}
-                    onChange={(e) => handleSaveFlagChange('saveIsMuted', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Fit to Window</span>
-                  <InfoIcon text="Remember fit-to-window preference" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveIsFitToWindow}
-                    onChange={(e) => handleSaveFlagChange('saveIsFitToWindow', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Zoom Level</span>
-                  <InfoIcon text="Remember zoom level" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveZoomFactor}
-                    onChange={(e) => handleSaveFlagChange('saveZoomFactor', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Transition Effect</span>
-                  <InfoIcon text="Remember selected transition style" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveTransitionEffect}
-                    onChange={(e) => handleSaveFlagChange('saveTransitionEffect', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Loaded Folders</span>
-                  <InfoIcon text="Remember which folders were loaded" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveFolders}
-                    onChange={(e) => handleSaveFlagChange('saveFolders', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <div className="settings-divider"></div>
-
-          <div className="settings-actions">
-            <div className="settings-action-item">
-              <div className="settings-action-header">
+        <div className="settings-body">
+          <div className="settings-nav-column">
+            <nav role="tablist" aria-orientation="vertical" aria-label="Settings sections">
+              {SECTIONS.map((section, index) => (
                 <button
-                  className="settings-btn-link"
-                  onClick={() => {
-                    const sample = createSampleManifest();
-                    const blob = new Blob([sample], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'slideshow-playlist.json';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                  }}
+                  key={section.id}
+                  ref={(el) => { tabRefs.current[index] = el; }}
+                  role="tab"
+                  id={`settings-tab-${section.id}`}
+                  aria-selected={activeSection === section.id}
+                  aria-controls={`settings-tabpanel-${section.id}`}
+                  tabIndex={activeSection === section.id ? 0 : -1}
+                  className={`settings-tab${activeSection === section.id ? ' settings-tab-active' : ''}`}
+                  onClick={() => setActiveSection(section.id)}
+                  onKeyDown={(e) => handleTabKeyDown(e, index)}
                 >
-                  Download Manifest Template
+                  {section.label}
                 </button>
-                <InfoIcon text={
-                  <div className="tooltip-content">
-                    <div className="tooltip-section">
-                      <strong>How to use:</strong>
-                      <ol>
-                        <li>Download the template</li>
-                        <li>Edit it with your file names and desired delays</li>
-                        <li>Save as a .json file in your folder root</li>
-                        <li>When loading the folder, you'll be asked if you want to use the manifest</li>
-                      </ol>
-                    </div>
-                    <div className="tooltip-section">
-                      <strong>Features:</strong>
-                      <ul>
-                        <li>Custom playlists with specific files</li>
-                        <li>Delays per file</li>
-                        <li>Zoom levels</li>
-                        <li>Precise playback order</li>
-                      </ul>
-                    </div>
-                  </div>
-                } />
-              </div>
-              <p className="settings-action-desc">JSON file for custom playlists with specific files, delays, and order</p>
-            </div>
+              ))}
+            </nav>
+
+            {onOpenDiagnostics && (
+              <button
+                className="settings-diagnostics-btn"
+                onClick={() => {
+                  onOpenDiagnostics();
+                  onClose();
+                }}
+                aria-label="Open diagnostics"
+                title="Diagnostics"
+              >
+                🐛
+              </button>
+            )}
+          </div>
+
+          <div className="settings-content">
+            {renderPlaybackSection()}
+            {renderDisplaySection()}
+            {renderPersistenceSection()}
           </div>
         </div>
-        
-        {onOpenDiagnostics && (
-          <div className="settings-diagnostics">
-            <button
-              className="settings-btn-link"
-              onClick={() => {
-                onOpenDiagnostics();
-                onClose();
-              }}
-            >
-              Diagnostics
-            </button>
-          </div>
-        )}
-        
+
         <div className="settings-footer">
           <button className="settings-btn-secondary" onClick={handleCancel}>
             Cancel
           </button>
-          <button 
-            className="settings-btn-primary" 
+          <button
+            className="settings-btn-primary"
             onClick={handleSave}
             disabled={!hasChanges}
           >
@@ -328,15 +451,6 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
           </button>
         </div>
       </div>
-
-      {tooltip && (
-        <div
-          className="settings-tooltip"
-          style={{ left: tooltip.x + 10, top: tooltip.y + 10 }}
-        >
-          {typeof tooltip.content === 'string' ? tooltip.content : tooltip.content}
-        </div>
-      )}
     </div>
   );
 };

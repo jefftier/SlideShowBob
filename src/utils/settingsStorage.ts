@@ -20,6 +20,8 @@ export interface AppSettings {
   zoomFactor: number;
   transitionEffect: TransitionEffect;
   backgroundBlur: boolean;
+  // Persistence
+  masterPersistenceEnabled: boolean;
   // Save flags
   saveSlideDelay: boolean;
   saveIncludeVideos: boolean;
@@ -42,6 +44,7 @@ const defaultSettings: AppSettings = {
   zoomFactor: 1.0,
   transitionEffect: 'Fade',
   backgroundBlur: true,
+  masterPersistenceEnabled: true,
   saveSlideDelay: true,
   saveIncludeVideos: true,
   saveSortMode: true,
@@ -114,32 +117,12 @@ export const saveSettings = (settings: Partial<AppSettings>, callbacks?: Storage
     // Merge with new settings, respecting save flags
     const merged: AppSettings = { ...existing };
     
-    if (settings.saveSlideDelay !== false && settings.slideDelayMs !== undefined) {
-      merged.slideDelayMs = settings.slideDelayMs;
-    }
-    if (settings.saveIncludeVideos !== false && settings.includeVideos !== undefined) {
-      merged.includeVideos = settings.includeVideos;
-    }
-    if (settings.saveSortMode !== false && settings.sortMode !== undefined) {
-      merged.sortMode = settings.sortMode;
-    }
-    if (settings.saveIsMuted !== false && settings.isMuted !== undefined) {
-      merged.isMuted = settings.isMuted;
-    }
-    if (settings.saveIsFitToWindow !== false && settings.isFitToWindow !== undefined) {
-      merged.isFitToWindow = settings.isFitToWindow;
-    }
-    if (settings.saveZoomFactor !== false && settings.zoomFactor !== undefined) {
-      merged.zoomFactor = settings.zoomFactor;
-    }
-    if (settings.saveTransitionEffect !== false && settings.transitionEffect !== undefined) {
-      merged.transitionEffect = settings.transitionEffect;
-    }
-    if (settings.backgroundBlur !== undefined) {
-      merged.backgroundBlur = settings.backgroundBlur;
+    // Always update the master toggle state if provided
+    if (settings.masterPersistenceEnabled !== undefined) {
+      merged.masterPersistenceEnabled = settings.masterPersistenceEnabled;
     }
     
-    // Update save flags if provided
+    // Always update individual save flags if provided
     if (settings.saveSlideDelay !== undefined) merged.saveSlideDelay = settings.saveSlideDelay;
     if (settings.saveIncludeVideos !== undefined) merged.saveIncludeVideos = settings.saveIncludeVideos;
     if (settings.saveSortMode !== undefined) merged.saveSortMode = settings.saveSortMode;
@@ -148,6 +131,35 @@ export const saveSettings = (settings: Partial<AppSettings>, callbacks?: Storage
     if (settings.saveZoomFactor !== undefined) merged.saveZoomFactor = settings.saveZoomFactor;
     if (settings.saveTransitionEffect !== undefined) merged.saveTransitionEffect = settings.saveTransitionEffect;
     if (settings.saveFolders !== undefined) merged.saveFolders = settings.saveFolders;
+    
+    // When master persistence is disabled, skip writing preference values
+    // (only the master toggle state and individual flags are persisted above)
+    if (merged.masterPersistenceEnabled) {
+      if (settings.saveSlideDelay !== false && settings.slideDelayMs !== undefined) {
+        merged.slideDelayMs = settings.slideDelayMs;
+      }
+      if (settings.saveIncludeVideos !== false && settings.includeVideos !== undefined) {
+        merged.includeVideos = settings.includeVideos;
+      }
+      if (settings.saveSortMode !== false && settings.sortMode !== undefined) {
+        merged.sortMode = settings.sortMode;
+      }
+      if (settings.saveIsMuted !== false && settings.isMuted !== undefined) {
+        merged.isMuted = settings.isMuted;
+      }
+      if (settings.saveIsFitToWindow !== false && settings.isFitToWindow !== undefined) {
+        merged.isFitToWindow = settings.isFitToWindow;
+      }
+      if (settings.saveZoomFactor !== false && settings.zoomFactor !== undefined) {
+        merged.zoomFactor = settings.zoomFactor;
+      }
+      if (settings.saveTransitionEffect !== false && settings.transitionEffect !== undefined) {
+        merged.transitionEffect = settings.transitionEffect;
+      }
+      if (settings.backgroundBlur !== undefined) {
+        merged.backgroundBlur = settings.backgroundBlur;
+      }
+    }
     
     // Wrap localStorage.setItem in try/catch to catch all write failures
     try {

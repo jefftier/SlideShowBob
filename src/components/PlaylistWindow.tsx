@@ -4,7 +4,18 @@ import { buildFolderTree, toggleFolder, setFolderExpanded, FolderNode } from '..
 import FolderTree from './FolderTree';
 import { generateThumbnail, revokeThumbnail } from '../utils/thumbnailGenerator';
 import SkeletonLoader from './SkeletonLoader';
+import { useToast } from '../hooks/useToast';
+import ToastContainer from './ToastContainer';
 import './PlaylistWindow.css';
+
+const FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])';
+
+interface PendingUndo {
+  type: 'file';
+  item: MediaItem;
+  originalIndex: number;
+  toastId: string;
+}
 
 interface PlaylistWindowProps {
   playlist: MediaItem[];
@@ -33,7 +44,9 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
   const [selectedFolderPath, setSelectedFolderPath] = useState<string>(''); // Path within the root folder
   const [sidebarWidth, setSidebarWidth] = useState(250);
   const [isResizing, setIsResizing] = useState(false);
-  const [pendingRemove, setPendingRemove] = useState<{type: 'file' | 'folder', path: string, name: string} | null>(null);
+  const [pendingUndo, setPendingUndo] = useState<PendingUndo | null>(null);
+  const pendingUndoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { toasts, showToast, removeToast } = useToast();
   const [folderTree, setFolderTree] = useState<FolderNode[]>([]);
   const [viewMode, setViewMode] = useState<'list' | 'thumbnail'>('list');
   const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
@@ -42,6 +55,9 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
   const currentItemRef = React.useRef<HTMLLIElement | HTMLDivElement>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const sidebarRef = React.useRef<HTMLDivElement>(null);
+  const modalRef = React.useRef<HTMLDivElement>(null);
+  const fileListRef = React.useRef<HTMLUListElement>(null);
+  const gridRef = React.useRef<HTMLDivElement>(null);
   const thumbnailObserverRef = useRef<IntersectionObserver | null>(null);
   const thumbnailItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   
@@ -142,6 +158,11 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
   // Must be defined before useEffects that use it
   const filteredPlaylist = useMemo(() => {
     let filtered = playlist;
+
+    // Filter out the item pending undo (visually removed but not yet finalized)
+    if (pendingUndo) {
+      filtered = filtered.filter(item => item.filePath !== pendingUndo.item.filePath);
+    }
     
     // Filter by selected root folder and folder path
     if (selectedRootFolder) {
@@ -180,7 +201,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
     }
     
     return filtered;
-  }, [playlist, selectedRootFolder, selectedFolderPath, searchQuery]);
+  }, [playlist, pendingUndo, selectedRootFolder, selectedFolderPath, searchQuery]);
 
   // Auto-scroll to current item when playlist opens (only once on mount)
   React.useEffect(() => {
@@ -368,29 +389,114 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
     }
   }, [viewMode, thumbnails]);
 
-  const handleConfirmRemove = useCallback(() => {
-    if (!pendingRemove) return;
-    
-    if (pendingRemove.type === 'file') {
-      onRemoveFile(pendingRemove.path);
-    } else {
-      onRemoveFolder(pendingRemove.name);
-    }
-    setPendingRemove(null);
-  }, [pendingRemove, onRemoveFile, onRemoveFolder]);
+  // Finalize a pending undo — actually remove the file from the parent playlist
+  const finalizePendingUndo = useCallback((pending: PendingUndo) => {
+    onRemoveFile(pending.item.filePath);
+    removeToast(pending.toastId);
+  }, [onRemoveFile, removeToast]);
 
-  // Keyboard shortcuts
+  // Cleanup pending undo timer on unmount
+  useEffect(() => {
+    return () => {
+      if (pendingUndoTimerRef.current) {
+        clearTimeout(pendingUndoTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Focus search input on mount (Requirement 15.5)
+  useEffect(() => {
+    if (searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, []);
+
+  // Focus trapping and Escape key handler (Requirements 15.1, 15.2)
+  const handleModalKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+      return;
+    }
+
+    if (e.key === 'Tab' && modalRef.current) {
+      const focusableElements = Array.from(
+        modalRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+      ).filter(el => el.offsetParent !== null); // filter out hidden elements
+
+      if (focusableElements.length === 0) return;
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+
+      if (e.shiftKey) {
+        // Shift+Tab: wrap from first to last
+        if (document.activeElement === firstElement) {
+          e.preventDefault();
+          lastElement.focus();
+        }
+      } else {
+        // Tab: wrap from last to first
+        if (document.activeElement === lastElement) {
+          e.preventDefault();
+          firstElement.focus();
+        }
+      }
+    }
+  };
+
+  // Arrow key navigation for file list (Requirement 15.4)
+  const handleFileListKeyDown = (e: React.KeyboardEvent<HTMLUListElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+
+    const list = fileListRef.current;
+    if (!list) return;
+
+    const items = Array.from(list.querySelectorAll<HTMLElement>('.playlist-item'));
+    if (items.length === 0) return;
+
+    const currentFocused = document.activeElement as HTMLElement;
+    const currentIdx = items.indexOf(currentFocused);
+
+    let nextIdx: number;
+    if (e.key === 'ArrowDown') {
+      nextIdx = currentIdx < items.length - 1 ? currentIdx + 1 : 0;
+    } else {
+      nextIdx = currentIdx > 0 ? currentIdx - 1 : items.length - 1;
+    }
+
+    items[nextIdx]?.focus();
+  };
+
+  // Arrow key navigation for thumbnail grid (Requirement 15.4)
+  const handleGridKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+
+    const grid = gridRef.current;
+    if (!grid) return;
+
+    const items = Array.from(grid.querySelectorAll<HTMLElement>('.playlist-grid-item'));
+    if (items.length === 0) return;
+
+    const currentFocused = document.activeElement as HTMLElement;
+    const currentIdx = items.indexOf(currentFocused);
+
+    let nextIdx: number;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      nextIdx = currentIdx < items.length - 1 ? currentIdx + 1 : 0;
+    } else {
+      nextIdx = currentIdx > 0 ? currentIdx - 1 : items.length - 1;
+    }
+
+    items[nextIdx]?.focus();
+  };
+
+  // Keyboard shortcut: Ctrl+F to focus search
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (pendingRemove) {
-          setPendingRemove(null);
-        } else {
-          onClose();
-        }
-      } else if (e.key === 'Enter' && pendingRemove) {
-        handleConfirmRemove();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
         searchInputRef.current?.focus();
       }
@@ -398,16 +504,93 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pendingRemove, onClose, handleConfirmRemove]);
+  }, []);
 
-  const handleRemoveFile = (filePath: string, fileName: string) => {
-    setPendingRemove({ type: 'file', path: filePath, name: fileName });
+  const handleRemoveFile = useCallback((filePath: string, fileName: string) => {
+    // If there's an existing pending undo, finalize it first (only one at a time)
+    if (pendingUndo) {
+      if (pendingUndoTimerRef.current) {
+        clearTimeout(pendingUndoTimerRef.current);
+        pendingUndoTimerRef.current = null;
+      }
+      finalizePendingUndo(pendingUndo);
+    }
+
+    // Find the item and its original index before filtering
+    const originalIndex = playlist.findIndex(item => item.filePath === filePath);
+    const item = playlist[originalIndex];
+    if (!item) return;
+
+    // Show toast with undo action (5s duration)
+    const toastId = showToast(
+      `Removed "${fileName}"`,
+      'info',
+      5000,
+      {
+        label: 'Undo',
+        onClick: () => {
+          // On undo: clear pending state, item reappears since it's still in playlist prop
+          if (pendingUndoTimerRef.current) {
+            clearTimeout(pendingUndoTimerRef.current);
+            pendingUndoTimerRef.current = null;
+          }
+          setPendingUndo(null);
+        }
+      }
+    );
+
+    const newPending: PendingUndo = {
+      type: 'file',
+      item,
+      originalIndex,
+      toastId,
+    };
+
+    setPendingUndo(newPending);
+
+    // Auto-finalize after 5 seconds
+    pendingUndoTimerRef.current = setTimeout(() => {
+      setPendingUndo(prev => {
+        if (prev && prev.toastId === toastId) {
+          onRemoveFile(prev.item.filePath);
+          return null;
+        }
+        return prev;
+      });
+      pendingUndoTimerRef.current = null;
+    }, 5000);
+  }, [pendingUndo, playlist, showToast, finalizePendingUndo, onRemoveFile]);
+
+
+
+  // Helper to get media-type icon based on MediaType
+  const getMediaTypeIcon = (type: MediaType): string => {
+    switch (type) {
+      case MediaType.Image: return '🖼️';
+      case MediaType.Video: return '🎬';
+      case MediaType.Gif: return '🎞️';
+      default: return '🖼️';
+    }
   };
 
-  const handleRemoveFolder = (folderName: string) => {
-    setPendingRemove({ type: 'folder', path: folderName, name: folderName });
-  };
+  // Compute subfolder-grouped items for list view when no folder filter is active
+  const groupedListItems = useMemo(() => {
+    if (selectedRootFolder || viewMode !== 'list') return null;
 
+    const groups: { folder: string; items: MediaItem[] }[] = [];
+    let currentFolder = '';
+
+    for (const item of filteredPlaylist) {
+      const folderKey = item.folderName || 'Unknown';
+      if (folderKey !== currentFolder) {
+        currentFolder = folderKey;
+        groups.push({ folder: folderKey, items: [] });
+      }
+      groups[groups.length - 1].items.push(item);
+    }
+
+    return groups;
+  }, [filteredPlaylist, selectedRootFolder, viewMode]);
 
   const highlightSearchMatch = (text: string, query: string): React.ReactNode => {
     if (!query) return text;
@@ -422,7 +605,15 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
   return (
     <>
       <div className="playlist-window-overlay" onClick={onClose}>
-        <div className="playlist-window" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="playlist-window"
+          ref={modalRef}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={handleModalKeyDown}
+          role="dialog"
+          aria-label="Playlist"
+          aria-modal="true"
+        >
           <div className="playlist-header">
             <h2>Playlist ({playlist.length} items)</h2>
             <div className="playlist-controls">
@@ -434,6 +625,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="playlist-search"
+                  aria-label="Search playlist"
                 />
                 {searchQuery && (
                   <button
@@ -446,11 +638,13 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                   </button>
                 )}
               </div>
-              <div className="playlist-view-toggle">
+              <div className="playlist-view-toggle" role="group" aria-label="View mode">
                 <button
                   className={`playlist-view-btn ${viewMode === 'list' ? 'active' : ''}`}
                   onClick={() => setViewMode('list')}
                   title="List view"
+                  aria-label="List view"
+                  aria-pressed={viewMode === 'list'}
                 >
                   ☰
                 </button>
@@ -458,32 +652,38 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                   className={`playlist-view-btn ${viewMode === 'thumbnail' ? 'active' : ''}`}
                   onClick={() => setViewMode('thumbnail')}
                   title="Thumbnail view"
+                  aria-label="Thumbnail view"
+                  aria-pressed={viewMode === 'thumbnail'}
                 >
                   ⊞
                 </button>
               </div>
-              {selectedRootFolder && (
-                <button
-                  className="playlist-btn-secondary"
-                  onClick={() => {
-                    setSelectedRootFolder(null);
-                    setSelectedFolderPath('');
-                  }}
-                  title="Show all files"
-                >
-                  Show All
-                </button>
-              )}
-              <button
-                className="add-folder-btn"
-                onClick={onAddFolder}
-                title="Add folder"
-              >
-                <span className="add-folder-icon">+</span>
-                <span className="add-folder-label">Add Folder</span>
-              </button>
               <button className="close-btn" onClick={onClose} title="Close (Esc)" aria-label="Close playlist">×</button>
             </div>
+          </div>
+          <div className="playlist-toolbar" role="toolbar" aria-label="Playlist actions">
+            {selectedRootFolder && (
+              <button
+                className="playlist-btn-secondary"
+                onClick={() => {
+                  setSelectedRootFolder(null);
+                  setSelectedFolderPath('');
+                }}
+                title="Show all files"
+                aria-label="Show all files"
+              >
+                Show All
+              </button>
+            )}
+            <button
+              className="add-folder-btn"
+              onClick={onAddFolder}
+              title="Add folder"
+              aria-label="Add folder"
+            >
+              <span className="add-folder-icon">+</span>
+              <span className="add-folder-label">Add Folder</span>
+            </button>
           </div>
           
           <div className="playlist-body">
@@ -495,16 +695,8 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
             >
               <div className="playlist-sidebar-header">
                 <h3>Folders</h3>
-                <button
-                  className="playlist-btn-icon"
-                  onClick={onAddFolder}
-                  title="Add folder"
-                  aria-label="Add folder"
-                >
-                  +
-                </button>
               </div>
-              <div className="playlist-sidebar-content">
+              <div className="playlist-sidebar-content" role="tree" aria-label="Folder tree">
                 <FolderTree
                   tree={folderTree}
                   selectedRootFolder={selectedRootFolder}
@@ -516,7 +708,7 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                   onToggleExpand={(rootName, folderPath) => {
                     setFolderTree(prev => toggleFolder(prev, rootName, folderPath));
                   }}
-                  onRemoveFolder={handleRemoveFolder}
+                  onRemoveFolder={onRemoveFolder}
                 />
               </div>
             </div>
@@ -553,56 +745,116 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                       )}
                 </div>
               ) : viewMode === 'list' ? (
-                <ul className="playlist-list">
-                  {filteredPlaylist.map((item) => {
-                    const originalIndex = playlist.findIndex(p => p.filePath === item.filePath);
-                    const isCurrent = originalIndex === currentIndex;
-                    return (
-                      <li
-                        key={item.filePath}
-                        ref={isCurrent ? (currentItemRef as React.RefObject<HTMLLIElement>) : null}
-                        className={`playlist-item ${isCurrent ? 'current' : ''}`}
-                        onClick={() => onNavigateToFile(item.filePath)}
-                        title="Click to jump to this file"
-                      >
-                        <span className="playlist-item-index">{originalIndex + 1}</span>
-                        <span className="playlist-item-name">
-                          {highlightSearchMatch(item.fileName, searchQuery)}
-                        </span>
-                        <span className="playlist-item-type">{item.type}</span>
-                        <div className="playlist-item-actions">
-                          {onPlayFromFile && (
+                <ul className="playlist-list" role="listbox" aria-label="File list" ref={fileListRef} onKeyDown={handleFileListKeyDown}>
+                  {groupedListItems && !selectedRootFolder ? (
+                    groupedListItems.map((group) => (
+                      <React.Fragment key={group.folder}>
+                        <li className="playlist-subfolder-header">{group.folder}</li>
+                        {group.items.map((item) => {
+                          const originalIndex = playlist.findIndex(p => p.filePath === item.filePath);
+                          const isCurrent = originalIndex === currentIndex;
+                          return (
+                            <li
+                              key={item.filePath}
+                              ref={isCurrent ? (currentItemRef as React.RefObject<HTMLLIElement>) : null}
+                              className={`playlist-item ${isCurrent ? 'current' : ''}`}
+                              onClick={() => onNavigateToFile(item.filePath)}
+                              title="Click to jump to this file"
+                              tabIndex={0}
+                              role="option"
+                              aria-selected={isCurrent}
+                            >
+                              <span className="playlist-item-icon">{getMediaTypeIcon(item.type)}</span>
+                              <span className="playlist-item-name">
+                                {highlightSearchMatch(item.fileName, searchQuery)}
+                              </span>
+                              <span className="playlist-item-type">{item.type}</span>
+                              <div className="playlist-item-actions">
+                                {onPlayFromFile && (
+                                  <button
+                                    className="playlist-item-play"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onPlayFromFile(item.filePath);
+                                      onClose();
+                                    }}
+                                    title="Play slideshow from here"
+                                    aria-label={`Play slideshow from ${item.fileName}`}
+                                  >
+                                    ▶
+                                  </button>
+                                )}
+                                <button
+                                  className="playlist-item-remove"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveFile(item.filePath, item.fileName);
+                                  }}
+                                  title="Remove from playlist"
+                                  aria-label={`Remove ${item.fileName} from playlist`}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </React.Fragment>
+                    ))
+                  ) : (
+                    filteredPlaylist.map((item) => {
+                      const originalIndex = playlist.findIndex(p => p.filePath === item.filePath);
+                      const isCurrent = originalIndex === currentIndex;
+                      return (
+                        <li
+                          key={item.filePath}
+                          ref={isCurrent ? (currentItemRef as React.RefObject<HTMLLIElement>) : null}
+                          className={`playlist-item ${isCurrent ? 'current' : ''}`}
+                          onClick={() => onNavigateToFile(item.filePath)}
+                          title="Click to jump to this file"
+                          tabIndex={0}
+                          role="option"
+                          aria-selected={isCurrent}
+                        >
+                          <span className="playlist-item-icon">{getMediaTypeIcon(item.type)}</span>
+                          <span className="playlist-item-name">
+                            {highlightSearchMatch(item.fileName, searchQuery)}
+                          </span>
+                          <span className="playlist-item-type">{item.type}</span>
+                          <div className="playlist-item-actions">
+                            {onPlayFromFile && (
+                              <button
+                                className="playlist-item-play"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onPlayFromFile(item.filePath);
+                                  onClose();
+                                }}
+                                title="Play slideshow from here"
+                                aria-label={`Play slideshow from ${item.fileName}`}
+                              >
+                                ▶
+                              </button>
+                            )}
                             <button
-                              className="playlist-item-play"
+                              className="playlist-item-remove"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onPlayFromFile(item.filePath);
-                                onClose();
+                                handleRemoveFile(item.filePath, item.fileName);
                               }}
-                              title="Play slideshow from here"
-                              aria-label={`Play slideshow from ${item.fileName}`}
+                              title="Remove from playlist"
+                              aria-label={`Remove ${item.fileName} from playlist`}
                             >
-                              ▶
+                              ×
                             </button>
-                          )}
-                          <button
-                            className="playlist-item-remove"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveFile(item.filePath, item.fileName);
-                            }}
-                            title="Remove from playlist"
-                            aria-label={`Remove ${item.fileName} from playlist`}
-                          >
-                            ×
-                          </button>
-                        </div>
-                      </li>
-                    );
-                  })}
+                          </div>
+                        </li>
+                      );
+                    })
+                  )}
                 </ul>
               ) : (
-                <div className="playlist-grid">
+                <div className="playlist-grid" role="grid" aria-label="Thumbnail grid" ref={gridRef} onKeyDown={handleGridKeyDown}>
                   {filteredPlaylist.length === 0 && thumbnails.size === 0 && loadingThumbnails.size === 0 ? (
                     <SkeletonLoader count={12} />
                   ) : (
@@ -629,6 +881,8 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
                         className={`playlist-grid-item ${isCurrent ? 'current' : ''}`}
                         onClick={() => onNavigateToFile(item.filePath)}
                         title={`${item.fileName} - Click to jump to this file`}
+                        tabIndex={0}
+                        role="gridcell"
                       >
                         <div className="playlist-grid-thumbnail">
                           {thumbnailUrl ? (
@@ -699,26 +953,8 @@ const PlaylistWindow: React.FC<PlaylistWindowProps> = ({
         </div>
       </div>
 
-      {/* Confirmation Dialog */}
-      {pendingRemove && (
-        <div className="playlist-confirm-overlay" onClick={() => setPendingRemove(null)}>
-          <div className="playlist-confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>Confirm Removal</h3>
-            <p>
-              Are you sure you want to remove <strong>{pendingRemove.name}</strong>?
-              {pendingRemove.type === 'folder' && ' This will remove all files in this folder from the playlist.'}
-            </p>
-            <div className="playlist-confirm-buttons">
-              <button className="playlist-btn-danger" onClick={handleConfirmRemove}>
-                Remove
-              </button>
-              <button className="playlist-btn-secondary" onClick={() => setPendingRemove(null)}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Toast notifications for file removal undo */}
+      <ToastContainer toasts={toasts} onClose={removeToast} />
     </>
   );
 };

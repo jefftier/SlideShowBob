@@ -4,13 +4,14 @@ import { Toast } from '../components/Toast';
 export const useToast = () => {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const showToast = useCallback((message: string, type: Toast['type'] = 'info', duration?: number) => {
+  const showToast = useCallback((message: string, type: Toast['type'] = 'info', duration?: number, action?: { label: string; onClick: () => void }) => {
     const id = `toast-${Date.now()}-${Math.random()}`;
     const newToast: Toast = {
       id,
       message,
       type,
       duration,
+      action,
     };
 
     setToasts(prev => [...prev, newToast]);

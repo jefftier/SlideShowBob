@@ -126,6 +126,25 @@
   color: #e0e0e0;
 }
 
+.toast-action {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--accent, #6c63ff);
+  color: var(--accent, #6c63ff);
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  line-height: 1.4;
+}
+
+.toast-action:hover {
+  background: var(--accent, #6c63ff);
+  color: #fff;
+}
+
 @keyframes slideIn {
   from {
     transform: translateX(100%);
