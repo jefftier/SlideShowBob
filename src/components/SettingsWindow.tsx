@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './SettingsWindow.css';
 import { loadSettings, saveSettings, AppSettings, getDefaultSettings } from '../utils/settingsStorage';
-import { createSampleManifest } from '../utils/manifestLoader';
 import { useToast } from '../hooks/useToast';
 
 interface SettingsWindowProps {
@@ -130,202 +129,38 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
               <span className="settings-toggle-slider"></span>
             </label>
           </div>
-
-          <div className="settings-divider"></div>
-
-          <div className="settings-group">
-            <div className="settings-group-title">Save Preferences</div>
-            <div className="settings-group-content">
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Slide Delay</span>
-                  <InfoIcon text="Remember the time between slides" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveSlideDelay}
-                    onChange={(e) => handleSaveFlagChange('saveSlideDelay', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Include Videos</span>
-                  <InfoIcon text="Remember video inclusion setting" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveIncludeVideos}
-                    onChange={(e) => handleSaveFlagChange('saveIncludeVideos', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Sort Mode</span>
-                  <InfoIcon text="Remember how files are sorted" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveSortMode}
-                    onChange={(e) => handleSaveFlagChange('saveSortMode', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Mute State</span>
-                  <InfoIcon text="Remember audio mute preference" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveIsMuted}
-                    onChange={(e) => handleSaveFlagChange('saveIsMuted', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Fit to Window</span>
-                  <InfoIcon text="Remember fit-to-window preference" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveIsFitToWindow}
-                    onChange={(e) => handleSaveFlagChange('saveIsFitToWindow', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Zoom Level</span>
-                  <InfoIcon text="Remember zoom level" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveZoomFactor}
-                    onChange={(e) => handleSaveFlagChange('saveZoomFactor', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Transition Effect</span>
-                  <InfoIcon text="Remember selected transition style" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveTransitionEffect}
-                    onChange={(e) => handleSaveFlagChange('saveTransitionEffect', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-              <div className="settings-toggle-row">
-                <div className="settings-toggle-label">
-                  <span>Loaded Folders</span>
-                  <InfoIcon text="Remember which folders were loaded" />
-                </div>
-                <label className="settings-toggle">
-                  <input
-                    type="checkbox"
-                    checked={settings.saveFolders}
-                    onChange={(e) => handleSaveFlagChange('saveFolders', e.target.checked)}
-                  />
-                  <span className="settings-toggle-slider"></span>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <div className="settings-divider"></div>
-
-          <div className="settings-actions">
-            <div className="settings-action-item">
-              <div className="settings-action-header">
-                <button
-                  className="settings-btn-link"
-                  onClick={() => {
-                    const sample = createSampleManifest();
-                    const blob = new Blob([sample], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'slideshow-playlist.json';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                  }}
-                >
-                  Download Manifest Template
-                </button>
-                <InfoIcon text={
-                  <div className="tooltip-content">
-                    <div className="tooltip-section">
-                      <strong>How to use:</strong>
-                      <ol>
-                        <li>Download the template</li>
-                        <li>Edit it with your file names and desired delays</li>
-                        <li>Save as a .json file in your folder root</li>
-                        <li>When loading the folder, you'll be asked if you want to use the manifest</li>
-                      </ol>
-                    </div>
-                    <div className="tooltip-section">
-                      <strong>Features:</strong>
-                      <ul>
-                        <li>Custom playlists with specific files</li>
-                        <li>Delays per file</li>
-                        <li>Zoom levels</li>
-                        <li>Precise playback order</li>
-                      </ul>
-                    </div>
-                  </div>
-                } />
-              </div>
-              <p className="settings-action-desc">JSON file for custom playlists with specific files, delays, and order</p>
-            </div>
-          </div>
         </div>
         
-        {onOpenDiagnostics && (
-          <div className="settings-diagnostics">
+        <div className="settings-footer">
+          {onOpenDiagnostics && (
             <button
-              className="settings-btn-link"
+              className="settings-bug-btn"
               onClick={() => {
                 onOpenDiagnostics();
                 onClose();
               }}
+              title="Diagnostics"
+              aria-label="Diagnostics"
             >
-              Diagnostics
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 2l1.88 1.88M14.12 3.88L16 2M9 7.13v-1a3.003 3.003 0 116 0v1"/>
+                <path d="M12 20c-3.3 0-6-2.7-6-6v-3a6 6 0 0112 0v3c0 3.3-2.7 6-6 6z"/>
+                <path d="M12 20v2M6 13H2M22 13h-4M6 17H3.5M20.5 17H18M6 9H4M20 9h-2"/>
+              </svg>
+            </button>
+          )}
+          <div className="settings-footer-actions">
+            <button className="settings-btn-secondary" onClick={handleCancel}>
+              Cancel
+            </button>
+            <button 
+              className="settings-btn-primary" 
+              onClick={handleSave}
+              disabled={!hasChanges}
+            >
+              Save
             </button>
           </div>
-        )}
-        
-        <div className="settings-footer">
-          <button className="settings-btn-secondary" onClick={handleCancel}>
-            Cancel
-          </button>
-          <button 
-            className="settings-btn-primary" 
-            onClick={handleSave}
-            disabled={!hasChanges}
-          >
-            Save
-          </button>
         </div>
       </div>
 
