@@ -354,7 +354,7 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
           });
       }
     }
-  }, [videoSrc, onMediaLoadSuccess]);
+  }, [videoSrc]); // Only re-run when video source changes, not on callback ref changes
 
   useEffect(() => {
     if (videoRef.current) {
@@ -919,7 +919,6 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
               ref={bgVideoRef}
               src={videoSrc}
               autoPlay
-              loop
               muted
               playsInline
               onError={(e) => {

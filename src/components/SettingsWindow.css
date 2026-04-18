@@ -337,7 +337,7 @@
 .settings-tooltip {
   position: fixed;
   background: rgba(0, 0, 0, 0.95);
-  color: var(--text-primary);
+  color: #e0e0e0;
   padding: 14px 16px;
   border-radius: 6px;
   font-size: 12px;
