@@ -96,7 +96,7 @@
   height: 16px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.1);
-  color: #888;
+  color: var(--text-secondary);
   font-size: 11px;
   cursor: help;
   transition: all 0.2s;
@@ -139,8 +139,8 @@
 }
 
 .settings-select option {
-  background: #1a1a1a;
-  color: #e0e0e0;
+  background: var(--glass-bg-elevated);
+  color: var(--text-primary);
   padding: 8px;
 }
 
@@ -181,7 +181,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 14px;
   flex: 1;
 }
@@ -324,20 +324,20 @@
 
 .settings-btn-secondary {
   background: transparent;
-  color: #888;
+  color: var(--text-secondary);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
 .settings-btn-secondary:hover {
   background: rgba(255, 255, 255, 0.05);
-  color: #e0e0e0;
+  color: var(--text-primary);
   border-color: rgba(255, 255, 255, 0.3);
 }
 
 .settings-tooltip {
   position: fixed;
   background: rgba(0, 0, 0, 0.95);
-  color: #e0e0e0;
+  color: var(--text-primary);
   padding: 14px 16px;
   border-radius: 6px;
   font-size: 12px;

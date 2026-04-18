@@ -14,7 +14,6 @@ import { useMediaLoader } from './hooks/useMediaLoader';
 import { useToast } from './hooks/useToast';
 import { usePlaybackErrorPolicy } from './hooks/usePlaybackErrorPolicy';
 import { useFolderPersistence } from './hooks/useFolderPersistence';
-import { useKioskMode } from './hooks/useKioskMode';
 import { useIdleTimer } from './hooks/useIdleTimer';
 import { MediaItem, MediaType } from './types/media';
 import { SlideshowManifest } from './types/manifest';
@@ -77,21 +76,8 @@ function App() {
   const updateSWRef = useRef<(() => void) | null>(null);
   const cursorTimeoutRef = useRef<number | null>(null);
   const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false);
+  const [backgroundBlur, setBackgroundBlur] = useState(true);
   const { showSuccess, showError, showInfo, showWarning } = useToast();
-  
-  // Kiosk mode hook
-  const { isKioskMode, enterKiosk } = useKioskMode({
-    onEnter: () => {
-      // Hide toolbar and cursor when entering kiosk mode
-      setToolbarVisible(false);
-      setCursorHidden(true);
-    },
-    onExit: () => {
-      // Restore toolbar visibility when exiting kiosk mode
-      setToolbarVisible(true);
-      setCursorHidden(false);
-    },
-  });
   
   // Folder persistence hook
   const {
@@ -119,7 +105,7 @@ function App() {
 
   const { pause: pauseIdleTimer, resume: resumeIdleTimer } = useIdleTimer({
     timeoutMs: 5000,
-    enabled: isPlaying && !isKioskMode,
+    enabled: isPlaying,
     onIdle: useCallback(() => {
       setToolbarVisible(false);
       setCursorHidden(true);
@@ -320,6 +306,7 @@ function App() {
         if (savedSettings.saveTransitionEffect) {
           setTransitionEffect(savedSettings.transitionEffect);
         }
+        setBackgroundBlur(savedSettings.backgroundBlur);
 
         // Load directory handles from IndexedDB (only if saveFolders is enabled)
         const handles = await loadFolders(savedSettings.saveFolders);
@@ -1012,11 +999,6 @@ function App() {
           }
           break;
         case 'Escape':
-          // Don't handle Escape in kiosk mode - let useKioskMode handle it
-          if (isKioskMode) {
-            // Let the kiosk mode hook handle escape sequence
-            return;
-          }
           if (isFullscreen) {
             e.preventDefault();
             handleToggleFullscreen();
@@ -1081,7 +1063,7 @@ function App() {
           break;
         case 'd':
         case 'D':
-          if (e.ctrlKey && e.altKey && !isKioskMode) {
+          if (e.ctrlKey && e.altKey) {
             e.preventDefault();
             setShowDiagnostics(prev => !prev);
           }
@@ -1091,7 +1073,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFullscreen, isKioskMode, showPlaylist, showSettings, handlePlayPause, handleNext, handlePrevious, handleToggleFullscreen, handleZoomReset, showDiagnostics]);
+  }, [isFullscreen, showPlaylist, showSettings, handlePlayPause, handleNext, handlePrevious, handleToggleFullscreen, handleZoomReset, showDiagnostics]);
 
   // Manifest mode: Cursor hiding in fullscreen (only when idle timer is not active)
   useEffect(() => {
@@ -1126,24 +1108,9 @@ function App() {
     };
   }, [isManifestMode, isFullscreen, isPlaying]);
 
-  // Ensure toolbar is visible when not in kiosk mode and not playing
-  // This is a safety net in case onExit callback doesn't fire
-  useEffect(() => {
-    if (!isKioskMode && !isPlaying && !toolbarVisible) {
-      // Force toolbar to be visible when exiting kiosk mode (and not playing)
-      setToolbarVisible(true);
-      setCursorHidden(false);
-    }
-  }, [isKioskMode, isPlaying, toolbarVisible]);
-
   // Manifest mode: Toolbar visibility (show on mouse move to bottom)
   // Only active when not playing (idle timer handles visibility during playback)
   useEffect(() => {
-    // Don't interfere with kiosk mode toolbar visibility
-    if (isKioskMode) {
-      return;
-    }
-
     // When playing, the idle timer handles toolbar visibility
     if (isPlaying) {
       return;
@@ -1181,7 +1148,7 @@ function App() {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseleave', handleMouseLeave);
     };
-  }, [isManifestMode, isFullscreen, isKioskMode, isPlaying]);
+  }, [isManifestMode, isFullscreen, isPlaying]);
 
   // In manifest mode, restart slideshow when current item changes (for per-item delays)
   // NOTE: effectiveDelay change is handled by useSlideshow's delay effect, so we only
@@ -1217,6 +1184,7 @@ function App() {
         onImageClick={handleNext}
         onEffectiveZoomChange={setEffectiveZoom}
         isPlaying={isPlaying}
+        backgroundBlur={backgroundBlur}
         onMediaError={(error) => {
           if (!currentMedia) return;
           
@@ -1339,7 +1307,7 @@ function App() {
         </div>
       )}
 
-      {playlist.length === 0 && !isLoadingFolders && !isKioskMode && (
+      {playlist.length === 0 && !isLoadingFolders && (
         <div className="empty-state">
           <p>No media loaded</p>
           <p className="empty-state-hint">Add a folder to begin your slideshow</p>
@@ -1488,16 +1456,13 @@ function App() {
         currentSortMode={sortMode}
         currentIndex={currentIndex}
         totalCount={playlist.length}
-        statusText={statusText}
         isManifestMode={isManifestMode}
         onExitManifestMode={handleExitManifestMode}
         toolbarVisible={toolbarVisible}
-        isKioskMode={isKioskMode}
-        onEnterKiosk={enterKiosk}
         onMenuOpenChange={setToolbarMenuOpen}
       />
 
-      {!isKioskMode && showPlaylist && (
+      {showPlaylist && (
         <PlaylistWindow
           playlist={playlist}
           currentIndex={currentIndex}
@@ -1539,7 +1504,7 @@ function App() {
         />
       )}
 
-      {!isKioskMode && showSettings && (
+      {showSettings && (
         <SettingsWindow
           onClose={() => setShowSettings(false)}
           onOpenDiagnostics={() => setShowDiagnostics(true)}
@@ -1550,6 +1515,7 @@ function App() {
             if (currentSettings.saveTransitionEffect) {
               setTransitionEffect(currentSettings.transitionEffect);
             }
+            setBackgroundBlur(currentSettings.backgroundBlur);
             // Check if saveFolders was disabled and clear saved folders from IndexedDB if so
             if (!currentSettings.saveFolders) {
               try {
@@ -1564,21 +1530,17 @@ function App() {
         />
       )}
 
-      {!isKioskMode && (
-        <KeyboardShortcutsHelp 
+      <KeyboardShortcutsHelp 
           isOpen={showShortcutsHelp} 
           onClose={() => setShowShortcutsHelp(false)} 
         />
-      )}
 
-      {!isKioskMode && (
-        <DiagnosticsPanel
+      <DiagnosticsPanel
           isOpen={showDiagnostics}
           onClose={() => setShowDiagnostics(false)}
         />
-      )}
 
-      {!isKioskMode && showManifestDialog && pendingManifestData && (
+      {showManifestDialog && pendingManifestData && (
         <ManifestModeDialog
           manifestName={pendingManifestData.fileName}
           itemCount={pendingManifestData.mediaItems.length}
@@ -1588,7 +1550,7 @@ function App() {
         />
       )}
 
-      {!isKioskMode && showManifestSelection && pendingManifestFiles.length > 0 && (
+      {showManifestSelection && pendingManifestFiles.length > 0 && (
         <ManifestSelectionDialog
           manifests={pendingManifestFiles.map(f => ({ name: f.name, itemCount: f.itemCount }))}
           onSelect={handleSelectManifest}
@@ -1596,28 +1558,13 @@ function App() {
         />
       )}
 
-      {!isKioskMode && updateAvailable && (
+      {updateAvailable && (
         <UpdatePrompt 
           onReload={handleApplyUpdate}
           onDismiss={() => setUpdateAvailable(false)}
         />
       )}
       
-      {/* Kiosk mode indicator - minimal status dot */}
-      {isKioskMode && (
-        <div style={{
-          position: 'fixed',
-          top: '8px',
-          right: '8px',
-          width: '8px',
-          height: '8px',
-          borderRadius: '50%',
-          backgroundColor: 'rgba(0, 120, 212, 0.6)',
-          zIndex: 10000,
-          pointerEvents: 'none',
-          boxShadow: '0 0 4px rgba(0, 120, 212, 0.8)'
-        }} title="Kiosk Mode Active" />
-      )}
     </div>
   );
 }

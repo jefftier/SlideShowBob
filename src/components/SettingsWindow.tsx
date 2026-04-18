@@ -113,6 +113,24 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
             </select>
           </div>
 
+          <div className="settings-toggle-row">
+            <div className="settings-toggle-label">
+              <span>Background Blur</span>
+              <InfoIcon text="Show a blurred version of the media behind letterbox/pillarbox bars" />
+            </div>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={settings.backgroundBlur}
+                onChange={(e) => {
+                  setSettings(prev => ({ ...prev, backgroundBlur: e.target.checked }));
+                  setHasChanges(true);
+                }}
+              />
+              <span className="settings-toggle-slider"></span>
+            </label>
+          </div>
+
           <div className="settings-divider"></div>
 
           <div className="settings-group">

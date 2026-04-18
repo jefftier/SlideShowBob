@@ -19,6 +19,7 @@ export interface AppSettings {
   isFitToWindow: boolean;
   zoomFactor: number;
   transitionEffect: TransitionEffect;
+  backgroundBlur: boolean;
   // Save flags
   saveSlideDelay: boolean;
   saveIncludeVideos: boolean;
@@ -40,6 +41,7 @@ const defaultSettings: AppSettings = {
   isFitToWindow: true,
   zoomFactor: 1.0,
   transitionEffect: 'Fade',
+  backgroundBlur: true,
   saveSlideDelay: true,
   saveIncludeVideos: true,
   saveSortMode: true,
@@ -132,6 +134,9 @@ export const saveSettings = (settings: Partial<AppSettings>, callbacks?: Storage
     }
     if (settings.saveTransitionEffect !== false && settings.transitionEffect !== undefined) {
       merged.transitionEffect = settings.transitionEffect;
+    }
+    if (settings.backgroundBlur !== undefined) {
+      merged.backgroundBlur = settings.backgroundBlur;
     }
     
     // Update save flags if provided

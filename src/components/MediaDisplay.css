@@ -77,7 +77,7 @@
 
 .loading-overlay p {
   margin-top: 16px;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 /* Responsive Design */

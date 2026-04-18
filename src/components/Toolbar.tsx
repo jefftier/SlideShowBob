@@ -9,12 +9,9 @@ import {
   IconFullscreen,
   IconFullscreenExit,
   IconMore,
-  IconChevronDown,
-  IconChevronUp,
   IconFolder,
   IconList,
   IconSort,
-  IconDisplay,
   IconSettings,
   IconHelp,
   IconSpeakerOn,
@@ -73,12 +70,9 @@ interface ToolbarProps {
   currentSortMode?: 'NameAZ' | 'NameZA' | 'DateOldest' | 'DateNewest' | 'Random';
   currentIndex: number;
   totalCount: number;
-  statusText: string;
   isManifestMode?: boolean;
   onExitManifestMode?: () => void;
   toolbarVisible?: boolean;
-  isKioskMode?: boolean;
-  onEnterKiosk?: () => void;
   onMenuOpenChange?: (isOpen: boolean) => void;
 }
 
@@ -109,17 +103,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
   currentSortMode,
   currentIndex,
   totalCount,
-  statusText,
   isManifestMode,
   onExitManifestMode,
   toolbarVisible = true,
-  isKioskMode = false,
-  onEnterKiosk,
   onMenuOpenChange,
 }) => {
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
@@ -221,8 +211,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
   const displayIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
 
-  if (isKioskMode) return null;
-
   const hidden = !toolbarVisible;
   const shellStyle =
     position.left >= 0 && position.top >= 0
@@ -253,7 +241,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <button
             key={mode}
             role="menuitem"
-            className={currentSortMode === mode ? 'glass-menu-item-active' : ''}
+            className={`glass-menu-item ${currentSortMode === mode ? 'glass-menu-item-active' : ''}`}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               onSort(mode);
@@ -333,11 +321,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
         >
           <IconSort /> Sort
         </button>
-        {!isKioskMode && onEnterKiosk && (
-          <button role="menuitem" className="glass-menu-item" onClick={() => { onEnterKiosk(); setShowMoreMenu(false); }}>
-            <IconDisplay /> Kiosk mode
-          </button>
-        )}
         <button role="menuitem" className="glass-menu-item" onClick={() => { onOpenSettings(); setShowMoreMenu(false); }}>
           <IconSettings /> Settings
         </button>
@@ -379,63 +362,25 @@ const Toolbar: React.FC<ToolbarProps> = ({
         onMouseDown={handleMouseDown}
       >
         <div className="toolbar-grip" aria-hidden><IconGrip /></div>
-        {!isMinimized ? (
-          <div className="toolbar-expanded glass-bar">
-            <div className="toolbar-content">
-              <button type="button" className="toolbar-btn glass-btn" onClick={onPrevious} title="Previous" aria-label="Previous slide">
-                <IconPrevious />
-              </button>
-              <div className="toolbar-separator" />
-              {!isPlaying ? (
-                <button type="button" className="toolbar-btn glass-btn" onClick={onPlayPause} title="Start slideshow" aria-label="Start slideshow">
-                  <IconPlay />
-                </button>
-              ) : (
-                <button type="button" className="toolbar-btn glass-btn" onClick={onPlayPause} title="Pause" aria-label="Pause slideshow">
-                  <IconPause />
-                </button>
-              )}
-              <div className="toolbar-separator" />
-              <button type="button" className="toolbar-btn glass-btn" onClick={onNext} title="Next" aria-label="Next slide">
-                <IconNext />
-              </button>
-              <div className="toolbar-separator" />
-              <button type="button" className="toolbar-btn glass-btn" onClick={onFullscreenToggle} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
-                {isFullscreen ? <IconFullscreenExit /> : <IconFullscreen />}
-              </button>
-              <div className="toolbar-separator" />
-              <button
-                ref={moreButtonRef}
-                type="button"
-                className="toolbar-btn glass-btn"
-                onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); setShowSortMenu(false); }}
-                title="More options"
-                aria-label="More options"
-                aria-expanded={showMoreMenu}
-              >
-                <IconMore />
-              </button>
-              <div className="toolbar-separator" />
-              <button
-                type="button"
-                className="toolbar-btn glass-btn"
-                onClick={() => setIsMinimized(true)}
-                title="Minimize toolbar"
-                aria-label="Minimize toolbar"
-              >
-                <IconChevronDown />
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="toolbar-minimized glass-bar">
-            <button type="button" className="toolbar-btn glass-btn" onClick={onPrevious} title="Previous" aria-label="Previous slide"><IconPrevious /></button>
-            <div className="toolbar-separator" />
-            <button type="button" className="toolbar-btn glass-btn" onClick={onPlayPause} title={isPlaying ? 'Pause' : 'Play'} aria-label={isPlaying ? 'Pause' : 'Play'}>
-              {isPlaying ? <IconPause /> : <IconPlay />}
+        <div className="toolbar-expanded glass-bar">
+          <div className="toolbar-content">
+            <button type="button" className="toolbar-btn glass-btn" onClick={onPrevious} title="Previous" aria-label="Previous slide">
+              <IconPrevious />
             </button>
             <div className="toolbar-separator" />
-            <button type="button" className="toolbar-btn glass-btn" onClick={onNext} title="Next" aria-label="Next slide"><IconNext /></button>
+            {!isPlaying ? (
+              <button type="button" className="toolbar-btn glass-btn" onClick={onPlayPause} title="Start slideshow" aria-label="Start slideshow">
+                <IconPlay />
+              </button>
+            ) : (
+              <button type="button" className="toolbar-btn glass-btn" onClick={onPlayPause} title="Pause" aria-label="Pause slideshow">
+                <IconPause />
+              </button>
+            )}
+            <div className="toolbar-separator" />
+            <button type="button" className="toolbar-btn glass-btn" onClick={onNext} title="Next" aria-label="Next slide">
+              <IconNext />
+            </button>
             <div className="toolbar-separator" />
             <button type="button" className="toolbar-btn glass-btn" onClick={onFullscreenToggle} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
               {isFullscreen ? <IconFullscreenExit /> : <IconFullscreen />}
@@ -445,23 +390,18 @@ const Toolbar: React.FC<ToolbarProps> = ({
               ref={moreButtonRef}
               type="button"
               className="toolbar-btn glass-btn"
-              onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }}
+              onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); setShowSortMenu(false); }}
               title="More options"
               aria-label="More options"
               aria-expanded={showMoreMenu}
             >
               <IconMore />
             </button>
-            <div className="toolbar-separator" />
-            <button type="button" className="toolbar-btn glass-btn" onClick={() => setIsMinimized(false)} title="Expand toolbar" aria-label="Expand toolbar">
-              <IconChevronUp />
-            </button>
           </div>
-        )}
-        <div className="toolbar-footer">
-          <span className="toolbar-status">{statusText}</span>
         </div>
-        <span className="toolbar-count">{displayIndex} / {totalCount}</span>
+        <div className="toolbar-count-notch">
+          <span className="toolbar-count">{displayIndex} / {totalCount}</span>
+        </div>
       </div>
       {showMoreMenu && moreMenuPortal}
       {showSortMenu && !showMoreMenu && sortMenuPortal}

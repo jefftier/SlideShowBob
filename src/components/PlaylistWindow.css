@@ -63,7 +63,7 @@
   padding: 4px 8px;
   background: transparent;
   border: none;
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   border-radius: 2px;
   font-size: 16px;
@@ -75,7 +75,7 @@
 
 .playlist-view-btn:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .playlist-view-btn.active {
@@ -94,7 +94,7 @@
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 4px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 13px;
   width: 200px;
 }
@@ -116,7 +116,7 @@
   padding: 0;
   background: transparent;
   border: none;
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   border-radius: 2px;
   font-size: 16px;
@@ -128,7 +128,7 @@
 
 .playlist-search-clear:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .search-highlight {
@@ -147,7 +147,7 @@
   padding: 6px 12px;
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   border-radius: 4px;
   font-size: 13px;
@@ -160,7 +160,7 @@
 
 .view-toggle:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #e0e0e0;
+  color: var(--text-primary);
   border-color: rgba(255, 255, 255, 0.3);
 }
 
@@ -184,7 +184,7 @@
   padding: 0;
   background: transparent;
   border: none;
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   border-radius: 2px;
   font-size: 24px;
@@ -196,7 +196,7 @@
 
 .close-btn:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .playlist-body {
@@ -228,7 +228,7 @@
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -269,7 +269,7 @@
 .folder-tree-empty {
   padding: 16px;
   text-align: center;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
@@ -288,7 +288,7 @@
   padding: 0;
   background: transparent;
   border: none;
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 10px;
   display: flex;
@@ -299,7 +299,7 @@
 }
 
 .folder-tree-expand:hover {
-  color: #e0e0e0;
+  color: var(--text-primary);
   background: rgba(255, 255, 255, 0.05);
   border-radius: 2px;
 }
@@ -341,7 +341,7 @@
 
 .folder-tree-name {
   flex: 1;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -425,7 +425,7 @@
 
 .playlist-empty-small {
   text-align: center;
-  color: #888;
+  color: var(--text-secondary);
   padding: 20px;
   font-size: 12px;
 }
@@ -484,7 +484,7 @@
 
 .playlist-item-name {
   flex: 1;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -517,7 +517,7 @@
   padding: 0;
   background: transparent;
   border: none;
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   border-radius: 2px;
   font-size: 14px;
@@ -591,7 +591,7 @@
 }
 
 .playlist-thumbnail-loading {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 11px;
   text-align: center;
   padding: 8px;
@@ -621,7 +621,7 @@
 
 .playlist-grid-name {
   font-size: 10px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -885,7 +885,7 @@
   padding: 6px 12px;
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   border-radius: 4px;
   font-size: 12px;
@@ -895,7 +895,7 @@
 .playlist-btn-secondary:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.3);
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .playlist-tree {
@@ -967,7 +967,7 @@
 
 .playlist-tree-name {
   flex: 1;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1000,7 +1000,7 @@
   padding: 0;
   background: transparent;
   border: none;
-  color: #888;
+  color: var(--text-secondary);
   cursor: pointer;
   border-radius: 2px;
   font-size: 14px;
@@ -1053,19 +1053,19 @@
 
 .playlist-confirm-dialog h3 {
   margin: 0 0 12px 0;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 18px;
 }
 
 .playlist-confirm-dialog p {
   margin: 0 0 20px 0;
-  color: #b0b0b0;
+  color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.5;
 }
 
 .playlist-confirm-dialog strong {
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .playlist-confirm-buttons {

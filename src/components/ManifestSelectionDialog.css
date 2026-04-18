@@ -35,12 +35,12 @@
 .manifest-selection-header h2 {
   margin: 0;
   font-size: 18px;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .manifest-selection-content {
   padding: 20px 24px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 14px;
   line-height: 1.6;
   flex: 1;
@@ -77,7 +77,7 @@
 
 .manifest-selection-item-name {
   font-weight: 500;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .manifest-selection-item-count {
@@ -105,7 +105,7 @@
 
 .manifest-selection-btn-secondary:hover {
   background: rgba(255, 255, 255, 0.05);
-  color: #e0e0e0;
+  color: var(--text-primary);
   border-color: rgba(255, 255, 255, 0.3);
 }
 

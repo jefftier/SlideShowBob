@@ -120,37 +120,26 @@
   flex-shrink: 0;
 }
 
-/* Footer: status + count */
-.toolbar-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 6px 12px 0;
-  gap: 12px;
-  min-width: 0;
-}
+/* Footer: removed - count is now in notch */
 
-.toolbar-status {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
+.toolbar-count-notch {
+  display: flex;
+  justify-content: center;
+  width: 100%;
 }
 
 .toolbar-count {
-  position: absolute;
-  bottom: 0;
-  right: 8px;
   font-size: 12px;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
-  background: rgba(0, 0, 0, 0.4);
-  border-radius: 8px;
-  padding: 2px 8px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  padding: 2px 12px;
+  white-space: nowrap;
 }
 
 /* Glass menus (More, Sort) */

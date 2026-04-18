@@ -32,13 +32,13 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid #444;
+  border-bottom: 1px solid var(--glass-border);
 }
 
 .diagnostics-header h2 {
   margin: 0;
   font-size: 18px;
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .diagnostics-controls {
@@ -64,16 +64,16 @@
 .diagnostics-btn-close {
   padding: 6px 12px;
   font-size: 12px;
-  background: #3a3a3a;
-  color: #e0e0e0;
-  border: 1px solid #555;
+  background: var(--fill-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--glass-border);
   border-radius: 4px;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .diagnostics-btn-secondary:hover {
-  background: #4a4a4a;
+  background: var(--fill-tertiary);
 }
 
 .diagnostics-btn-close {
@@ -86,7 +86,7 @@
 }
 
 .diagnostics-btn-close:hover {
-  color: #e0e0e0;
+  color: var(--text-primary);
   background: rgba(255, 255, 255, 0.1);
 }
 
@@ -119,8 +119,8 @@
 }
 
 .diagnostics-event {
-  background: #1f1f1f;
-  border: 1px solid #333;
+  background: var(--fill-secondary);
+  border: 1px solid var(--glass-border);
   border-radius: 4px;
   padding: 12px;
   font-size: 12px;
@@ -168,7 +168,7 @@
 }
 
 .diagnostics-event-name {
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-weight: 500;
   margin-bottom: 4px;
 }

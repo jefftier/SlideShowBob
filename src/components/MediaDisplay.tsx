@@ -19,6 +19,7 @@ interface MediaDisplayProps {
   onMediaLoadSuccess?: () => void;
   onGifCompleted?: () => void;
   isPlaying?: boolean; // Whether slideshow is currently playing
+  backgroundBlur?: boolean; // Whether to show blurred background fill
 }
 
 const MediaDisplay: React.FC<MediaDisplayProps> = ({
@@ -33,7 +34,8 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   onMediaError,
   onMediaLoadSuccess,
   onGifCompleted,
-  isPlaying = false
+  isPlaying = false,
+  backgroundBlur = true
 }) => {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
@@ -90,14 +92,24 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
     return Math.abs(mediaAspect - containerAspect) / containerAspect <= 0.02;
   }, [containerDims, mediaNaturalDims]);
 
+  // Track the previous filePath to avoid re-initializing when only the object reference changes
+  const prevFilePathRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!currentMedia) {
       setImageSrc(null);
       setVideoSrc(null);
       setIsLoading(false);
       loadSuccessNotifiedRef.current = false;
+      prevFilePathRef.current = null;
       return;
     }
+
+    // Skip re-initialization if the filePath hasn't actually changed
+    if (prevFilePathRef.current === currentMedia.filePath) {
+      return;
+    }
+    prevFilePathRef.current = currentMedia.filePath;
 
     // Trigger transition by updating key
     setTransitionKey(prev => prev + 1);
@@ -900,7 +912,7 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         </div>
       )}
 
-      {!isAspectMatch && currentMedia && (
+      {!isAspectMatch && backgroundBlur && currentMedia && (
         <div className="media-background-fill">
           {currentMedia.type === MediaType.Video && videoSrc ? (
             <video
