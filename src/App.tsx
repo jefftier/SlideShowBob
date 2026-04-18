@@ -15,6 +15,7 @@ import { useToast } from './hooks/useToast';
 import { usePlaybackErrorPolicy } from './hooks/usePlaybackErrorPolicy';
 import { useFolderPersistence } from './hooks/useFolderPersistence';
 import { useKioskMode } from './hooks/useKioskMode';
+import { useIdleTimer } from './hooks/useIdleTimer';
 import { MediaItem, MediaType } from './types/media';
 import { SlideshowManifest } from './types/manifest';
 import { loadSettings, saveSettings } from './utils/settingsStorage';
@@ -75,6 +76,7 @@ function App() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const updateSWRef = useRef<(() => void) | null>(null);
   const cursorTimeoutRef = useRef<number | null>(null);
+  const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false);
   const { showSuccess, showError, showInfo, showWarning } = useToast();
   
   // Kiosk mode hook
@@ -112,6 +114,39 @@ function App() {
     },
   });
   
+  // Idle timer for auto-hiding toolbar during playback
+  const anyDialogOpen = showPlaylist || showSettings || showShortcutsHelp || showDiagnostics || showManifestDialog || showManifestSelection || toolbarMenuOpen;
+
+  const { pause: pauseIdleTimer, resume: resumeIdleTimer } = useIdleTimer({
+    timeoutMs: 5000,
+    enabled: isPlaying && !isKioskMode,
+    onIdle: useCallback(() => {
+      setToolbarVisible(false);
+      setCursorHidden(true);
+    }, []),
+    onActive: useCallback(() => {
+      setToolbarVisible(true);
+      setCursorHidden(false);
+    }, []),
+  });
+
+  // Pause/resume idle timer when dialogs or menus are open
+  useEffect(() => {
+    if (anyDialogOpen) {
+      pauseIdleTimer();
+    } else {
+      resumeIdleTimer();
+    }
+  }, [anyDialogOpen, pauseIdleTimer, resumeIdleTimer]);
+
+  // When isPlaying becomes false while toolbar is hidden, restore visibility
+  useEffect(() => {
+    if (!isPlaying && !toolbarVisible) {
+      setToolbarVisible(true);
+      setCursorHidden(false);
+    }
+  }, [isPlaying, toolbarVisible]);
+
   // Retry policy for media errors
   const errorPolicy = usePlaybackErrorPolicy({ maxAttempts: 3, baseDelayMs: 1000 });
   const [currentMediaReloadKey, setCurrentMediaReloadKey] = useState(0);
@@ -1058,8 +1093,11 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullscreen, isKioskMode, showPlaylist, showSettings, handlePlayPause, handleNext, handlePrevious, handleToggleFullscreen, handleZoomReset, showDiagnostics]);
 
-  // Manifest mode: Cursor hiding in fullscreen
+  // Manifest mode: Cursor hiding in fullscreen (only when idle timer is not active)
   useEffect(() => {
+    // When idle timer is active (isPlaying), it handles cursor hiding
+    if (isPlaying) return;
+
     if (!isManifestMode || !isFullscreen) {
       setCursorHidden(false);
       if (cursorTimeoutRef.current) {
@@ -1086,22 +1124,28 @@ function App() {
         clearTimeout(cursorTimeoutRef.current);
       }
     };
-  }, [isManifestMode, isFullscreen]);
+  }, [isManifestMode, isFullscreen, isPlaying]);
 
-  // Ensure toolbar is visible when not in kiosk mode
+  // Ensure toolbar is visible when not in kiosk mode and not playing
   // This is a safety net in case onExit callback doesn't fire
   useEffect(() => {
-    if (!isKioskMode && !toolbarVisible) {
-      // Force toolbar to be visible when exiting kiosk mode
+    if (!isKioskMode && !isPlaying && !toolbarVisible) {
+      // Force toolbar to be visible when exiting kiosk mode (and not playing)
       setToolbarVisible(true);
       setCursorHidden(false);
     }
-  }, [isKioskMode, toolbarVisible]);
+  }, [isKioskMode, isPlaying, toolbarVisible]);
 
   // Manifest mode: Toolbar visibility (show on mouse move to bottom)
+  // Only active when not playing (idle timer handles visibility during playback)
   useEffect(() => {
     // Don't interfere with kiosk mode toolbar visibility
     if (isKioskMode) {
+      return;
+    }
+
+    // When playing, the idle timer handles toolbar visibility
+    if (isPlaying) {
       return;
     }
     
@@ -1137,7 +1181,7 @@ function App() {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseleave', handleMouseLeave);
     };
-  }, [isManifestMode, isFullscreen, isKioskMode]);
+  }, [isManifestMode, isFullscreen, isKioskMode, isPlaying]);
 
   // In manifest mode, restart slideshow when current item changes (for per-item delays)
   // NOTE: effectiveDelay change is handled by useSlideshow's delay effect, so we only
@@ -1450,6 +1494,7 @@ function App() {
         toolbarVisible={toolbarVisible}
         isKioskMode={isKioskMode}
         onEnterKiosk={enterKiosk}
+        onMenuOpenChange={setToolbarMenuOpen}
       />
 
       {!isKioskMode && showPlaylist && (

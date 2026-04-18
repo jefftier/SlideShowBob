@@ -99,6 +99,10 @@
   width: 200px;
 }
 
+.playlist-search::placeholder {
+  color: #aaa;
+}
+
 .playlist-search:focus {
   outline: none;
   border-color: var(--accent, #0A84FF);
@@ -350,7 +354,7 @@
 }
 
 .folder-tree-count {
-  color: #666;
+  color: #999;
   font-size: 11px;
   flex-shrink: 0;
   margin-left: 4px;
@@ -366,7 +370,7 @@
   padding: 0;
   background: transparent;
   border: none;
-  color: #666;
+  color: #999;
   cursor: pointer;
   border-radius: 2px;
   font-size: 14px;
@@ -428,7 +432,7 @@
 
 .playlist-empty {
   text-align: center;
-  color: #888;
+  color: #aaa;
   padding: 40px;
   width: 100%;
   align-self: flex-start;
@@ -441,7 +445,7 @@
 
 .playlist-empty-hint {
   font-size: 12px;
-  color: #666;
+  color: #999;
   margin: 0;
 }
 
@@ -474,7 +478,7 @@
 
 .playlist-item-index {
   min-width: 40px;
-  color: #888;
+  color: #aaa;
   font-size: 12px;
 }
 
@@ -488,7 +492,7 @@
 }
 
 .playlist-item-type {
-  color: #888;
+  color: #aaa;
   font-size: 11px;
   text-transform: uppercase;
   min-width: 60px;
@@ -627,7 +631,7 @@
 
 .playlist-grid-index {
   font-size: 9px;
-  color: #888;
+  color: #aaa;
   margin-bottom: 2px;
 }
 
@@ -971,7 +975,7 @@
 }
 
 .playlist-tree-count {
-  color: #888;
+  color: #aaa;
   font-size: 11px;
 }
 

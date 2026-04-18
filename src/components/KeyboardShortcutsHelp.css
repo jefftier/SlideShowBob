@@ -50,7 +50,7 @@
   padding: 0;
   background: transparent;
   border: none;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 24px;
   cursor: pointer;
   border-radius: 4px;
@@ -126,7 +126,7 @@
 }
 
 .key-separator {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 12px;
   margin: 0 2px;
 }
@@ -145,7 +145,7 @@
 
 .shortcuts-help-footer p {
   margin: 0;
-  color: #888;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 

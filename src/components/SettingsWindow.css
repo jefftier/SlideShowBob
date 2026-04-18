@@ -157,7 +157,7 @@
 .settings-group-title {
   font-size: 12px;
   font-weight: 600;
-  color: #888;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 12px;
@@ -262,7 +262,7 @@
   padding: 0;
   background: transparent;
   border: none;
-  color: #0078d4;
+  color: var(--accent);
   font-size: 14px;
   cursor: pointer;
   text-align: left;
@@ -275,7 +275,7 @@
 }
 
 .settings-action-desc {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 12px;
   margin: 0;
   line-height: 1.4;

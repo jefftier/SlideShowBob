@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { MediaItem, MediaType } from '../types/media';
 import { logger } from '../utils/logger';
 import { addEvent } from '../utils/eventLog';
@@ -44,6 +44,7 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [transitionKey, setTransitionKey] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const bgVideoRef = useRef<HTMLVideoElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isNavigatingRef = useRef(false);
@@ -58,6 +59,36 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   const gifLoadHandledRef = useRef<Set<string>>(new Set()); // Track which GIFs have already had onLoad handled
   const gifPlayerRef = useRef<GifPlayer | null>(null);
   const gifCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const displayRef = useRef<HTMLDivElement>(null);
+
+  // Container and media dimensions for aspect-match detection
+  const [containerDims, setContainerDims] = useState({ width: 0, height: 0 });
+  const [mediaNaturalDims, setMediaNaturalDims] = useState({ width: 0, height: 0 });
+
+  // Track container dimensions via ResizeObserver
+  useEffect(() => {
+    const el = displayRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setContainerDims({ width, height });
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Compute whether media aspect ratio matches container aspect ratio
+  const isAspectMatch = useMemo(() => {
+    const { width: cw, height: ch } = containerDims;
+    const { width: mw, height: mh } = mediaNaturalDims;
+    if (cw <= 0 || ch <= 0 || mw <= 0 || mh <= 0) return true; // default to match (no bg fill) when unknown
+    const containerAspect = cw / ch;
+    const mediaAspect = mw / mh;
+    return Math.abs(mediaAspect - containerAspect) / containerAspect <= 0.02;
+  }, [containerDims, mediaNaturalDims]);
 
   useEffect(() => {
     if (!currentMedia) {
@@ -72,6 +103,7 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
     setTransitionKey(prev => prev + 1);
     setIsLoading(true);
     loadSuccessNotifiedRef.current = false; // Reset success notification flag
+    setMediaNaturalDims({ width: 0, height: 0 }); // Reset natural dims for new media
 
     // Use object URL if available (from File System Access API), otherwise use filePath
     const mediaUrl = currentMedia.objectUrl || currentMedia.filePath;
@@ -224,6 +256,14 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
 
         setIsLoading(false);
         
+        // Capture natural dimensions for aspect-match detection from GIF canvas
+        if (gifCanvasRef.current) {
+          setMediaNaturalDims({
+            width: gifCanvasRef.current.width,
+            height: gifCanvasRef.current.height,
+          });
+        }
+
         // Notify successful load
         if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
           loadSuccessNotifiedRef.current = true;
@@ -309,6 +349,24 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
       videoRef.current.muted = isMuted;
     }
   }, [isMuted]);
+
+  // Sync background fill video currentTime to foreground video
+  useEffect(() => {
+    const fg = videoRef.current;
+    if (!fg) return;
+
+    const handleTimeUpdate = () => {
+      const bg = bgVideoRef.current;
+      if (bg && Math.abs(bg.currentTime - fg.currentTime) > 0.3) {
+        bg.currentTime = fg.currentTime;
+      }
+    };
+
+    fg.addEventListener('timeupdate', handleTimeUpdate);
+    return () => {
+      fg.removeEventListener('timeupdate', handleTimeUpdate);
+    };
+  }, [videoSrc]);
 
   // Calculate effective zoom when fit-to-window is enabled
   useEffect(() => {
@@ -827,7 +885,11 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   return (
     <div 
       className="media-display" 
-      ref={containerRef} 
+      ref={(el) => {
+        // Assign to both refs
+        (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+        (displayRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+      }}
       onClick={handleClick}
       style={{ cursor: getCursorStyle() }}
     >
@@ -835,6 +897,26 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         <div className="loading-overlay">
           <div className="loading-spinner"></div>
           <p>Loading...</p>
+        </div>
+      )}
+
+      {!isAspectMatch && currentMedia && (
+        <div className="media-background-fill">
+          {currentMedia.type === MediaType.Video && videoSrc ? (
+            <video
+              ref={bgVideoRef}
+              src={videoSrc}
+              autoPlay
+              loop
+              muted
+              playsInline
+              onError={(e) => {
+                console.debug('[MediaDisplay] Background fill video error (silent):', e);
+              }}
+            />
+          ) : imageSrc ? (
+            <img src={imageSrc} alt="" aria-hidden="true" />
+          ) : null}
         </div>
       )}
       
@@ -858,6 +940,13 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
             onEnded={handleVideoEnded}
             onLoadedData={() => {
               setIsLoading(false);
+              // Capture natural dimensions for aspect-match detection
+              if (videoRef.current) {
+                setMediaNaturalDims({
+                  width: videoRef.current.videoWidth,
+                  height: videoRef.current.videoHeight,
+                });
+              }
               // Notify successful load (only once, onLoadedData is more reliable than play promise)
               if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
                 loadSuccessNotifiedRef.current = true;
@@ -902,6 +991,13 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
             style={mediaStyle}
             onLoad={() => {
               setIsLoading(false);
+              // Capture natural dimensions for aspect-match detection
+              if (imageRef.current) {
+                setMediaNaturalDims({
+                  width: imageRef.current.naturalWidth,
+                  height: imageRef.current.naturalHeight,
+                });
+              }
               // Notify successful load (only once)
               if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
                 loadSuccessNotifiedRef.current = true;

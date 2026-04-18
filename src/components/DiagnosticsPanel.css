@@ -52,7 +52,7 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #aaa;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
@@ -82,7 +82,7 @@
   line-height: 1;
   background: transparent;
   border: none;
-  color: #aaa;
+  color: var(--text-secondary);
 }
 
 .diagnostics-btn-close:hover {
@@ -99,7 +99,7 @@
 .diagnostics-empty {
   text-align: center;
   padding: 40px;
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .diagnostics-empty p {
@@ -109,7 +109,7 @@
 
 .diagnostics-empty-hint {
   font-size: 12px;
-  color: #666;
+  color: #999;
 }
 
 .diagnostics-events {
@@ -135,7 +135,7 @@
 }
 
 .diagnostics-event-time {
-  color: #888;
+  color: var(--text-secondary);
   font-size: 11px;
 }
 

@@ -79,6 +79,7 @@ interface ToolbarProps {
   toolbarVisible?: boolean;
   isKioskMode?: boolean;
   onEnterKiosk?: () => void;
+  onMenuOpenChange?: (isOpen: boolean) => void;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -114,6 +115,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   toolbarVisible = true,
   isKioskMode = false,
   onEnterKiosk,
+  onMenuOpenChange,
 }) => {
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -126,6 +128,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const [position, setPosition] = useState(loadToolbarPosition);
   const dragRef = useRef({ isDragging: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 });
   const shellRef = useRef<HTMLDivElement>(null);
+
+  // Notify parent when menu open state changes (for idle timer pausing)
+  useEffect(() => {
+    onMenuOpenChange?.(showSortMenu || showMoreMenu);
+  }, [showSortMenu, showMoreMenu, onMenuOpenChange]);
 
   // Close menus when clicking outside
   useEffect(() => {
@@ -216,7 +223,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
   if (isKioskMode) return null;
 
-  const hidden = isManifestMode && !toolbarVisible;
+  const hidden = !toolbarVisible;
   const shellStyle =
     position.left >= 0 && position.top >= 0
       ? { left: position.left, top: position.top, bottom: 'auto', transform: 'translateX(0)' }
@@ -453,8 +460,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
         )}
         <div className="toolbar-footer">
           <span className="toolbar-status">{statusText}</span>
-          <span className="toolbar-count">{displayIndex} / {totalCount}</span>
         </div>
+        <span className="toolbar-count">{displayIndex} / {totalCount}</span>
       </div>
       {showMoreMenu && moreMenuPortal}
       {showSortMenu && !showMoreMenu && sortMenuPortal}

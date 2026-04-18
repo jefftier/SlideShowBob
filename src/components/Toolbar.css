@@ -27,7 +27,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-tertiary, rgba(255,255,255,0.45));
+  color: var(--text-tertiary, rgba(255,255,255,0.65));
   cursor: grab;
   flex-shrink: 0;
 }
@@ -142,10 +142,15 @@
 }
 
 .toolbar-count {
+  position: absolute;
+  bottom: 0;
+  right: 8px;
   font-size: 12px;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 8px;
+  padding: 2px 8px;
 }
 
 /* Glass menus (More, Sort) */
