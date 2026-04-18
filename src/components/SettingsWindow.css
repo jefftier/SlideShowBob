@@ -281,39 +281,18 @@
   line-height: 1.4;
 }
 
+.settings-diagnostics {
+  padding: 12px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
 
 .settings-footer {
   padding: 16px 24px;
-  border-top: 1px solid var(--glass-border);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.settings-footer-actions {
-  display: flex;
+  justify-content: flex-end;
   gap: 8px;
-}
-
-.settings-bug-btn {
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.4;
-  transition: opacity 0.2s, color 0.2s;
-}
-
-.settings-bug-btn:hover {
-  opacity: 1;
-  color: var(--text-secondary);
 }
 
 .settings-btn-primary,
