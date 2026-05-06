@@ -136,12 +136,13 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
             onChange={(e) => {
               setSettings(prev => ({
                 ...prev,
-                transitionEffect: e.target.value as 'Fade' | 'Push' | 'Wipe' | 'Morph' | 'Zoom'
+                transitionEffect: e.target.value as 'None' | 'Fade' | 'Push' | 'Wipe' | 'Morph' | 'Zoom'
               }));
               setHasChanges(true);
             }}
             className="settings-select"
           >
+            <option value="None">None</option>
             <option value="Fade">Fade</option>
             <option value="Push">Push</option>
             <option value="Wipe">Wipe</option>

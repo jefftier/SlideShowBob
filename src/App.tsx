@@ -17,7 +17,7 @@ import { useFolderPersistence } from './hooks/useFolderPersistence';
 import { useIdleTimer } from './hooks/useIdleTimer';
 import { MediaItem, MediaType } from './types/media';
 import { SlideshowManifest } from './types/manifest';
-import { loadSettings, saveSettings } from './utils/settingsStorage';
+import { loadSettings, saveSettings, TransitionEffect } from './utils/settingsStorage';
 // Directory storage functions are now handled by useFolderPersistence hook
 import { findManifestFiles, loadManifestFile, matchManifestToMedia } from './utils/manifestLoader';
 import { objectUrlRegistry } from './utils/objectUrlRegistry';
@@ -41,7 +41,7 @@ function App() {
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [sortMode, setSortMode] = useState<'NameAZ' | 'NameZA' | 'DateOldest' | 'DateNewest' | 'Random'>('NameAZ');
-  const [transitionEffect, setTransitionEffect] = useState<'Fade' | 'Push' | 'Wipe' | 'Morph' | 'Zoom'>('Fade');
+  const [transitionEffect, setTransitionEffect] = useState<TransitionEffect>('Fade');
   const [playlist, setPlaylist] = useState<MediaItem[]>([]);
   const [statusText, setStatusText] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);

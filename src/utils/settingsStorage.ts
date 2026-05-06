@@ -9,7 +9,7 @@ export interface StorageErrorCallbacks {
   showWarning?: (message: string) => void;
 }
 
-export type TransitionEffect = 'Fade' | 'Push' | 'Wipe' | 'Morph' | 'Zoom';
+export type TransitionEffect = 'None' | 'Fade' | 'Push' | 'Wipe' | 'Morph' | 'Zoom';
 
 export interface AppSettings {
   slideDelayMs: number;

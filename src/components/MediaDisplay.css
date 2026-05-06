@@ -119,6 +119,13 @@
   will-change: opacity, transform, clip-path;
 }
 
+/* None Transition - immediate display, no animation */
+.media-container img.transition-none,
+.media-container video.transition-none,
+.media-container canvas.transition-none {
+  animation: none;
+}
+
 /* Fade Transition */
 .media-container img.transition-fade,
 .media-container video.transition-fade {
