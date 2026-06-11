@@ -424,6 +424,8 @@ function App() {
                   autoplay: urlParams.autoplay,
                 });
                 showInfo(`Click "Open Folder" to grant access to the requested path`);
+                // Mark as resolved so we don't fall through to loading cached folders
+                urlResolved = true;
               } else {
                 const errorMessage = resolveError instanceof Error
                   ? resolveError.message
