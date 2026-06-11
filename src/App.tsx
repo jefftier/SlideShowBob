@@ -20,6 +20,10 @@ import { SlideshowManifest } from './types/manifest';
 import { loadSettings, saveSettings, TransitionEffect } from './utils/settingsStorage';
 // Directory storage functions are now handled by useFolderPersistence hook
 import { findManifestFiles, loadManifestFile, matchManifestToMedia } from './utils/manifestLoader';
+import { parseUrlParams } from './utils/urlParams';
+import { resolveFolder } from './utils/folderResolver';
+import { filterMediaByFileList } from './utils/fileFilter';
+import { syncUrlToState } from './utils/urlSync';
 import { objectUrlRegistry } from './utils/objectUrlRegistry';
 import { hasReadPermission, assertReadPermission } from './utils/fsPermissions';
 import { validateManifest as validateManifestStrict, validateMediaPath, MAX_MANIFEST_SIZE } from './utils/manifestValidation';
@@ -308,54 +312,164 @@ function App() {
         }
         setBackgroundBlur(savedSettings.backgroundBlur);
 
-        // Load directory handles from IndexedDB (only if saveFolders is enabled)
-        const handles = await loadFolders(savedSettings.saveFolders);
-        
-        // Reload media from persisted folders
-        if (handles.size > 0) {
-          setStatusText('Loading folders...');
-          const allMediaItems: MediaItem[] = [];
-          
-          for (const [folderName, handle] of handles.entries()) {
+        // --- URL Parameter Processing ---
+        // Parse URL params early, before loading persisted folders.
+        // If URL specifies a path, we skip the normal "load persisted folders" flow
+        // to avoid double-loading.
+        let urlResolved = false;
+        try {
+          const urlParams = parseUrlParams(window.location.search);
+
+          // Display error toast if parsing produced an error (e.g., path traversal)
+          if (urlParams.error) {
+            showError(urlParams.error);
+            // Fall through to default behavior (urlResolved stays false)
+          }
+
+          // Display warning toasts for any validation warnings
+          for (const warning of urlParams.warnings) {
+            showWarning(warning);
+          }
+
+          // If path is present and no error, attempt folder resolution
+          if (urlParams.path && !urlParams.error) {
             try {
-              // Check permission before using handle
-              if (!(await hasReadPermission(handle))) {
-                console.warn(`Permission revoked for folder "${folderName}"`);
-                const removedItems = await handleRevokedFolder(folderName);
-                // Remove items from playlist
-                setPlaylist(prev => prev.filter(item => !removedItems.some(removed => removed.filePath === item.filePath)));
-                continue;
-              }
-              
-              const mediaItems = await loadMediaFromDirectory(handle, savedSettings.includeVideos);
-              allMediaItems.push(...mediaItems);
-            } catch (error) {
-              console.error(`Error loading folder ${folderName}:`, error);
-              // Check if it's a permission error
-              if (error instanceof Error && error.message.includes('Permission denied')) {
-                const removedItems = await handleRevokedFolder(folderName);
-                // Remove items from playlist
-                setPlaylist(prev => prev.filter(item => !removedItems.some(removed => removed.filePath === item.filePath)));
+              setStatusText('Resolving folder from URL…');
+              const resolution = await resolveFolder({
+                path: urlParams.path,
+                onStatusChange: (msg) => setStatusText(msg),
+                onPromptUser: (msg) => showInfo(msg),
+              });
+
+              // Persist the resolved handle with its full path
+              await persistFolder(
+                resolution.folderName,
+                resolution.handle,
+                savedSettings.saveFolders,
+                resolution.fullPath
+              );
+
+              // Load media from the resolved directory
+              const mediaItems = await loadMediaFromDirectory(
+                resolution.handle,
+                savedSettings.includeVideos
+              );
+
+              let finalPlaylist: MediaItem[];
+
+              // Apply file filter if file params are present
+              if (urlParams.files.length > 0) {
+                const filterResult = filterMediaByFileList(mediaItems, urlParams.files);
+                finalPlaylist = filterResult.matched;
+
+                // Show warnings for missing files
+                if (filterResult.missing.length > 0) {
+                  if (filterResult.matched.length === 0) {
+                    showWarning(
+                      `None of the specified files were found: ${filterResult.missing.join(', ')}`
+                    );
+                  } else {
+                    showWarning(
+                      `Some files not found: ${filterResult.missing.join(', ')}`
+                    );
+                  }
+                }
+
+                // Sync URL with the current file filter state
+                syncUrlToState({ path: resolution.fullPath, files: urlParams.files });
               } else {
-                // Other error - remove invalid handle
-                try {
-                  await removeFolder(folderName);
-                } catch (removeError) {
-                  // Error already shown by removeFolder via toast
-                  console.warn('Error removing invalid handle:', removeError);
+                // No file filter — use all media, sorted
+                finalPlaylist = sortMediaItems(mediaItems, savedSettings.sortMode);
+                // Sync URL with path only (no files)
+                syncUrlToState({ path: resolution.fullPath, files: [] });
+              }
+
+              if (finalPlaylist.length > 0) {
+                setPlaylist(finalPlaylist);
+                setCurrentIndex(0);
+                setCurrentMedia(finalPlaylist[0]);
+
+                // Autoplay: start playback if requested and playlist is non-empty
+                if (urlParams.autoplay) {
+                  setIsMuted(true); // Mute for video autoplay policy (Req 5.5)
+                  setIsPlaying(true);
+                }
+              } else if (urlParams.autoplay) {
+                // Autoplay requested but playlist is empty after filtering
+                showWarning('Autoplay requested but no media files are available to play');
+              }
+
+              urlResolved = true;
+              setStatusText('');
+            } catch (resolveError) {
+              // Folder resolution failed (permission denied, picker cancelled, etc.)
+              const errorMessage = resolveError instanceof Error
+                ? resolveError.message
+                : 'Could not open the folder specified in the URL';
+              showError(errorMessage);
+              setStatusText('');
+              // Fall through to default behavior
+            }
+          }
+        } catch (urlError) {
+          // Unexpected error during URL parameter processing (Req 6.4)
+          console.error('Error processing URL parameters:', urlError);
+          showError('Could not process URL parameters');
+          // Fall through to default behavior
+        }
+
+        // --- Default Folder Loading ---
+        // Only load persisted folders if URL resolution did not succeed
+        if (!urlResolved) {
+          // Load directory handles from IndexedDB (only if saveFolders is enabled)
+          const handles = await loadFolders(savedSettings.saveFolders);
+          
+          // Reload media from persisted folders
+          if (handles.size > 0) {
+            setStatusText('Loading folders...');
+            const allMediaItems: MediaItem[] = [];
+            
+            for (const [folderName, handle] of handles.entries()) {
+              try {
+                // Check permission before using handle
+                if (!(await hasReadPermission(handle))) {
+                  console.warn(`Permission revoked for folder "${folderName}"`);
+                  const removedItems = await handleRevokedFolder(folderName);
+                  // Remove items from playlist
+                  setPlaylist(prev => prev.filter(item => !removedItems.some(removed => removed.filePath === item.filePath)));
+                  continue;
+                }
+                
+                const mediaItems = await loadMediaFromDirectory(handle, savedSettings.includeVideos);
+                allMediaItems.push(...mediaItems);
+              } catch (error) {
+                console.error(`Error loading folder ${folderName}:`, error);
+                // Check if it's a permission error
+                if (error instanceof Error && error.message.includes('Permission denied')) {
+                  const removedItems = await handleRevokedFolder(folderName);
+                  // Remove items from playlist
+                  setPlaylist(prev => prev.filter(item => !removedItems.some(removed => removed.filePath === item.filePath)));
+                } else {
+                  // Other error - remove invalid handle
+                  try {
+                    await removeFolder(folderName);
+                  } catch (removeError) {
+                    // Error already shown by removeFolder via toast
+                    console.warn('Error removing invalid handle:', removeError);
+                  }
                 }
               }
             }
+            
+            if (allMediaItems.length > 0) {
+              const sortedItems = sortMediaItems(allMediaItems, savedSettings.sortMode);
+              setPlaylist(sortedItems);
+              setCurrentIndex(0);
+              setCurrentMedia(sortedItems[0]);
+            }
+            
+            setStatusText('');
           }
-          
-          if (allMediaItems.length > 0) {
-            const sortedItems = sortMediaItems(allMediaItems, savedSettings.sortMode);
-            setPlaylist(sortedItems);
-            setCurrentIndex(0);
-            setCurrentMedia(sortedItems[0]);
-          }
-          
-          setStatusText('');
         }
       } catch (error) {
         console.error('Error initializing app:', error);
@@ -640,6 +754,10 @@ function App() {
           // Folder name is already added by persistFolder hook
           
           showSuccess(`Added ${newItems.length} item${newItems.length !== 1 ? 's' : ''} from "${folderName}"`);
+          
+          // Sync URL to reflect the newly added folder
+          syncUrlToState({ path: folderName, files: [] });
+          
           setStatusText('');
           setLoadingProgress(null);
         } catch (error) {
@@ -1499,6 +1617,9 @@ function App() {
             }
             
             showSuccess(`Removed folder "${folderName}" (${filesInFolder.length} items)`);
+            
+            // Clear URL params when folder is removed
+            syncUrlToState({ path: null, files: [] });
           }}
           onAddFolder={handleAddFolder}
         />

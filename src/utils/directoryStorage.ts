@@ -11,7 +11,7 @@ export interface StorageErrorCallbacks {
 }
 
 const DB_NAME = 'slideshow-db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'directoryHandles';
 
 // Note: FileSystemDirectoryHandle is structured-cloneable and can be stored in IndexedDB
@@ -39,9 +39,22 @@ const openDB = (): Promise<IDBDatabase> => {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
+      const oldVersion = event.oldVersion;
+
+      if (oldVersion < 1) {
+        // Initial schema: create the object store with folderName as key
         const store = db.createObjectStore(STORE_NAME, { keyPath: 'folderName' });
         store.createIndex('timestamp', 'timestamp', { unique: false });
+      }
+
+      if (oldVersion < 2) {
+        // Version 2: add fullPath index for URL path parameter lookups
+        // Use the existing transaction's object store reference
+        const transaction = (event.target as IDBOpenDBRequest).transaction!;
+        const store = transaction.objectStore(STORE_NAME);
+        // Non-unique (multiple records could theoretically have same path) 
+        // Records without fullPath are simply not indexed (sparse-like behavior via undefined values)
+        store.createIndex('fullPath', 'fullPath', { unique: false });
       }
     };
   });
@@ -56,7 +69,8 @@ const SAVE_ERROR_THROTTLE_MS = 5000; // Show save error at most once per 5 secon
 export const saveDirectoryHandle = async (
   folderName: string,
   handle: FileSystemDirectoryHandle,
-  callbacks?: StorageErrorCallbacks
+  callbacks?: StorageErrorCallbacks,
+  fullPath?: string
 ): Promise<void> => {
   try {
     const db = await openDB();
@@ -64,11 +78,16 @@ export const saveDirectoryHandle = async (
     const store = transaction.objectStore(STORE_NAME);
 
     // FileSystemDirectoryHandle is structured-cloneable and can be stored directly
-    const data = {
+    const data: Record<string, unknown> = {
       folderName,
       handle,
       timestamp: Date.now(),
     };
+
+    // Only include fullPath if provided (keeps backward compat for records without it)
+    if (fullPath !== undefined) {
+      data.fullPath = fullPath;
+    }
 
     await new Promise<void>((resolve, reject) => {
       const request = store.put(data);
@@ -279,5 +298,66 @@ export const clearAllDirectoryHandles = async (callbacks?: StorageErrorCallbacks
 // Check if IndexedDB is supported
 export const isIndexedDBSupported = (): boolean => {
   return 'indexedDB' in window;
+};
+
+/**
+ * Load a directory handle record by its full filesystem path.
+ * Queries the fullPath index. Returns null if no match is found.
+ */
+export const loadDirectoryHandleByFullPath = async (
+  fullPath: string
+): Promise<{ folderName: string; handle: FileSystemDirectoryHandle; fullPath?: string } | null> => {
+  try {
+    const db = await openDB();
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const index = store.index('fullPath');
+
+    return await new Promise((resolve, reject) => {
+      const request = index.get(fullPath);
+      request.onsuccess = () => {
+        const result = request.result as
+          | { folderName: string; handle: FileSystemDirectoryHandle; fullPath?: string }
+          | undefined;
+        resolve(result || null);
+      };
+      request.onerror = () => {
+        reject(request.error || new Error('Failed to query fullPath index'));
+      };
+    });
+  } catch (error) {
+    console.warn('Error loading directory handle by fullPath:', error);
+    return null;
+  }
+};
+
+/**
+ * Load a directory handle record by folder name (primary key lookup).
+ * Wraps the existing key-based retrieval for backward compatibility.
+ */
+export const loadDirectoryHandleByFolderName = async (
+  folderName: string
+): Promise<{ folderName: string; handle: FileSystemDirectoryHandle; fullPath?: string } | null> => {
+  try {
+    const db = await openDB();
+    const transaction = db.transaction([STORE_NAME], 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+
+    return await new Promise((resolve, reject) => {
+      const request = store.get(folderName);
+      request.onsuccess = () => {
+        const result = request.result as
+          | { folderName: string; handle: FileSystemDirectoryHandle; fullPath?: string }
+          | undefined;
+        resolve(result || null);
+      };
+      request.onerror = () => {
+        reject(request.error || new Error('Failed to load directory handle by folderName'));
+      };
+    });
+  } catch (error) {
+    console.warn('Error loading directory handle by folderName:', error);
+    return null;
+  }
 };
 

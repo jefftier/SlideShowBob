@@ -5,7 +5,9 @@ import {
   saveDirectoryHandle, 
   removeDirectoryHandle, 
   clearAllDirectoryHandles, 
-  isIndexedDBSupported 
+  isIndexedDBSupported,
+  loadDirectoryHandleByFullPath,
+  loadDirectoryHandleByFolderName
 } from '../utils/directoryStorage';
 // hasReadPermission is used by App.tsx, not needed here
 import { logger } from '../utils/logger';
@@ -23,10 +25,12 @@ export interface UseFolderPersistenceResult {
   folders: string[];
   setFolders: React.Dispatch<React.SetStateAction<string[]>>;
   loadFolders: (saveFoldersEnabled: boolean) => Promise<Map<string, FileSystemDirectoryHandle>>;
-  persistFolder: (folderName: string, handle: FileSystemDirectoryHandle, saveFoldersEnabled: boolean) => Promise<void>;
+  persistFolder: (folderName: string, handle: FileSystemDirectoryHandle, saveFoldersEnabled: boolean, fullPath?: string) => Promise<void>;
   removeFolder: (folderName: string) => Promise<void>;
   handleRevokedFolder: (folderName: string, playlist: MediaItem[]) => Promise<MediaItem[]>;
   clearAllFolders: () => Promise<void>;
+  loadHandleByFullPath: (fullPath: string) => Promise<{ folderName: string; handle: FileSystemDirectoryHandle; fullPath?: string } | null>;
+  loadHandleByFolderName: (folderName: string) => Promise<{ folderName: string; handle: FileSystemDirectoryHandle; fullPath?: string } | null>;
 }
 
 /**
@@ -92,11 +96,13 @@ export const useFolderPersistence = (
    * @param folderName Name of the folder
    * @param handle Directory handle to save
    * @param saveFoldersEnabled Whether folder saving is enabled in settings
+   * @param fullPath Optional full filesystem path to store alongside the handle for URL-based lookups
    */
   const persistFolder = useCallback(async (
     folderName: string,
     handle: FileSystemDirectoryHandle,
-    saveFoldersEnabled: boolean
+    saveFoldersEnabled: boolean,
+    fullPath?: string
   ): Promise<void> => {
     // Store directory handle in state
     setDirectoryHandles(prev => {
@@ -116,7 +122,7 @@ export const useFolderPersistence = (
     // Persist directory handle to IndexedDB (only if saveFolders is enabled)
     if (saveFoldersEnabled && isIndexedDBSupported()) {
       try {
-        await saveDirectoryHandle(folderName, handle, { showError, showWarning });
+        await saveDirectoryHandle(folderName, handle, { showError, showWarning }, fullPath);
       } catch (error) {
         // Error already shown by saveDirectoryHandle via toast
         // Continue with in-memory state even if IDB save failed
@@ -221,6 +227,28 @@ export const useFolderPersistence = (
     }
   }, [showError, showWarning]);
 
+  /**
+   * Load a directory handle record by its full filesystem path from IndexedDB.
+   * @param fullPath The full filesystem path to look up
+   * @returns The matching record or null if not found
+   */
+  const loadHandleByFullPath = useCallback(async (
+    fullPath: string
+  ): Promise<{ folderName: string; handle: FileSystemDirectoryHandle; fullPath?: string } | null> => {
+    return loadDirectoryHandleByFullPath(fullPath);
+  }, []);
+
+  /**
+   * Load a directory handle record by folder name (primary key) from IndexedDB.
+   * @param folderName The folder name to look up
+   * @returns The matching record or null if not found
+   */
+  const loadHandleByFolderName = useCallback(async (
+    folderName: string
+  ): Promise<{ folderName: string; handle: FileSystemDirectoryHandle; fullPath?: string } | null> => {
+    return loadDirectoryHandleByFolderName(folderName);
+  }, []);
+
   return {
     directoryHandles,
     folders,
@@ -230,6 +258,8 @@ export const useFolderPersistence = (
     removeFolder,
     handleRevokedFolder,
     clearAllFolders,
+    loadHandleByFullPath,
+    loadHandleByFolderName,
   };
 };
 
