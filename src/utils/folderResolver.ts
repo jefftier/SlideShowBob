@@ -57,6 +57,8 @@ async function requestHandlePermission(
 /**
  * Attempt to use a matched handle, checking and requesting permission as needed.
  * Returns the handle if permission is granted, or throws if denied.
+ * Throws a DOMException with name 'SecurityError' if permission is 'prompt'
+ * and cannot be requested (e.g., no user gesture context).
  */
 async function resolveWithPermission(
   handle: FileSystemDirectoryHandle,
@@ -73,12 +75,19 @@ async function resolveWithPermission(
 
   if (permission === 'prompt') {
     options.onStatusChange(`Requesting access to "${folderName}"…`);
-    const result = await requestHandlePermission(handle);
-    if (result === 'granted') {
-      return { handle, folderName, fullPath, source };
+    try {
+      const result = await requestHandlePermission(handle);
+      if (result === 'granted') {
+        return { handle, folderName, fullPath, source };
+      }
+    } catch (err) {
+      // requestPermission may throw if no user gesture is active
+      // Re-throw as-is so the caller can detect SecurityError/AbortError
+      throw err;
     }
-    // Permission denied by user
-    throw new Error(`Access denied for ${options.path}`);
+    // Permission denied by user — throw a DOMException so caller can
+    // distinguish "needs gesture" from "user explicitly denied"
+    throw new DOMException(`Access denied for ${options.path}`, 'SecurityError');
   }
 
   // permission === 'denied'

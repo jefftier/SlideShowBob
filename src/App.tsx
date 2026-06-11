@@ -81,6 +81,12 @@ function App() {
   const cursorTimeoutRef = useRef<number | null>(null);
   const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false);
   const [backgroundBlur, setBackgroundBlur] = useState(true);
+  // Pending URL folder path — set when URL resolution needs a user gesture (e.g., directory picker)
+  const [pendingUrlPath, setPendingUrlPath] = useState<{
+    path: string;
+    files: string[];
+    autoplay: boolean;
+  } | null>(null);
   const { showSuccess, showError, showInfo, showWarning } = useToast();
   
   // Folder persistence hook
@@ -403,10 +409,27 @@ function App() {
               setStatusText('');
             } catch (resolveError) {
               // Folder resolution failed (permission denied, picker cancelled, etc.)
-              const errorMessage = resolveError instanceof Error
-                ? resolveError.message
-                : 'Could not open the folder specified in the URL';
-              showError(errorMessage);
+              // If it failed because a user gesture is required (SecurityError or AbortError
+              // from showDirectoryPicker during init), store the pending URL so the user
+              // can click a button to trigger the picker.
+              const isGestureError =
+                resolveError instanceof DOMException &&
+                (resolveError.name === 'SecurityError' || resolveError.name === 'AbortError');
+              
+              if (isGestureError) {
+                // Store pending URL params so the empty state UI can offer a button
+                setPendingUrlPath({
+                  path: urlParams.path!,
+                  files: urlParams.files,
+                  autoplay: urlParams.autoplay,
+                });
+                showInfo(`Click "Open Folder" to grant access to the requested path`);
+              } else {
+                const errorMessage = resolveError instanceof Error
+                  ? resolveError.message
+                  : 'Could not open the folder specified in the URL';
+                showError(errorMessage);
+              }
               setStatusText('');
               // Fall through to default behavior
             }
@@ -593,6 +616,82 @@ function App() {
     }
     return sorted;
   };
+
+  /**
+   * Handle the user clicking "Open Folder" when a URL path is pending.
+   * This runs in response to a user gesture, so showDirectoryPicker will work.
+   */
+  const handleOpenPendingUrlFolder = useCallback(async () => {
+    if (!pendingUrlPath) return;
+
+    const { path, files, autoplay } = pendingUrlPath;
+    const savedSettings = loadSettings({ showError, showWarning });
+
+    try {
+      setStatusText('Resolving folder from URL…');
+      const resolution = await resolveFolder({
+        path,
+        onStatusChange: (msg) => setStatusText(msg),
+        onPromptUser: (msg) => showInfo(msg),
+      });
+
+      // Persist the resolved handle with its full path
+      await persistFolder(
+        resolution.folderName,
+        resolution.handle,
+        savedSettings.saveFolders,
+        resolution.fullPath
+      );
+
+      // Load media from the resolved directory
+      const mediaItems = await loadMediaFromDirectory(
+        resolution.handle,
+        savedSettings.includeVideos
+      );
+
+      let finalPlaylist: MediaItem[];
+
+      if (files.length > 0) {
+        const filterResult = filterMediaByFileList(mediaItems, files);
+        finalPlaylist = filterResult.matched;
+
+        if (filterResult.missing.length > 0) {
+          if (filterResult.matched.length === 0) {
+            showWarning(`None of the specified files were found: ${filterResult.missing.join(', ')}`);
+          } else {
+            showWarning(`Some files not found: ${filterResult.missing.join(', ')}`);
+          }
+        }
+
+        syncUrlToState({ path: resolution.fullPath, files });
+      } else {
+        finalPlaylist = sortMediaItems(mediaItems, savedSettings.sortMode);
+        syncUrlToState({ path: resolution.fullPath, files: [] });
+      }
+
+      if (finalPlaylist.length > 0) {
+        setPlaylist(finalPlaylist);
+        setCurrentIndex(0);
+        setCurrentMedia(finalPlaylist[0]);
+
+        if (autoplay) {
+          setIsMuted(true);
+          setIsPlaying(true);
+        }
+      } else {
+        showWarning('No media files found in the selected folder');
+      }
+
+      setPendingUrlPath(null);
+      setStatusText('');
+    } catch (resolveError) {
+      const errorMessage = resolveError instanceof Error
+        ? resolveError.message
+        : 'Could not open the folder specified in the URL';
+      showError(errorMessage);
+      setStatusText('');
+    }
+  }, [pendingUrlPath, showError, showWarning, showInfo, persistFolder, loadMediaFromDirectory]);
 
   const handleAddFolder = async () => {
     try {
@@ -1427,11 +1526,26 @@ function App() {
 
       {playlist.length === 0 && !isLoadingFolders && (
         <div className="empty-state">
-          <p>No media loaded</p>
-          <p className="empty-state-hint">Add a folder to begin your slideshow</p>
-          <button onClick={handleAddFolder} className="btn-primary">
-            Add Folder
-          </button>
+          {pendingUrlPath ? (
+            <>
+              <p>Folder access required</p>
+              <p className="empty-state-hint">
+                This URL wants to open: <strong>{pendingUrlPath.path}</strong>
+              </p>
+              <p className="empty-state-hint">Please select the folder to grant access</p>
+              <button onClick={handleOpenPendingUrlFolder} className="btn-primary">
+                Open Folder
+              </button>
+            </>
+          ) : (
+            <>
+              <p>No media loaded</p>
+              <p className="empty-state-hint">Add a folder to begin your slideshow</p>
+              <button onClick={handleAddFolder} className="btn-primary">
+                Add Folder
+              </button>
+            </>
+          )}
         </div>
       )}
 

@@ -164,39 +164,24 @@ export const loadDirectoryHandles = async (callbacks?: StorageErrorCallbacks): P
       request.onsuccess = async () => {
         const results = request.result as Array<{ folderName: string; handle: FileSystemDirectoryHandle; timestamp: number }>;
         
-        // Verify permissions for each handle
+        // Check permissions for each handle — only include those with 'granted'.
+        // Handles in 'prompt' state are kept in IndexedDB (NOT removed) so that
+        // URL-based resolution and future sessions can re-request permission.
         const permissionChecks = results.map(async (item) => {
           try {
-            // Use type assertion for queryPermission (available on FileSystemHandle)
             const handle = item.handle as any;
             if (handle.queryPermission && typeof handle.queryPermission === 'function') {
               const permission = await handle.queryPermission({ mode: 'read' });
               if (permission === 'granted') {
                 handles.set(item.folderName, item.handle);
-              } else {
-                // Permission was revoked, remove from storage (silently - this is cleanup)
-                try {
-                  await removeDirectoryHandle(item.folderName);
-                } catch {
-                  // Ignore errors during cleanup of revoked permissions
-                }
               }
-            } else {
-              // queryPermission not available - assume no permission (silently - this is cleanup)
-              try {
-                await removeDirectoryHandle(item.folderName);
-              } catch {
-                // Ignore errors during cleanup
-              }
+              // 'prompt' or 'denied' — do NOT remove from IndexedDB.
+              // The handle is still valid and permission can be re-requested later.
             }
+            // If queryPermission is not available, skip — do not remove.
           } catch (error) {
             console.warn(`Error checking permission for ${item.folderName}:`, error);
-            // Remove invalid handles (silently - this is cleanup)
-            try {
-              await removeDirectoryHandle(item.folderName);
-            } catch {
-              // Ignore errors during cleanup
-            }
+            // Do not remove on transient errors
           }
         });
         
@@ -223,16 +208,11 @@ export const loadDirectoryHandles = async (callbacks?: StorageErrorCallbacks): P
     const message = 'Could not load saved folders. Please re-add them.';
     if (!hasShownReadError) {
       hasShownReadError = true;
-      // Call callback if provided (backward compatibility)
       if (callbacks?.showWarning) {
         callbacks.showWarning(message);
       }
     }
     
-    // Return empty Map (safe fallback) - App.tsx will catch the error we throw
-    // Create a custom error that we'll throw, but first return empty handles
-    // Actually, we can't return and throw. So we throw, and App.tsx catches and uses empty Map
-    // But the requirement says to return empty on failure. Let's throw a special error that App.tsx can handle.
     throw new Error(message);
   }
 
