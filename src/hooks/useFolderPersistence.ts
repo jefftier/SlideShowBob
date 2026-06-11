@@ -132,31 +132,26 @@ export const useFolderPersistence = (
   }, [showError, showWarning]);
 
   /**
-   * Remove a folder handle from state and IndexedDB
-   * @param folderName Name of the folder to remove
+   * Remove a folder from the active playlist state.
+   * The handle is kept in IndexedDB so URL-based resolution can re-use it
+   * without requiring the user to re-pick the folder.
+   * @param folderName Name of the folder to remove from the active session
    */
   const removeFolder = useCallback(async (folderName: string): Promise<void> => {
-    // Remove folder from folders list
+    // Remove folder from folders list (UI state only)
     setFolders(prev => prev.filter(f => f !== folderName));
     
-    // Remove directory handle from state
+    // Remove directory handle from in-memory state (UI state only)
     setDirectoryHandles(prev => {
       const newHandles = new Map(prev);
       newHandles.delete(folderName);
       return newHandles;
     });
     
-    // Remove directory handle from IndexedDB (if saveFolders is enabled, or just to clean up)
-    if (isIndexedDBSupported()) {
-      try {
-        await removeDirectoryHandle(folderName, { showError, showWarning });
-      } catch (error) {
-        // Error already shown by removeDirectoryHandle via toast
-        // Continue with removal from UI state even if IDB removal failed
-        console.warn('Error removing directory handle from storage:', error);
-      }
-    }
-  }, [showError, showWarning]);
+    // NOTE: We intentionally do NOT remove from IndexedDB here.
+    // Keeping the handle in IDB allows future URL-based resolution to find it
+    // and only require re-authorization (not re-picking).
+  }, []);
 
   /**
    * Handle a folder with revoked permissions.

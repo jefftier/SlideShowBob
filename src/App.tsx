@@ -885,6 +885,31 @@ function App() {
     }
   };
 
+  /**
+   * "Change folder" — replaces the current playlist with a newly selected folder.
+   * Clears existing playlist/state, revokes URLs, then picks and loads a new folder.
+   */
+  const handleChangeFolder = async () => {
+    // Revoke all existing object URLs
+    const urlsToRevoke = playlist
+      .map(item => item.objectUrl)
+      .filter((url): url is string => url !== undefined);
+    objectUrlRegistry.revokeMany(urlsToRevoke);
+
+    // Clear current playlist state
+    setPlaylist([]);
+    setCurrentIndex(-1);
+    setCurrentMedia(null);
+    setIsManifestMode(false);
+    setManifestData(null);
+
+    // Remove folders from active session (handles stay in IndexedDB)
+    setFolders([]);
+
+    // Now delegate to the add folder flow (which will set up the new folder)
+    await handleAddFolder();
+  };
+
   // Manifest mode handlers
   const handleLoadManifest = useCallback(() => {
     if (!pendingManifestData) return;
@@ -1684,6 +1709,7 @@ function App() {
         onPrevious={handlePrevious}
         onRestart={handleRestart}
         onAddFolder={handleAddFolder}
+        onChangeFolder={handleChangeFolder}
         onOpenPlaylist={() => setShowPlaylist(true)}
         onOpenSettings={() => setShowSettings(true)}
         onSort={handleSort}

@@ -63,6 +63,7 @@ interface ToolbarProps {
   onPrevious: () => void;
   onRestart: () => void;
   onAddFolder: () => void;
+  onChangeFolder?: () => void;
   onOpenPlaylist: () => void;
   onOpenSettings: () => void;
   onOpenShortcutsHelp?: () => void;
@@ -96,6 +97,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onPrevious,
   onRestart,
   onAddFolder,
+  onChangeFolder,
   onOpenPlaylist,
   onOpenSettings,
   onOpenShortcutsHelp,
@@ -300,7 +302,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           {isMuted ? <IconSpeakerOff /> : <IconSpeakerOn />} {isMuted ? 'Unmute' : 'Mute'}
         </button>
         <div className="glass-menu-divider" />
-        <button role="menuitem" className="glass-menu-item" onClick={() => { onAddFolder(); setShowMoreMenu(false); }}>
+        <button role="menuitem" className="glass-menu-item" onClick={() => { (onChangeFolder || onAddFolder)(); setShowMoreMenu(false); }}>
           <IconFolder /> Change folder
         </button>
         <button role="menuitem" className="glass-menu-item" onClick={() => { onOpenPlaylist(); setShowMoreMenu(false); }}>
