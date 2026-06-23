@@ -4,6 +4,7 @@ import { logger } from '../utils/logger';
 import { addEvent } from '../utils/eventLog';
 import { TransitionEffect } from '../utils/settingsStorage';
 import { createGifPlayerOnce, GifPlayer } from '../utils/gifPlayer';
+import VideoControls from './VideoControls';
 import './MediaDisplay.css';
 
 interface MediaDisplayProps {
@@ -66,6 +67,10 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   // Container and media dimensions for aspect-match detection
   const [containerDims, setContainerDims] = useState({ width: 0, height: 0 });
   const [mediaNaturalDims, setMediaNaturalDims] = useState({ width: 0, height: 0 });
+
+  // Video controls hover visibility
+  const [showVideoControls, setShowVideoControls] = useState(false);
+  const hideControlsTimerRef = useRef<number | null>(null);
 
   // Track container dimensions via ResizeObserver
   useEffect(() => {
@@ -904,6 +909,34 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
       }}
       onClick={handleClick}
       style={{ cursor: getCursorStyle() }}
+      onMouseEnter={() => {
+        if (currentMedia?.type === MediaType.Video) {
+          if (hideControlsTimerRef.current) {
+            clearTimeout(hideControlsTimerRef.current);
+            hideControlsTimerRef.current = null;
+          }
+          setShowVideoControls(true);
+        }
+      }}
+      onMouseMove={() => {
+        if (currentMedia?.type === MediaType.Video) {
+          if (!showVideoControls) setShowVideoControls(true);
+          if (hideControlsTimerRef.current) {
+            clearTimeout(hideControlsTimerRef.current);
+          }
+          hideControlsTimerRef.current = window.setTimeout(() => {
+            setShowVideoControls(false);
+            hideControlsTimerRef.current = null;
+          }, 2500);
+        }
+      }}
+      onMouseLeave={() => {
+        if (hideControlsTimerRef.current) {
+          clearTimeout(hideControlsTimerRef.current);
+          hideControlsTimerRef.current = null;
+        }
+        setShowVideoControls(false);
+      }}
     >
       {isLoading && (
         <div className="loading-overlay">
@@ -1029,6 +1062,11 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
           />
         ) : null}
       </div>
+
+      {/* Video progress bar controls - only for actual videos, not GIFs */}
+      {currentMedia.type === MediaType.Video && videoSrc && (
+        <VideoControls videoRef={videoRef} visible={showVideoControls} />
+      )}
     </div>
   );
 };
