@@ -6,17 +6,13 @@
   z-index: 10;
   display: flex;
   flex-direction: column;
-  pointer-events: none;
   opacity: 0;
   transition: opacity 0.2s ease;
+  pointer-events: none;
 }
 
 .video-controls-overlay.visible {
   opacity: 1;
-}
-
-.video-controls-overlay.visible .video-controls-bar,
-.video-controls-overlay.visible .video-progress-track {
   pointer-events: auto;
 }
 
@@ -88,7 +84,6 @@
   height: 100%;
   background: #fff;
   border-radius: 0 1px 1px 0;
-  transition: width 0.05s linear;
   pointer-events: none;
 }
 

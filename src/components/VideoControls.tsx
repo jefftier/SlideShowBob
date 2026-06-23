@@ -22,16 +22,30 @@ const VideoControls: React.FC<VideoControlsProps> = ({ videoRef, visible }) => {
   const [isSeeking, setIsSeeking] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
+  const durationRef = useRef(0);
 
-  // Sync play state from video element
+  // Keep durationRef in sync
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
+
+  // Sync play state and metadata from video element
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
-    const onDurationChange = () => setDuration(video.duration || 0);
-    const onLoadedMetadata = () => setDuration(video.duration || 0);
+    const onDurationChange = () => {
+      const d = video.duration || 0;
+      setDuration(d);
+      durationRef.current = d;
+    };
+    const onLoadedMetadata = () => {
+      const d = video.duration || 0;
+      setDuration(d);
+      durationRef.current = d;
+    };
 
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
@@ -40,7 +54,10 @@ const VideoControls: React.FC<VideoControlsProps> = ({ videoRef, visible }) => {
 
     // Set initial state
     setIsPlaying(!video.paused);
-    if (video.duration) setDuration(video.duration);
+    if (video.duration && isFinite(video.duration)) {
+      setDuration(video.duration);
+      durationRef.current = video.duration;
+    }
 
     return () => {
       video.removeEventListener('play', onPlay);
@@ -48,17 +65,24 @@ const VideoControls: React.FC<VideoControlsProps> = ({ videoRef, visible }) => {
       video.removeEventListener('durationchange', onDurationChange);
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
     };
-  }, [videoRef]);
+  }, [videoRef, videoRef.current]);
 
   // Update current time and buffered via rAF for smooth progress
   useEffect(() => {
     const update = () => {
       const video = videoRef.current;
-      if (video && !isSeeking) {
-        setCurrentTime(video.currentTime);
+      if (video) {
+        if (!isSeeking) {
+          setCurrentTime(video.currentTime);
+        }
         // Update buffered
         if (video.buffered.length > 0) {
           setBuffered(video.buffered.end(video.buffered.length - 1));
+        }
+        // Keep duration in sync in case it wasn't set by event
+        if (video.duration && isFinite(video.duration) && video.duration !== durationRef.current) {
+          setDuration(video.duration);
+          durationRef.current = video.duration;
         }
       }
       rafRef.current = requestAnimationFrame(update);
@@ -83,25 +107,31 @@ const VideoControls: React.FC<VideoControlsProps> = ({ videoRef, visible }) => {
     }
   }, [videoRef]);
 
-  const handleSeek = useCallback((e: React.MouseEvent | MouseEvent) => {
+  const seekToPosition = useCallback((clientX: number) => {
     const track = trackRef.current;
     const video = videoRef.current;
-    if (!track || !video || !duration) return;
+    if (!track || !video) return;
+    const d = video.duration;
+    if (!d || !isFinite(d)) return;
 
     const rect = track.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
     const fraction = x / rect.width;
-    video.currentTime = fraction * duration;
-    setCurrentTime(fraction * duration);
-  }, [videoRef, duration]);
+    const newTime = fraction * d;
+    video.currentTime = newTime;
+    setCurrentTime(newTime);
+  }, [videoRef]);
 
   const handleTrackMouseDown = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
     setIsSeeking(true);
-    handleSeek(e);
+    seekToPosition(e.clientX);
 
-    const onMove = (ev: MouseEvent) => handleSeek(ev);
+    const onMove = (ev: MouseEvent) => {
+      ev.preventDefault();
+      seekToPosition(ev.clientX);
+    };
     const onUp = () => {
       setIsSeeking(false);
       document.removeEventListener('mousemove', onMove);
@@ -109,13 +139,17 @@ const VideoControls: React.FC<VideoControlsProps> = ({ videoRef, visible }) => {
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
-  }, [handleSeek]);
+  }, [seekToPosition]);
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const bufferedProgress = duration > 0 ? (buffered / duration) * 100 : 0;
 
   return (
-    <div className={`video-controls-overlay ${visible ? 'visible' : ''}`}>
+    <div
+      className={`video-controls-overlay ${visible ? 'visible' : ''}`}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
       <div className="video-controls-bar">
         <button
           className="video-play-btn"

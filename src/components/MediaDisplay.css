@@ -45,6 +45,13 @@
   display: block;
 }
 
+.media-container .video-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .loading-overlay {
   position: absolute;
   top: 0;

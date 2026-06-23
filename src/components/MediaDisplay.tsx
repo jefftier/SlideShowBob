@@ -971,52 +971,55 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         onTouchStart={handleTouchStart}
       >
         {currentMedia.type === MediaType.Video && videoSrc ? (
-          <video
-            key={`${transitionKey}-video`}
-            ref={videoRef}
-            src={videoSrc}
-            className={`transition-${transitionEffect.toLowerCase()}`}
-            style={mediaStyle}
-            controls={false}
-            autoPlay
-            playsInline
-            muted={isMuted}
-            onEnded={handleVideoEnded}
-            onLoadedData={() => {
-              setIsLoading(false);
-              // Capture natural dimensions for aspect-match detection
-              if (videoRef.current) {
-                setMediaNaturalDims({
-                  width: videoRef.current.videoWidth,
-                  height: videoRef.current.videoHeight,
-                });
-              }
-              // Notify successful load (only once, onLoadedData is more reliable than play promise)
-              if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
-                loadSuccessNotifiedRef.current = true;
-                onMediaLoadSuccess();
-                
-                // Log media load success
-                if (currentMedia) {
-                  const entry = logger.event('media_load_success', {
-                    mediaType: 'video',
-                    fileName: currentMedia.fileName,
-                    filePath: currentMedia.filePath,
+          <div className="video-wrapper" style={{ position: 'relative', display: 'inline-flex', maxWidth: '100%', maxHeight: '100%', width: mediaStyle.width === '100%' ? '100%' : undefined, height: mediaStyle.height === '100%' ? '100%' : undefined }}>
+            <video
+              key={`${transitionKey}-video`}
+              ref={videoRef}
+              src={videoSrc}
+              className={`transition-${transitionEffect.toLowerCase()}`}
+              style={mediaStyle}
+              controls={false}
+              autoPlay
+              playsInline
+              muted={isMuted}
+              onEnded={handleVideoEnded}
+              onLoadedData={() => {
+                setIsLoading(false);
+                // Capture natural dimensions for aspect-match detection
+                if (videoRef.current) {
+                  setMediaNaturalDims({
+                    width: videoRef.current.videoWidth,
+                    height: videoRef.current.videoHeight,
                   });
-                  addEvent(entry);
                 }
-              }
-            }}
-            onCanPlay={() => {
-              // Ensure video plays when it can
-              if (videoRef.current && videoRef.current.paused) {
-                videoRef.current.play().catch(err => {
-                  console.warn('Video autoplay prevented:', err);
-                });
-              }
-            }}
-            onError={handleVideoError}
-          />
+                // Notify successful load (only once, onLoadedData is more reliable than play promise)
+                if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
+                  loadSuccessNotifiedRef.current = true;
+                  onMediaLoadSuccess();
+                  
+                  // Log media load success
+                  if (currentMedia) {
+                    const entry = logger.event('media_load_success', {
+                      mediaType: 'video',
+                      fileName: currentMedia.fileName,
+                      filePath: currentMedia.filePath,
+                    });
+                    addEvent(entry);
+                  }
+                }
+              }}
+              onCanPlay={() => {
+                // Ensure video plays when it can
+                if (videoRef.current && videoRef.current.paused) {
+                  videoRef.current.play().catch(err => {
+                    console.warn('Video autoplay prevented:', err);
+                  });
+                }
+              }}
+              onError={handleVideoError}
+            />
+            <VideoControls videoRef={videoRef} visible={showVideoControls} />
+          </div>
         ) : currentMedia.type === MediaType.Gif && imageSrc ? (
           // Render GIFs using gifPlayer module with canvas for loop control
           <canvas
@@ -1062,11 +1065,6 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
           />
         ) : null}
       </div>
-
-      {/* Video progress bar controls - only for actual videos, not GIFs */}
-      {currentMedia.type === MediaType.Video && videoSrc && (
-        <VideoControls videoRef={videoRef} visible={showVideoControls} />
-      )}
     </div>
   );
 };
