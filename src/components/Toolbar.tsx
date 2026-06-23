@@ -31,10 +31,28 @@ function loadToolbarPosition(): { left: number; top: number } {
     const s = localStorage.getItem(TOOLBAR_POSITION_KEY);
     if (s) {
       const { left, top } = JSON.parse(s);
-      if (typeof left === 'number' && typeof top === 'number') return { left, top };
+      if (typeof left === 'number' && typeof top === 'number') {
+        // Check if saved position is within the current viewport
+        if (isPositionVisible(left, top)) {
+          return { left, top };
+        }
+        // Position is off-screen, reset to default
+        localStorage.removeItem(TOOLBAR_POSITION_KEY);
+      }
     }
   } catch (_) {}
   return { left: -1, top: -1 }; // use CSS default (bottom center)
+}
+
+/** Returns true if at least a usable portion of the toolbar would be visible at this position */
+function isPositionVisible(left: number, top: number, toolbarWidth = 400, toolbarHeight = 60): boolean {
+  const minVisible = 48; // at least this many pixels must be on-screen
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  // Toolbar is visible if enough of it is within the viewport
+  const visibleX = Math.min(left + toolbarWidth, vw) - Math.max(left, 0);
+  const visibleY = Math.min(top + toolbarHeight, vh) - Math.max(top, 0);
+  return visibleX >= minVisible && visibleY >= minVisible;
 }
 
 function saveToolbarPosition(left: number, top: number) {
@@ -120,6 +138,21 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const [position, setPosition] = useState(loadToolbarPosition);
   const dragRef = useRef({ isDragging: false, startX: 0, startY: 0, startLeft: 0, startTop: 0 });
   const shellRef = useRef<HTMLDivElement>(null);
+
+  // Check toolbar position on window resize — reset to default if off-screen
+  useEffect(() => {
+    const handleResize = () => {
+      if (position.left < 0 || position.top < 0) return; // already using CSS default
+      const w = shellRef.current?.offsetWidth ?? 400;
+      const h = shellRef.current?.offsetHeight ?? 60;
+      if (!isPositionVisible(position.left, position.top, w, h)) {
+        localStorage.removeItem(TOOLBAR_POSITION_KEY);
+        setPosition({ left: -1, top: -1 });
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [position]);
 
   // Notify parent when menu open state changes (for idle timer pausing)
   useEffect(() => {
