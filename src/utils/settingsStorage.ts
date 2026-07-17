@@ -20,6 +20,9 @@ export interface AppSettings {
   zoomFactor: number;
   transitionEffect: TransitionEffect;
   backgroundBlur: boolean;
+  // Date range filter (filters playlist to files modified within the past N days)
+  dateFilterEnabled: boolean;
+  dateFilterDays: number;
   // Persistence
   masterPersistenceEnabled: boolean;
   // Save flags
@@ -31,6 +34,7 @@ export interface AppSettings {
   saveZoomFactor: boolean;
   saveTransitionEffect: boolean;
   saveFolders: boolean;
+  saveDateFilter: boolean;
 }
 
 const SETTINGS_KEY = 'slideshow-settings';
@@ -44,6 +48,8 @@ const defaultSettings: AppSettings = {
   zoomFactor: 1.0,
   transitionEffect: 'Fade',
   backgroundBlur: true,
+  dateFilterEnabled: false,
+  dateFilterDays: 30,
   masterPersistenceEnabled: true,
   saveSlideDelay: true,
   saveIncludeVideos: true,
@@ -53,6 +59,7 @@ const defaultSettings: AppSettings = {
   saveZoomFactor: true,
   saveTransitionEffect: true,
   saveFolders: true,
+  saveDateFilter: true,
 };
 
 // Track if we've already shown a warning to avoid spam
@@ -131,6 +138,7 @@ export const saveSettings = (settings: Partial<AppSettings>, callbacks?: Storage
     if (settings.saveZoomFactor !== undefined) merged.saveZoomFactor = settings.saveZoomFactor;
     if (settings.saveTransitionEffect !== undefined) merged.saveTransitionEffect = settings.saveTransitionEffect;
     if (settings.saveFolders !== undefined) merged.saveFolders = settings.saveFolders;
+    if (settings.saveDateFilter !== undefined) merged.saveDateFilter = settings.saveDateFilter;
     
     // When master persistence is disabled, skip writing preference values
     // (only the master toggle state and individual flags are persisted above)
@@ -158,6 +166,12 @@ export const saveSettings = (settings: Partial<AppSettings>, callbacks?: Storage
       }
       if (settings.backgroundBlur !== undefined) {
         merged.backgroundBlur = settings.backgroundBlur;
+      }
+      if (settings.saveDateFilter !== false && settings.dateFilterEnabled !== undefined) {
+        merged.dateFilterEnabled = settings.dateFilterEnabled;
+      }
+      if (settings.saveDateFilter !== false && settings.dateFilterDays !== undefined) {
+        merged.dateFilterDays = settings.dateFilterDays;
       }
     }
     

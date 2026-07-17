@@ -235,6 +235,49 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
             <span className="settings-toggle-slider"></span>
           </label>
         </div>
+
+        <div className="settings-toggle-row">
+          <div className="settings-toggle-label">
+            <div className="settings-label-group">
+              <span>Filter by Date Modified</span>
+              <span className="settings-description">Only show files modified within the past number of days</span>
+            </div>
+          </div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={settings.dateFilterEnabled}
+              onChange={(e) => {
+                setSettings(prev => ({ ...prev, dateFilterEnabled: e.target.checked }));
+                setHasChanges(true);
+              }}
+            />
+            <span className="settings-toggle-slider"></span>
+          </label>
+        </div>
+
+        {settings.dateFilterEnabled && (
+          <div className="settings-row">
+            <div className="settings-label-group">
+              <label className="settings-label" htmlFor="settings-date-filter-days">Days to Include</label>
+              <span className="settings-description">Show only files modified in the last N days</span>
+            </div>
+            <input
+              id="settings-date-filter-days"
+              type="number"
+              min={1}
+              max={36500}
+              step={1}
+              value={settings.dateFilterDays}
+              onChange={(e) => {
+                const val = Math.max(1, Math.min(36500, Number(e.target.value) || 1));
+                setSettings(prev => ({ ...prev, dateFilterDays: val }));
+                setHasChanges(true);
+              }}
+              className="settings-number-input"
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -355,6 +398,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                 { key: 'saveZoomFactor' as const, label: 'Zoom Level', description: 'Remember your zoom magnification' },
                 { key: 'saveTransitionEffect' as const, label: 'Transition Style', description: 'Remember which transition animation is used' },
                 { key: 'saveFolders' as const, label: 'Loaded Folders', description: 'Remember which folders were loaded into the playlist' },
+                { key: 'saveDateFilter' as const, label: 'Date Filter', description: 'Remember your date range filter preference' },
               ].map(({ key, label, description }) => (
                 <div className="settings-toggle-row" key={key}>
                   <div className="settings-toggle-label">

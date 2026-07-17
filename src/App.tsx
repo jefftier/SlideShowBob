@@ -36,6 +36,8 @@ function App() {
   const [currentIndex, setCurrentIndex] = useState(-1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [includeVideos, setIncludeVideos] = useState(true);
+  const [dateFilterEnabled, setDateFilterEnabled] = useState(false);
+  const [dateFilterDays, setDateFilterDays] = useState(30);
   const [slideDelayMs, setSlideDelayMs] = useState(2000);
   const [zoomFactor, setZoomFactor] = useState(1.0);
   const [effectiveZoom, setEffectiveZoom] = useState(1.0);
@@ -172,11 +174,19 @@ function App() {
   }, [errorPolicy]);
 
   // Get filtered playlist based on includeVideos (excludes both Video and Gif when false)
+  // and dateFilter (excludes files whose dateModified is older than the configured window)
   const filteredPlaylist = useMemo(() => {
-    return includeVideos 
-      ? playlist 
+    let result = includeVideos
+      ? playlist
       : playlist.filter(item => item.type !== MediaType.Video && item.type !== MediaType.Gif);
-  }, [playlist, includeVideos]);
+
+    if (dateFilterEnabled) {
+      const cutoff = Date.now() - dateFilterDays * 24 * 60 * 60 * 1000;
+      result = result.filter(item => item.dateModified === undefined || item.dateModified >= cutoff);
+    }
+
+    return result;
+  }, [playlist, includeVideos, dateFilterEnabled, dateFilterDays]);
 
   // Find the current index in the filtered playlist
   const filteredCurrentIndex = useMemo(() => {
@@ -300,6 +310,10 @@ function App() {
         }
         if (savedSettings.saveIncludeVideos) {
           setIncludeVideos(savedSettings.includeVideos);
+        }
+        if (savedSettings.saveDateFilter) {
+          setDateFilterEnabled(savedSettings.dateFilterEnabled);
+          setDateFilterDays(savedSettings.dateFilterDays);
         }
         if (savedSettings.saveSortMode) {
           setSortMode(savedSettings.sortMode);
@@ -1152,11 +1166,15 @@ function App() {
   const handleNavigateToFile = (filePath: string) => {
     const index = playlist.findIndex(item => item.filePath === filePath);
     if (index >= 0) {
-      // Check if the file should be shown based on includeVideos
+      // Check if the file should be shown based on includeVideos and dateFilter
       const item = playlist[index];
       if (!includeVideos && (item.type === MediaType.Video || item.type === MediaType.Gif)) {
         // Skip videos and GIFs when includeVideos is false
         return;
+      }
+      if (dateFilterEnabled && item.dateModified !== undefined) {
+        const cutoff = Date.now() - dateFilterDays * 24 * 60 * 60 * 1000;
+        if (item.dateModified < cutoff) return;
       }
       setCurrentIndex(index);
       setCurrentMedia(item);
@@ -1170,6 +1188,10 @@ function App() {
       if (!includeVideos && (item.type === MediaType.Video || item.type === MediaType.Gif)) {
         return;
       }
+      if (dateFilterEnabled && item.dateModified !== undefined) {
+        const cutoff = Date.now() - dateFilterDays * 24 * 60 * 60 * 1000;
+        if (item.dateModified < cutoff) return;
+      }
       setCurrentIndex(index);
       setCurrentMedia(item);
       // Start slideshow if not already playing
@@ -1177,7 +1199,7 @@ function App() {
         setIsPlaying(true);
       }
     }
-  }, [playlist, includeVideos, isPlaying]);
+  }, [playlist, includeVideos, dateFilterEnabled, dateFilterDays, isPlaying]);
 
   const handleRemoveFile = (filePath: string) => {
     // Find the item being removed to revoke its object URL
@@ -1690,6 +1712,16 @@ function App() {
             }
           }
         }}
+        dateFilterEnabled={dateFilterEnabled}
+        onDateFilterEnabledChange={(value) => {
+          setDateFilterEnabled(value);
+          saveSettings({ dateFilterEnabled: value }, { showError, showWarning });
+        }}
+        dateFilterDays={dateFilterDays}
+        onDateFilterDaysChange={(value) => {
+          setDateFilterDays(value);
+          saveSettings({ dateFilterDays: value }, { showError, showWarning });
+        }}
         slideDelayMs={slideDelayMs}
         onSlideDelayChange={(value) => {
           setSlideDelayMs(value);
@@ -1779,6 +1811,10 @@ function App() {
               setTransitionEffect(currentSettings.transitionEffect);
             }
             setBackgroundBlur(currentSettings.backgroundBlur);
+            if (currentSettings.saveDateFilter) {
+              setDateFilterEnabled(currentSettings.dateFilterEnabled);
+              setDateFilterDays(currentSettings.dateFilterDays);
+            }
             // Check if saveFolders was disabled and clear saved folders from IndexedDB if so
             if (!currentSettings.saveFolders) {
               try {

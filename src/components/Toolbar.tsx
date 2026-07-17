@@ -20,6 +20,7 @@ import {
   IconZoomOut,
   IconFit,
   IconVideo,
+  IconCalendar,
   IconGrip,
 } from './ToolbarIcons';
 import './Toolbar.css';
@@ -65,6 +66,10 @@ interface ToolbarProps {
   isPlaying: boolean;
   includeVideos: boolean;
   onIncludeVideosChange: (value: boolean) => void;
+  dateFilterEnabled: boolean;
+  onDateFilterEnabledChange: (value: boolean) => void;
+  dateFilterDays: number;
+  onDateFilterDaysChange: (value: number) => void;
   slideDelayMs: number;
   onSlideDelayChange: (value: number) => void;
   zoomFactor: number;
@@ -99,6 +104,10 @@ const Toolbar: React.FC<ToolbarProps> = ({
   isPlaying,
   includeVideos,
   onIncludeVideosChange,
+  dateFilterEnabled,
+  onDateFilterEnabledChange,
+  dateFilterDays,
+  onDateFilterDaysChange,
   slideDelayMs,
   onSlideDelayChange,
   zoomFactor,
@@ -331,6 +340,27 @@ const Toolbar: React.FC<ToolbarProps> = ({
         >
           <IconVideo /> Include GIF / MP4
         </button>
+        <button
+          role="menuitem"
+          className={`glass-menu-item ${dateFilterEnabled ? 'glass-menu-item-active' : ''}`}
+          onClick={() => { onDateFilterEnabledChange(!dateFilterEnabled); }}
+        >
+          <IconCalendar /> Filter by date modified
+        </button>
+        {dateFilterEnabled && (
+          <div className="glass-menu-row">
+            <span className="glass-menu-label">Past days</span>
+            <input
+              type="number"
+              className="glass-menu-input"
+              value={dateFilterDays}
+              onChange={(e) => onDateFilterDaysChange(Math.max(1, parseInt(e.target.value) || 1))}
+              min={1}
+              step={1}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        )}
         <button role="menuitem" className="glass-menu-item" onClick={() => { onMuteToggle(); setShowMoreMenu(false); }}>
           {isMuted ? <IconSpeakerOff /> : <IconSpeakerOn />} {isMuted ? 'Unmute' : 'Mute'}
         </button>
