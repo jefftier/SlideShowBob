@@ -1753,8 +1753,8 @@ function App() {
         onOpenSettings={() => setShowSettings(true)}
         onSort={handleSort}
         currentSortMode={sortMode}
-        currentIndex={currentIndex}
-        totalCount={playlist.length}
+        currentIndex={filteredCurrentIndex}
+        totalCount={filteredPlaylist.length}
         isManifestMode={isManifestMode}
         onExitManifestMode={handleExitManifestMode}
         toolbarVisible={toolbarVisible}
