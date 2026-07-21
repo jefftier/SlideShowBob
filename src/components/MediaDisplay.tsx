@@ -367,21 +367,50 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
     }
   }, [isMuted]);
 
-  // Sync background fill video currentTime to foreground video
+  // Sync background fill video to the foreground video's playback state.
+  // The background video has no autoplay of its own - it only plays, pauses,
+  // and seeks in response to the foreground video, so it can never get ahead
+  // of (or start before) the video the user actually sees.
   useEffect(() => {
     const fg = videoRef.current;
     if (!fg) return;
 
-    const handleTimeUpdate = () => {
+    const syncTime = () => {
       const bg = bgVideoRef.current;
       if (bg && Math.abs(bg.currentTime - fg.currentTime) > 0.3) {
         bg.currentTime = fg.currentTime;
       }
     };
 
-    fg.addEventListener('timeupdate', handleTimeUpdate);
+    const handlePlay = () => {
+      const bg = bgVideoRef.current;
+      if (bg) {
+        syncTime();
+        bg.play().catch(() => {
+          // Background fill is decorative - ignore autoplay/play errors
+        });
+      }
+    };
+
+    const handlePause = () => {
+      bgVideoRef.current?.pause();
+    };
+
+    const handleSeeked = () => {
+      syncTime();
+    };
+
+    fg.addEventListener('timeupdate', syncTime);
+    fg.addEventListener('play', handlePlay);
+    fg.addEventListener('playing', handlePlay);
+    fg.addEventListener('pause', handlePause);
+    fg.addEventListener('seeked', handleSeeked);
     return () => {
-      fg.removeEventListener('timeupdate', handleTimeUpdate);
+      fg.removeEventListener('timeupdate', syncTime);
+      fg.removeEventListener('play', handlePlay);
+      fg.removeEventListener('playing', handlePlay);
+      fg.removeEventListener('pause', handlePause);
+      fg.removeEventListener('seeked', handleSeeked);
     };
   }, [videoSrc]);
 
@@ -951,9 +980,9 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
             <video
               ref={bgVideoRef}
               src={videoSrc}
-              autoPlay
               muted
               playsInline
+              preload="auto"
               onError={(e) => {
                 console.debug('[MediaDisplay] Background fill video error (silent):', e);
               }}

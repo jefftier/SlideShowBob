@@ -200,22 +200,30 @@ class LZWDecoder {
     const endCode = clearCode + 1;
     let codeSize = minCodeSize + 1;
 
-    const output: number[] = [];
-    const dictionary: number[][] = [];
+    const output = new Uint8Array(pixelCount);
+    let outputPos = 0;
 
-    // Initialize dictionary
+    // Dictionary represented as prefix-chains rather than array-of-arrays.
+    // prefix[code] -> the code this entry extends, suffix[code] -> the pixel
+    // appended by this entry. Root codes (0..clearCode-1) have no prefix.
+    const maxEntries = 4096;
+    const prefix = new Int32Array(maxEntries);
+    const suffix = new Uint8Array(maxEntries);
     for (let i = 0; i < clearCode; i++) {
-      dictionary[i] = [i];
+      suffix[i] = i;
     }
-    dictionary[clearCode] = [];
-    dictionary[endCode] = [];
 
-    let oldCode = -1;
+    // Reusable scratch buffer for reconstructing a sequence via chain walk.
+    // A sequence can never be longer than the number of dictionary entries.
+    const stack = new Uint8Array(maxEntries);
+
     let nextCode = endCode + 1;
+    let oldCode = -1;
+    let firstPixel = 0;
 
-    while (output.length < pixelCount) {
+    while (outputPos < pixelCount) {
       const code = this.readBits(codeSize);
-      
+
       if (code === clearCode) {
         // Reset dictionary
         codeSize = minCodeSize + 1;
@@ -228,34 +236,37 @@ class LZWDecoder {
         break;
       }
 
-      let sequence: number[];
-      if (code < nextCode) {
-        sequence = dictionary[code].slice();
-      } else {
-        if (oldCode >= 0 && oldCode < dictionary.length) {
-          sequence = dictionary[oldCode].slice();
-          if (sequence.length > 0) {
-            sequence.push(sequence[0]);
-          }
-        } else {
-          sequence = [];
+      let walkCode = code;
+      let stackPos = 0;
+
+      if (code >= nextCode) {
+        // "KwKwK" case: code references an entry not yet defined.
+        // Its sequence is (previous sequence) + (first pixel of previous sequence).
+        if (oldCode < 0) {
+          // Corrupt stream - bail out gracefully with what we have.
+          break;
         }
+        stack[stackPos++] = firstPixel;
+        walkCode = oldCode;
       }
 
-      // Output sequence
-      for (const pixel of sequence) {
-        output.push(pixel);
-        if (output.length >= pixelCount) break;
+      // Walk the prefix chain back to a root code, pushing pixels in reverse order.
+      while (walkCode >= clearCode && stackPos < stack.length) {
+        stack[stackPos++] = suffix[walkCode];
+        walkCode = prefix[walkCode];
+      }
+      stack[stackPos++] = suffix[walkCode];
+      firstPixel = suffix[walkCode];
+
+      // Emit the reconstructed sequence (stack is in reverse order).
+      while (stackPos > 0 && outputPos < pixelCount) {
+        output[outputPos++] = stack[--stackPos];
       }
 
-      // Add to dictionary
-      if (oldCode >= 0 && nextCode < 4096) {
-        const newSequence = dictionary[oldCode].slice();
-        if (sequence.length > 0) {
-          newSequence.push(sequence[0]);
-        }
-        dictionary[nextCode] = newSequence;
-
+      // Add the new dictionary entry: previous sequence + first pixel of current sequence.
+      if (oldCode >= 0 && nextCode < maxEntries) {
+        prefix[nextCode] = oldCode;
+        suffix[nextCode] = firstPixel;
         nextCode++;
         if (nextCode >= (1 << codeSize) && codeSize < 12) {
           codeSize++;
@@ -265,7 +276,7 @@ class LZWDecoder {
       oldCode = code;
     }
 
-    return new Uint8Array(output);
+    return output;
   }
 }
 
