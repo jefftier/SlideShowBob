@@ -5,6 +5,7 @@ import PlaylistWindow from './components/PlaylistWindow';
 import SettingsWindow from './components/SettingsWindow';
 import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp';
 import ProgressIndicator from './components/ProgressIndicator';
+import FileNameOverlay from './components/FileNameOverlay';
 import ManifestModeDialog from './components/ManifestModeDialog';
 import ManifestSelectionDialog from './components/ManifestSelectionDialog';
 import UpdatePrompt from './components/UpdatePrompt';
@@ -83,6 +84,7 @@ function App() {
   const cursorTimeoutRef = useRef<number | null>(null);
   const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false);
   const [backgroundBlur, setBackgroundBlur] = useState(true);
+  const [showFileNameOverlay, setShowFileNameOverlay] = useState(false);
   // Pending URL folder path — set when URL resolution needs a user gesture (e.g., directory picker)
   const [pendingUrlPath, setPendingUrlPath] = useState<{
     path: string;
@@ -331,6 +333,7 @@ function App() {
           setTransitionEffect(savedSettings.transitionEffect);
         }
         setBackgroundBlur(savedSettings.backgroundBlur);
+        setShowFileNameOverlay(savedSettings.showFileNameOverlay);
 
         // --- URL Parameter Processing ---
         // Parse URL params early, before loading persisted folders.
@@ -1563,6 +1566,10 @@ function App() {
         onGifCompleted={onGifCompleted}
       />
       
+      {showFileNameOverlay && (
+        <FileNameOverlay currentMedia={currentMedia} visible={toolbarVisible} />
+      )}
+
       {isLoadingFolders && (
         <div className="loading-overlay-global">
           <ProgressIndicator
@@ -1811,6 +1818,7 @@ function App() {
               setTransitionEffect(currentSettings.transitionEffect);
             }
             setBackgroundBlur(currentSettings.backgroundBlur);
+            setShowFileNameOverlay(currentSettings.showFileNameOverlay);
             if (currentSettings.saveDateFilter) {
               setDateFilterEnabled(currentSettings.dateFilterEnabled);
               setDateFilterDays(currentSettings.dateFilterDays);

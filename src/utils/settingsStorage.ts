@@ -20,6 +20,8 @@ export interface AppSettings {
   zoomFactor: number;
   transitionEffect: TransitionEffect;
   backgroundBlur: boolean;
+  // Show the current file's name/path as a small overlay in the corner
+  showFileNameOverlay: boolean;
   // Date range filter (filters playlist to files modified within the past N days)
   dateFilterEnabled: boolean;
   dateFilterDays: number;
@@ -48,6 +50,7 @@ const defaultSettings: AppSettings = {
   zoomFactor: 1.0,
   transitionEffect: 'Fade',
   backgroundBlur: true,
+  showFileNameOverlay: false,
   dateFilterEnabled: false,
   dateFilterDays: 30,
   masterPersistenceEnabled: true,
@@ -166,6 +169,9 @@ export const saveSettings = (settings: Partial<AppSettings>, callbacks?: Storage
       }
       if (settings.backgroundBlur !== undefined) {
         merged.backgroundBlur = settings.backgroundBlur;
+      }
+      if (settings.showFileNameOverlay !== undefined) {
+        merged.showFileNameOverlay = settings.showFileNameOverlay;
       }
       if (settings.saveDateFilter !== false && settings.dateFilterEnabled !== undefined) {
         merged.dateFilterEnabled = settings.dateFilterEnabled;

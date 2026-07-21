@@ -313,6 +313,26 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
         <div className="settings-toggle-row">
           <div className="settings-toggle-label">
             <div className="settings-label-group">
+              <span>Show File Name</span>
+              <span className="settings-description">Display the current file's name and path in the corner of the screen</span>
+            </div>
+          </div>
+          <label className="settings-toggle">
+            <input
+              type="checkbox"
+              checked={settings.showFileNameOverlay}
+              onChange={(e) => {
+                setSettings(prev => ({ ...prev, showFileNameOverlay: e.target.checked }));
+                setHasChanges(true);
+              }}
+            />
+            <span className="settings-toggle-slider"></span>
+          </label>
+        </div>
+
+        <div className="settings-toggle-row">
+          <div className="settings-toggle-label">
+            <div className="settings-label-group">
               <span>Scale to Fit</span>
               <span className="settings-description">Resize media to fill the window without cropping</span>
             </div>
