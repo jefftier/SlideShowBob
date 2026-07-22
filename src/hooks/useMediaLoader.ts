@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { MediaItem, determineMediaType } from '../types/media';
 import { objectUrlRegistry } from '../utils/objectUrlRegistry';
 import { assertReadPermission } from '../utils/fsPermissions';
+import { loadFolderMetadata } from '../utils/metadataLoader';
 
 // Supported image extensions
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp', '.gif'];
@@ -31,6 +32,14 @@ async function scanDirectory(
 
   // Skip macOS AppleDouble/resource-fork files (._*) - they are not playable media
   const isAppleDouble = (fileName: string) => fileName.startsWith('._');
+
+  // Load this directory's optional metadata.json sidecar (if present). Metadata is
+  // per-folder, keyed by basename, so it's fetched once per directory level rather
+  // than recursively - a missing file just means no metadata for this folder.
+  const { metadata: folderMetadata, error: metadataError } = await loadFolderMetadata(dirHandle);
+  if (metadataError) {
+    console.warn(`Error reading metadata.json in "${path || rootFolderName}": ${metadataError}`);
+  }
 
   // First pass: count total files (for progress tracking)
   try {
@@ -82,7 +91,8 @@ async function scanDirectory(
               file: file,
               objectUrl: objectUrl,
               folderName: rootFolderName,
-              relativePath: relativePath
+              relativePath: relativePath,
+              metadata: folderMetadata[name]
             });
           } catch (error) {
             console.warn(`Error reading file ${name}:`, error);

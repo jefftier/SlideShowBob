@@ -1,3 +1,5 @@
+import { MediaMetadataEntry } from './metadata';
+
 export enum MediaType {
   Image = 'Image',
   Gif = 'Gif',
@@ -13,6 +15,8 @@ export type MediaItem = {
   objectUrl?: string; // Object URL created from file
   folderName?: string; // Name of the root folder this item belongs to
   relativePath?: string; // Path relative to the root folder
+  // Optional metadata looked up from a sibling metadata.json in this item's folder
+  metadata?: MediaMetadataEntry;
 }
 
 export function determineMediaType(filePath: string): MediaType {

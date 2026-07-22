@@ -2,6 +2,7 @@
 
 import { logger } from './logger';
 import { addEvent } from './eventLog';
+import { MetadataOverlayMode, SMART_DEFAULT_FIELDS } from '../types/metadata';
 
 // Optional callbacks for error reporting (to avoid tight coupling with React hooks)
 export interface StorageErrorCallbacks {
@@ -22,6 +23,13 @@ export interface AppSettings {
   backgroundBlur: boolean;
   // Show the current file's name/path as a small overlay in the corner
   showFileNameOverlay: boolean;
+  // Which post-metadata fields (from a folder's metadata.json, if present) to show
+  // in the overlay alongside the file name.
+  // 'off' - never show metadata; 'smart' - curated default fields (title, subreddit);
+  // 'custom' - user-selected fields (see metadataOverlayFields); 'all' - show every
+  // field found in the entry.
+  metadataOverlayMode: MetadataOverlayMode;
+  metadataOverlayFields: string[];
   // Date range filter (filters playlist to files modified within the past N days)
   dateFilterEnabled: boolean;
   dateFilterDays: number;
@@ -51,6 +59,8 @@ const defaultSettings: AppSettings = {
   transitionEffect: 'Fade',
   backgroundBlur: true,
   showFileNameOverlay: false,
+  metadataOverlayMode: 'off',
+  metadataOverlayFields: [...SMART_DEFAULT_FIELDS],
   dateFilterEnabled: false,
   dateFilterDays: 30,
   masterPersistenceEnabled: true,
@@ -172,6 +182,12 @@ export const saveSettings = (settings: Partial<AppSettings>, callbacks?: Storage
       }
       if (settings.showFileNameOverlay !== undefined) {
         merged.showFileNameOverlay = settings.showFileNameOverlay;
+      }
+      if (settings.metadataOverlayMode !== undefined) {
+        merged.metadataOverlayMode = settings.metadataOverlayMode;
+      }
+      if (settings.metadataOverlayFields !== undefined) {
+        merged.metadataOverlayFields = settings.metadataOverlayFields;
       }
       if (settings.saveDateFilter !== false && settings.dateFilterEnabled !== undefined) {
         merged.dateFilterEnabled = settings.dateFilterEnabled;

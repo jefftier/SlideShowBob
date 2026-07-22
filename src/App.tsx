@@ -18,6 +18,7 @@ import { useFolderPersistence } from './hooks/useFolderPersistence';
 import { useIdleTimer } from './hooks/useIdleTimer';
 import { MediaItem, MediaType } from './types/media';
 import { SlideshowManifest } from './types/manifest';
+import { MetadataOverlayMode, SMART_DEFAULT_FIELDS } from './types/metadata';
 import { loadSettings, saveSettings, TransitionEffect } from './utils/settingsStorage';
 // Directory storage functions are now handled by useFolderPersistence hook
 import { findManifestFiles, loadManifestFile, matchManifestToMedia } from './utils/manifestLoader';
@@ -85,6 +86,8 @@ function App() {
   const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false);
   const [backgroundBlur, setBackgroundBlur] = useState(true);
   const [showFileNameOverlay, setShowFileNameOverlay] = useState(false);
+  const [metadataOverlayMode, setMetadataOverlayMode] = useState<MetadataOverlayMode>('off');
+  const [metadataOverlayFields, setMetadataOverlayFields] = useState<string[]>([...SMART_DEFAULT_FIELDS]);
   // Pending URL folder path — set when URL resolution needs a user gesture (e.g., directory picker)
   const [pendingUrlPath, setPendingUrlPath] = useState<{
     path: string;
@@ -189,6 +192,21 @@ function App() {
 
     return result;
   }, [playlist, includeVideos, dateFilterEnabled, dateFilterDays]);
+
+  // Union of metadata.json field keys actually detected across the loaded playlist,
+  // used to populate the "Custom" field picker in Settings with real, observed keys
+  // rather than a hardcoded list (fields the downloader adds later show up automatically).
+  const availableMetadataFields = useMemo(() => {
+    const keys = new Set<string>();
+    for (const item of playlist) {
+      if (item.metadata) {
+        for (const key of Object.keys(item.metadata)) {
+          if (item.metadata[key] !== undefined) keys.add(key);
+        }
+      }
+    }
+    return Array.from(keys);
+  }, [playlist]);
 
   // Find the current index in the filtered playlist
   const filteredCurrentIndex = useMemo(() => {
@@ -334,6 +352,8 @@ function App() {
         }
         setBackgroundBlur(savedSettings.backgroundBlur);
         setShowFileNameOverlay(savedSettings.showFileNameOverlay);
+        setMetadataOverlayMode(savedSettings.metadataOverlayMode);
+        setMetadataOverlayFields(savedSettings.metadataOverlayFields);
 
         // --- URL Parameter Processing ---
         // Parse URL params early, before loading persisted folders.
@@ -1567,7 +1587,12 @@ function App() {
       />
       
       {showFileNameOverlay && (
-        <FileNameOverlay currentMedia={currentMedia} visible={toolbarVisible} />
+        <FileNameOverlay
+          currentMedia={currentMedia}
+          visible={toolbarVisible}
+          metadataMode={metadataOverlayMode}
+          metadataFields={metadataOverlayFields}
+        />
       )}
 
       {isLoadingFolders && (
@@ -1810,6 +1835,7 @@ function App() {
         <SettingsWindow
           onClose={() => setShowSettings(false)}
           onOpenDiagnostics={() => setShowDiagnostics(true)}
+          availableMetadataFields={availableMetadataFields}
           onSave={async () => {
             showSuccess('Settings saved successfully');
             // Reload settings to apply changes immediately
@@ -1819,6 +1845,8 @@ function App() {
             }
             setBackgroundBlur(currentSettings.backgroundBlur);
             setShowFileNameOverlay(currentSettings.showFileNameOverlay);
+            setMetadataOverlayMode(currentSettings.metadataOverlayMode);
+            setMetadataOverlayFields(currentSettings.metadataOverlayFields);
             if (currentSettings.saveDateFilter) {
               setDateFilterEnabled(currentSettings.dateFilterEnabled);
               setDateFilterDays(currentSettings.dateFilterDays);

@@ -13,9 +13,6 @@
   color: var(--text-secondary, rgba(255, 255, 255, 0.6));
   font-size: 12px;
   line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   pointer-events: none;
   user-select: none;
   opacity: 0.85;
@@ -27,11 +24,45 @@
   transform: translateY(-6px);
 }
 
+.filename-overlay-path {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* When metadata lines are shown, the filename becomes a slightly bolder anchor
+   line above the metadata rather than the sole line. */
+.filename-overlay.has-metadata .filename-overlay-path {
+  color: var(--text-primary, rgba(255, 255, 255, 0.85));
+  font-weight: 500;
+}
+
+.filename-overlay-metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+}
+
+.filename-overlay-metadata-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+}
+
 @media (max-width: 768px) {
   .filename-overlay {
     max-width: min(70vw, 320px);
     font-size: 11px;
     top: 8px;
     left: 8px;
+  }
+
+  .filename-overlay-metadata-line {
+    font-size: 10px;
   }
 }

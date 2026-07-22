@@ -2,6 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import './SettingsWindow.css';
 import { loadSettings, saveSettings, AppSettings, getDefaultSettings } from '../utils/settingsStorage';
 import { useToast } from '../hooks/useToast';
+import {
+  KNOWN_METADATA_FIELDS,
+  SMART_DEFAULT_FIELDS,
+  MetadataOverlayMode,
+  getFieldLabel,
+  formatFieldValue,
+} from '../types/metadata';
 
 type SettingsSection = 'playback' | 'display' | 'persistence';
 
@@ -9,7 +16,35 @@ interface SettingsWindowProps {
   onClose: () => void;
   onSave?: () => void;
   onOpenDiagnostics?: () => void;
+  // File keys detected across the currently loaded playlist's metadata.json entries,
+  // used to populate the "Custom" field picker with real, observed keys.
+  availableMetadataFields?: string[];
 }
+
+// Sample values used to preview the overlay in Settings before any real folder
+// with metadata.json has been loaded, so the field picker isn't a "blind" checkbox list.
+const SAMPLE_METADATA_VALUES: Record<string, string | number | boolean> = {
+  title: 'A cool sunset',
+  subreddit: 'pics',
+  author: 'someuser',
+  score: 42,
+  nsfw: false,
+  createdUtc: 1700000000,
+  sourceName: 'pics',
+  sourceType: 'subreddit',
+  mediaType: 'image',
+  postId: 'abc123',
+  galleryIndex: 0,
+  permalink: 'https://www.reddit.com/r/pics/comments/abc123/a_cool_sunset/',
+  sourceUrl: 'https://i.redd.it/abc123.jpg',
+};
+
+const METADATA_MODE_OPTIONS: { value: MetadataOverlayMode; label: string; description: string }[] = [
+  { value: 'off', label: 'Off', description: "Don't show any post details, just the file name" },
+  { value: 'smart', label: 'Title + Subreddit', description: 'Show a short, curated summary (recommended)' },
+  { value: 'custom', label: 'Custom', description: 'Choose exactly which fields to display' },
+  { value: 'all', label: 'Show Everything Found', description: 'Display every field present in metadata.json' },
+];
 
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'playback', label: 'Playback' },
@@ -22,7 +57,8 @@ const FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]
 const SettingsWindow: React.FC<SettingsWindowProps> = ({
   onClose,
   onSave,
-  onOpenDiagnostics
+  onOpenDiagnostics,
+  availableMetadataFields = []
 }) => {
   const [settings, setSettings] = useState<AppSettings>(getDefaultSettings());
   const [hasChanges, setHasChanges] = useState(false);
@@ -329,6 +365,106 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
             <span className="settings-toggle-slider"></span>
           </label>
         </div>
+
+        {settings.showFileNameOverlay && (
+          <div className="settings-group settings-metadata-group">
+            <div className="settings-group-title">Post Details in Overlay</div>
+            <div className="settings-group-content">
+              <div className="settings-row settings-row-wrap">
+                <div className="settings-label-group">
+                  <label className="settings-label">Show</label>
+                  <span className="settings-description">
+                    Include details from a folder's metadata.json (if present) alongside the file name
+                  </span>
+                </div>
+                <select
+                  value={settings.metadataOverlayMode}
+                  onChange={(e) => {
+                    setSettings(prev => ({
+                      ...prev,
+                      metadataOverlayMode: e.target.value as MetadataOverlayMode
+                    }));
+                    setHasChanges(true);
+                  }}
+                  className="settings-select"
+                >
+                  {METADATA_MODE_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              <span className="settings-description settings-mode-description">
+                {METADATA_MODE_OPTIONS.find(o => o.value === settings.metadataOverlayMode)?.description}
+              </span>
+
+              {settings.metadataOverlayMode === 'custom' && (
+                <div className="settings-metadata-fields">
+                  {(availableMetadataFields.length > 0
+                    ? [...KNOWN_METADATA_FIELDS.map(f => f.key).filter(k => availableMetadataFields.includes(k)),
+                       ...availableMetadataFields.filter(k => !KNOWN_METADATA_FIELDS.some(f => f.key === k))]
+                    : KNOWN_METADATA_FIELDS.map(f => f.key)
+                  ).map((key) => (
+                    <label className="settings-metadata-field-checkbox" key={key}>
+                      <input
+                        type="checkbox"
+                        checked={settings.metadataOverlayFields.includes(key)}
+                        onChange={(e) => {
+                          setSettings(prev => ({
+                            ...prev,
+                            metadataOverlayFields: e.target.checked
+                              ? [...prev.metadataOverlayFields, key]
+                              : prev.metadataOverlayFields.filter(f => f !== key)
+                          }));
+                          setHasChanges(true);
+                        }}
+                      />
+                      <span>{getFieldLabel(key)}</span>
+                    </label>
+                  ))}
+                  {availableMetadataFields.length === 0 && (
+                    <span className="settings-description">
+                      No metadata.json detected in your loaded folders yet - showing all known fields. Load a folder with saved metadata to see fields specific to it.
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div className="settings-metadata-preview">
+                <div className="settings-metadata-preview-label">Preview</div>
+                <div className="filename-overlay-preview">
+                  <div className="filename-overlay-preview-path">example_photo.jpg</div>
+                  {(() => {
+                    const mode = settings.metadataOverlayMode;
+                    if (mode === 'off') return null;
+                    const keys = mode === 'smart'
+                      ? SMART_DEFAULT_FIELDS
+                      : mode === 'custom'
+                      ? settings.metadataOverlayFields
+                      : Object.keys(SAMPLE_METADATA_VALUES);
+                    const lines = keys
+                      .map(key => {
+                        const value = SAMPLE_METADATA_VALUES[key];
+                        if (value === undefined) return null;
+                        const formatted = formatFieldValue(key, value);
+                        if (!formatted) return null;
+                        const needsLabel = !['title', 'subreddit', 'author', 'score', 'nsfw'].includes(key);
+                        return needsLabel ? `${getFieldLabel(key)}: ${formatted}` : formatted;
+                      })
+                      .filter((l): l is string => !!l);
+                    if (lines.length === 0) return null;
+                    return (
+                      <div className="filename-overlay-preview-metadata">
+                        {lines.map((line, i) => (
+                          <div key={i} className="filename-overlay-preview-metadata-line">{line}</div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="settings-toggle-row">
           <div className="settings-toggle-label">
