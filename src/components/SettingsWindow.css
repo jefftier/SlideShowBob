@@ -440,6 +440,54 @@
   accent-color: var(--accent, #0A84FF);
 }
 
+.settings-metadata-discover {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-metadata-discover-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-btn-small {
+  padding: 6px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.settings-file-input-hidden {
+  display: none;
+}
+
+.settings-text-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  background: var(--fill-secondary, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.2));
+  border-radius: var(--glass-radius-button, 10px);
+  color: var(--text-primary, #e0e0e0);
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.settings-text-input:hover {
+  background-color: var(--fill-tertiary, rgba(255, 255, 255, 0.08));
+  border-color: var(--glass-border-strong, rgba(255, 255, 255, 0.3));
+}
+
+.settings-text-input:focus {
+  outline: none;
+  border-color: var(--accent, #0A84FF);
+  background-color: var(--fill-secondary, rgba(255, 255, 255, 0.1));
+}
+
 .settings-metadata-preview {
   margin-top: 8px;
   padding-top: 10px;

@@ -30,6 +30,12 @@ export interface AppSettings {
   // field found in the entry.
   metadataOverlayMode: MetadataOverlayMode;
   metadataOverlayFields: string[];
+  // Catalog of field keys the user has discovered so far (via an uploaded sample
+  // metadata.json, manual entry, or fields seen in a loaded folder), so the
+  // "Custom" field picker keeps offering them across sessions even before a
+  // matching folder is loaded again. Metadata schemas vary per downloader tool,
+  // so this is user-built rather than a fixed list.
+  metadataDiscoveredFields: string[];
   // Date range filter (filters playlist to files modified within the past N days)
   dateFilterEnabled: boolean;
   dateFilterDays: number;
@@ -61,6 +67,7 @@ const defaultSettings: AppSettings = {
   showFileNameOverlay: false,
   metadataOverlayMode: 'off',
   metadataOverlayFields: [...SMART_DEFAULT_FIELDS],
+  metadataDiscoveredFields: [],
   dateFilterEnabled: false,
   dateFilterDays: 30,
   masterPersistenceEnabled: true,
@@ -188,6 +195,9 @@ export const saveSettings = (settings: Partial<AppSettings>, callbacks?: Storage
       }
       if (settings.metadataOverlayFields !== undefined) {
         merged.metadataOverlayFields = settings.metadataOverlayFields;
+      }
+      if (settings.metadataDiscoveredFields !== undefined) {
+        merged.metadataDiscoveredFields = settings.metadataDiscoveredFields;
       }
       if (settings.saveDateFilter !== false && settings.dateFilterEnabled !== undefined) {
         merged.dateFilterEnabled = settings.dateFilterEnabled;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './SettingsWindow.css';
 import { loadSettings, saveSettings, AppSettings, getDefaultSettings } from '../utils/settingsStorage';
 import { useToast } from '../hooks/useToast';
@@ -6,9 +6,12 @@ import {
   KNOWN_METADATA_FIELDS,
   SMART_DEFAULT_FIELDS,
   MetadataOverlayMode,
+  MediaMetadataEntry,
   getFieldLabel,
   formatFieldValue,
+  extractFieldKeys,
 } from '../types/metadata';
+import { validateMetadataMap, MAX_METADATA_SIZE } from '../utils/metadataValidation';
 
 type SettingsSection = 'playback' | 'display' | 'persistence';
 
@@ -63,9 +66,15 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
   const [settings, setSettings] = useState<AppSettings>(getDefaultSettings());
   const [hasChanges, setHasChanges] = useState(false);
   const [activeSection, setActiveSection] = useState<SettingsSection>('playback');
-  const { showError, showWarning } = useToast();
+  const { showError, showWarning, showSuccess } = useToast();
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const modalRef = useRef<HTMLDivElement>(null);
+  const metadataFileInputRef = useRef<HTMLInputElement>(null);
+  const [manualFieldInput, setManualFieldInput] = useState('');
+  // A real sample entry pulled from an uploaded metadata.json, used to drive the
+  // preview with actual values from the user's own schema instead of the generic
+  // reddit-shaped sample data.
+  const [uploadedSampleEntry, setUploadedSampleEntry] = useState<MediaMetadataEntry | null>(null);
 
   useEffect(() => {
     const loaded = loadSettings({ showError, showWarning });
@@ -134,6 +143,87 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
         }
       }
     }
+  };
+
+  // Combined catalog of field keys the picker can offer: known reddit-downloader
+  // fields, fields observed in the currently loaded playlist, and fields the user
+  // has previously discovered via upload/manual entry (persisted in settings).
+  // Since metadata.json's shape depends entirely on whichever downloader tool
+  // produced it, this list is built up from real data rather than hardcoded.
+  const fieldCatalog = useMemo(() => {
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    const add = (key: string) => {
+      if (!seen.has(key)) {
+        seen.add(key);
+        ordered.push(key);
+      }
+    };
+    KNOWN_METADATA_FIELDS.forEach((f) => add(f.key));
+    availableMetadataFields.forEach(add);
+    settings.metadataDiscoveredFields.forEach(add);
+    return ordered;
+  }, [availableMetadataFields, settings.metadataDiscoveredFields]);
+
+  const addDiscoveredFields = (keys: string[]) => {
+    setSettings((prev) => {
+      const merged = new Set([...prev.metadataDiscoveredFields, ...keys]);
+      return { ...prev, metadataDiscoveredFields: Array.from(merged) };
+    });
+    setHasChanges(true);
+  };
+
+  const handleMetadataFileUpload = async (file: File) => {
+    if (file.size > MAX_METADATA_SIZE) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      showError(`File too large: ${sizeMB} MB. Please upload a smaller sample metadata.json.`);
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      let data: unknown;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        showError('That file is not valid JSON.');
+        return;
+      }
+
+      const metadataMap = validateMetadataMap(data);
+      const keys = extractFieldKeys(metadataMap);
+
+      if (keys.length === 0) {
+        showWarning('No usable fields were found in that file.');
+        return;
+      }
+
+      addDiscoveredFields(keys);
+
+      // Grab the first entry as a sample for the preview, so it reflects the
+      // user's actual schema and values rather than the generic reddit sample.
+      const firstEntry = Object.values(metadataMap)[0];
+      if (firstEntry) {
+        setUploadedSampleEntry(firstEntry);
+      }
+
+      showSuccess(`Found ${keys.length} field${keys.length !== 1 ? 's' : ''}: ${keys.join(', ')}`);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Could not read that file.');
+    }
+  };
+
+  const handleAddManualField = () => {
+    const key = manualFieldInput.trim();
+    if (!key) return;
+    addDiscoveredFields([key]);
+    setSettings((prev) => ({
+      ...prev,
+      metadataOverlayFields: prev.metadataOverlayFields.includes(key)
+        ? prev.metadataOverlayFields
+        : [...prev.metadataOverlayFields, key],
+    }));
+    setManualFieldInput('');
   };
 
   const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
@@ -399,11 +489,7 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
 
               {settings.metadataOverlayMode === 'custom' && (
                 <div className="settings-metadata-fields">
-                  {(availableMetadataFields.length > 0
-                    ? [...KNOWN_METADATA_FIELDS.map(f => f.key).filter(k => availableMetadataFields.includes(k)),
-                       ...availableMetadataFields.filter(k => !KNOWN_METADATA_FIELDS.some(f => f.key === k))]
-                    : KNOWN_METADATA_FIELDS.map(f => f.key)
-                  ).map((key) => (
+                  {fieldCatalog.map((key) => (
                     <label className="settings-metadata-field-checkbox" key={key}>
                       <input
                         type="checkbox"
@@ -421,29 +507,85 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                       <span>{getFieldLabel(key)}</span>
                     </label>
                   ))}
-                  {availableMetadataFields.length === 0 && (
-                    <span className="settings-description">
-                      No metadata.json detected in your loaded folders yet - showing all known fields. Load a folder with saved metadata to see fields specific to it.
+
+                  <div className="settings-metadata-discover">
+                    <span className="settings-description settings-mode-description">
+                      Your downloader's metadata.json may use different fields than these. Upload a sample
+                      file or type a field name to add it to the list above.
                     </span>
-                  )}
+                    <div className="settings-metadata-discover-row">
+                      <button
+                        type="button"
+                        className="settings-btn-secondary settings-btn-small"
+                        onClick={() => metadataFileInputRef.current?.click()}
+                      >
+                        Upload sample metadata.json
+                      </button>
+                      <input
+                        ref={metadataFileInputRef}
+                        type="file"
+                        accept="application/json,.json"
+                        className="settings-file-input-hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            handleMetadataFileUpload(file);
+                          }
+                          // Reset so the same file can be re-selected later if needed
+                          e.target.value = '';
+                        }}
+                      />
+                    </div>
+                    <div className="settings-metadata-discover-row">
+                      <input
+                        type="text"
+                        value={manualFieldInput}
+                        onChange={(e) => setManualFieldInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddManualField();
+                          }
+                        }}
+                        placeholder="e.g. cameraModel"
+                        className="settings-text-input"
+                        aria-label="Add a custom field name"
+                      />
+                      <button
+                        type="button"
+                        className="settings-btn-secondary settings-btn-small"
+                        onClick={handleAddManualField}
+                        disabled={!manualFieldInput.trim()}
+                      >
+                        Add field
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
               <div className="settings-metadata-preview">
-                <div className="settings-metadata-preview-label">Preview</div>
+                <div className="settings-metadata-preview-label">
+                  Preview{uploadedSampleEntry ? ' (using your uploaded sample)' : ''}
+                </div>
                 <div className="filename-overlay-preview">
                   <div className="filename-overlay-preview-path">example_photo.jpg</div>
                   {(() => {
                     const mode = settings.metadataOverlayMode;
                     if (mode === 'off') return null;
+                    // Prefer real values from an uploaded sample; fall back to generic
+                    // reddit-shaped sample data so the preview is never blank.
+                    const sampleValues: Record<string, string | number | boolean> = uploadedSampleEntry
+                      ? (uploadedSampleEntry as Record<string, string | number | boolean>)
+                      : SAMPLE_METADATA_VALUES;
                     const keys = mode === 'smart'
                       ? SMART_DEFAULT_FIELDS
                       : mode === 'custom'
                       ? settings.metadataOverlayFields
-                      : Object.keys(SAMPLE_METADATA_VALUES);
+                      : Object.keys(sampleValues);
                     const lines = keys
                       .map(key => {
-                        const value = SAMPLE_METADATA_VALUES[key];
+                        const value = sampleValues[key];
                         if (value === undefined) return null;
                         const formatted = formatFieldValue(key, value);
                         if (!formatted) return null;
@@ -451,7 +593,15 @@ const SettingsWindow: React.FC<SettingsWindowProps> = ({
                         return needsLabel ? `${getFieldLabel(key)}: ${formatted}` : formatted;
                       })
                       .filter((l): l is string => !!l);
-                    if (lines.length === 0) return null;
+                    if (lines.length === 0) {
+                      return (
+                        <div className="filename-overlay-preview-metadata">
+                          <div className="filename-overlay-preview-metadata-line">
+                            (no matching fields in the preview sample)
+                          </div>
+                        </div>
+                      );
+                    }
                     return (
                       <div className="filename-overlay-preview-metadata">
                         {lines.map((line, i) => (
