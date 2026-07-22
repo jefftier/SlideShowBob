@@ -442,16 +442,12 @@ export class GifParser {
         const minCodeSize = this.reader.readByte();
         const imageData = this.reader.readDataSubBlocks();
 
-        // Decode LZW compressed image data
-        const decoder = new LZWDecoder(imageData);
-        const pixels = decoder.decode(minCodeSize, width * height);
-
-        // Handle interlace if needed
-        let deinterlacedPixels = pixels;
-        if (interlace) {
-          deinterlacedPixels = this.deinterlace(pixels, width, height);
-        }
-
+        // NOTE: We intentionally do NOT LZW-decode the frame here. GIFs with
+        // many/large frames (common with screen recordings converted to GIF)
+        // can take seconds to fully decode up front, which blocks playback
+        // from starting at all. Instead we store the raw compressed bytes
+        // and decode each frame lazily (via decodeFramePixels) right before
+        // it's rendered, memoizing the result so it's only decoded once.
         const delay = pendingGCE.delay;
         frameDelays.push(delay);
         totalDuration += delay;
@@ -469,8 +465,11 @@ export class GifParser {
           pixels: undefined // Will be set when rendering
         };
 
-        // Store pixel data and color table for rendering
-        (frame as any).pixelData = deinterlacedPixels;
+        // Store the raw LZW data and everything needed to decode it later,
+        // plus the color table for rendering. Decoding happens lazily.
+        (frame as any).lzwData = imageData;
+        (frame as any).minCodeSize = minCodeSize;
+        (frame as any).interlace = interlace;
         (frame as any).colorTable = currentColorTable || globalColorTable || [];
 
         this.metadata.frames!.push(frame);
@@ -491,30 +490,58 @@ export class GifParser {
     return this.metadata as GifMetadata;
   }
 
-  /**
-   * Deinterlace an interlaced image
-   */
-  private deinterlace(pixels: Uint8Array, width: number, height: number): Uint8Array {
-    const result = new Uint8Array(width * height);
-    const passes = [
-      { start: 0, step: 8 },
-      { start: 4, step: 8 },
-      { start: 2, step: 4 },
-      { start: 1, step: 2 }
-    ];
+}
 
-    let sourceIndex = 0;
-    for (const pass of passes) {
-      for (let y = pass.start; y < height; y += pass.step) {
-        const destIndex = y * width;
-        for (let x = 0; x < width; x++) {
-          result[destIndex + x] = pixels[sourceIndex++];
-        }
+/**
+ * Deinterlace an interlaced GIF image (Adam7-style 4-pass interlacing used
+ * by the GIF format). Standalone so it can be reused by lazy frame decoding.
+ */
+function deinterlacePixels(pixels: Uint8Array, width: number, height: number): Uint8Array {
+  const result = new Uint8Array(width * height);
+  const passes = [
+    { start: 0, step: 8 },
+    { start: 4, step: 8 },
+    { start: 2, step: 4 },
+    { start: 1, step: 2 }
+  ];
+
+  let sourceIndex = 0;
+  for (const pass of passes) {
+    for (let y = pass.start; y < height; y += pass.step) {
+      const destIndex = y * width;
+      for (let x = 0; x < width; x++) {
+        result[destIndex + x] = pixels[sourceIndex++];
       }
     }
-
-    return result;
   }
+
+  return result;
+}
+
+/**
+ * Lazily decodes a frame's LZW-compressed data into a pixel index buffer,
+ * memoizing the result on the frame object so repeat renders (e.g. looping
+ * back to an earlier frame) don't redo the decode.
+ */
+function decodeFramePixels(frame: GifFrame): Uint8Array {
+  const cached = (frame as any).pixelData as Uint8Array | undefined;
+  if (cached) {
+    return cached;
+  }
+
+  const lzwData = (frame as any).lzwData as Uint8Array;
+  const minCodeSize = (frame as any).minCodeSize as number;
+  const interlace = (frame as any).interlace as boolean;
+
+  const decoder = new LZWDecoder(lzwData);
+  const pixels = decoder.decode(minCodeSize, frame.width * frame.height);
+  const finalPixels = interlace ? deinterlacePixels(pixels, frame.width, frame.height) : pixels;
+
+  // Memoize and drop the raw compressed bytes - no longer needed once decoded.
+  (frame as any).pixelData = finalPixels;
+  (frame as any).lzwData = null;
+
+  return finalPixels;
 }
 
 // ============================================================================
@@ -849,12 +876,13 @@ export class GifPlayer {
       return;
     }
 
-    const pixelData = (frame as any).pixelData as Uint8Array;
     const colorTable = (frame as any).colorTable as number[][];
-
-    if (!pixelData || !colorTable) {
+    if (!colorTable) {
       return;
     }
+
+    // Decode this frame's pixels on demand (memoized on first decode).
+    const pixelData = decodeFramePixels(frame);
 
     // Get background color from global color table or frame's local color table
     const globalColorTable = (this.metadata as any).globalColorTable as number[][];
