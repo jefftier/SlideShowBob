@@ -15,8 +15,9 @@ Application code: **`src/`** (repository root).
 
 ## Media and GIFs
 
-- **`src/components/MediaDisplay.tsx`** — Renders image / video / GIF; GIF path uses **`src/utils/gifPlayer.ts`** (`createGifPlayerOnce`, canvas playback).
-- **`src/utils/gifPlayer.ts`** — GIF89a parsing, LZW decode, `GifPlayer` class, helpers (`getGifMetadata`, `isGifAnimated`, etc.).
+- **`src/components/MediaDisplay.tsx`** — Renders image / video / GIF; GIF path uses **`src/utils/gifPlayer.ts`** (`GifPlayer`, one player per GIF canvas, plays one cycle then fires completion).
+- **`src/utils/gifPlayer.ts`** — GIF parser, LZW decode, browser-exact compositor (disposal 0–3, transparency), clamped timeline, frame sources (WebCodecs `ImageDecoder`, JS fallback via `ImageBitmap`s), rAF-driven DPR-aware `GifPlayer`, `getGifMetadata`.
+- **`src/utils/backgroundMirror.ts`** — Blurred background fill: a small canvas that mirrors the foreground video (`requestVideoFrameCallback`, rAF fallback) or GIF frames, so it never decodes on its own.
 - **`src/utils/gifParser.ts`** / **`src/utils/gifUtils.ts`** — Supporting metadata / utilities as needed by the UI.
 
 ## Files, folders, manifests

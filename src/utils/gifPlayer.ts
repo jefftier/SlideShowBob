@@ -1,1086 +1,987 @@
 /**
- * GIF Player Module - Built from Scratch
- * 
- * A comprehensive, extensible module for detecting, parsing, and playing animated GIFs.
- * Built from scratch based on GIF89a specification without external dependencies.
- * 
- * Features:
- * - Detect if GIF is still or animated
- * - Understand GIF animation duration
- * - Control start and stop of GIF playback
- * - Frame-by-frame rendering to canvas
- * - Extensible architecture for integration with video players
+ * GIF playback for SlideShowBob.
+ *
+ * Layered so each part can be tested on its own:
+ *  - GifParser          GIF87a/89a container parse. No pixel decoding (fast).
+ *  - decodeLzw          LZW decode of one frame into palette indices.
+ *  - GifCompositor      Browser-exact RGBA compositing: disposal 0-3, transparency,
+ *                       per-frame palette scoping, interlacing, clipping to the screen.
+ *  - GifTimeline        Absolute frame timeline with browser delay clamping.
+ *  - Frame sources      WebCodecs ImageDecoder (preferred, decodes off the main thread)
+ *                       or the JS decoder above (Safari fallback), both producing
+ *                       ready-to-draw frames ahead of the playhead.
+ *  - GifPlayer          rAF-driven playback onto a devicePixelRatio-aware canvas.
  */
 
 // ============================================================================
-// Type Definitions
+// Types
 // ============================================================================
 
 export interface GifFrame {
-  /** Frame index (0-based) */
   index: number;
-  /** Delay before this frame in milliseconds */
+  /** Effective display time in ms, after browser-style clamping. */
   delay: number;
-  /** Frame disposal method (0-3) */
+  /** Disposal method: 0 unspecified, 1 keep, 2 restore to background, 3 restore to previous. */
   disposal: number;
-  /** Whether frame has transparency */
-  transparent: boolean;
-  /** Transparent color index (if transparent) */
-  transparentIndex?: number;
-  /** Frame dimensions */
+  /** Transparent palette index, or -1 when the frame has no transparency. */
+  transparentIndex: number;
   left: number;
   top: number;
   width: number;
   height: number;
-  /** Frame image data (RGBA pixels) */
-  pixels?: ImageData;
+  interlaced: boolean;
+  /** RGB triples. The frame's local table if present, otherwise the global table. */
+  palette: Uint8Array | null;
+  minCodeSize: number;
+  /** Concatenated LZW data sub-blocks (decoded lazily by the compositor). */
+  lzwData: Uint8Array;
 }
 
 export interface GifMetadata {
-  /** Total width of GIF */
   width: number;
-  /** Total height of GIF */
   height: number;
-  /** Whether GIF has global color table */
-  hasGlobalColorTable: boolean;
-  /** Global color table (RGB values) */
-  globalColorTable?: number[][];
-  /** Number of colors in global color table */
-  colorTableSize: number;
-  /** Background color index */
-  backgroundColorIndex: number;
-  /** Pixel aspect ratio */
-  pixelAspectRatio: number;
-  /** Number of frames in GIF */
+  globalPalette: Uint8Array | null;
   frameCount: number;
-  /** Whether GIF is animated (has more than 1 frame) */
   isAnimated: boolean;
-  /** Total animation duration in milliseconds */
+  /** Sum of effective (clamped) frame delays, in ms. */
   totalDuration: number;
-  /** Loop count (0 = infinite, >0 = number of loops) */
+  /** NETSCAPE2.0 loop count (0 = infinite). */
   loopCount: number;
-  /** Frame delays in milliseconds */
+  /** Effective (clamped) delay of each frame, in ms. */
   frameDelays: number[];
-  /** All frame metadata */
   frames: GifFrame[];
 }
 
-export interface GifPlayerOptions {
-  /** Canvas element to render to (optional) */
-  canvas?: HTMLCanvasElement;
-  /** Whether to auto-play on load */
-  autoPlay?: boolean;
-  /** Playback speed multiplier (1.0 = normal speed) */
-  speed?: number;
-  /** Whether to loop animation */
-  loop?: boolean;
-  /** Callback when frame changes */
-  onFrameChange?: (frameIndex: number) => void;
-  /** Callback when animation completes */
-  onComplete?: () => void;
-  /** Callback on error */
-  onError?: (error: Error) => void;
-}
-
-export type GifPlayerState = 'idle' | 'loading' | 'ready' | 'playing' | 'paused' | 'stopped';
-
 // ============================================================================
-// GIF Parser - Built from Scratch
+// Timing
 // ============================================================================
 
 /**
- * Reads a byte from the data array at the current position
+ * Browser delay clamping. Chromium, WebKit and Gecko all play a frame delay of
+ * 10 ms or less (0 or 1 centisecond) as 100 ms.
  */
-class ByteReader {
-  private data: Uint8Array;
-  private position: number;
+export function clampGifDelay(ms: number): number {
+  return ms <= 10 ? 100 : ms;
+}
 
-  constructor(data: Uint8Array) {
-    this.data = data;
-    this.position = 0;
-  }
+/** Absolute timeline over a sequence of frame delays. */
+export class GifTimeline {
+  /** Start time (ms) of each frame. */
+  readonly starts: Float64Array;
+  /** Total duration (ms) of one cycle. */
+  readonly duration: number;
 
-  readByte(): number {
-    if (this.position >= this.data.length) {
-      throw new Error('Unexpected end of GIF data');
+  constructor(delays: readonly number[]) {
+    this.starts = new Float64Array(delays.length);
+    let t = 0;
+    for (let i = 0; i < delays.length; i++) {
+      this.starts[i] = t;
+      t += delays[i];
     }
-    return this.data[this.position++];
+    this.duration = t;
   }
 
-  readUint16(): number {
-    const low = this.readByte();
-    const high = this.readByte();
-    return low | (high << 8);
-  }
-
-  readBytes(count: number): Uint8Array {
-    const bytes = new Uint8Array(count);
-    for (let i = 0; i < count; i++) {
-      bytes[i] = this.readByte();
+  /** Index of the frame visible at `ms` into the cycle (clamped to the last frame). */
+  frameAt(ms: number): number {
+    const starts = this.starts;
+    if (starts.length === 0 || ms <= 0) return 0;
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= ms) lo = mid;
+      else hi = mid - 1;
     }
-    return bytes;
-  }
-
-  readSubBlock(): Uint8Array {
-    const size = this.readByte();
-    if (size === 0) {
-      return new Uint8Array(0);
-    }
-    return this.readBytes(size);
-  }
-
-  readDataSubBlocks(): Uint8Array {
-    const chunks: Uint8Array[] = [];
-    let size = this.readByte();
-    while (size > 0) {
-      chunks.push(this.readBytes(size));
-      size = this.readByte();
-    }
-    const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-    const result = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.length;
-    }
-    return result;
-  }
-
-  getPosition(): number {
-    return this.position;
-  }
-
-  setPosition(pos: number): void {
-    this.position = pos;
-  }
-
-  skip(count: number): void {
-    this.position += count;
-  }
-
-  getLength(): number {
-    return this.data.length;
-  }
-
-  hasMore(): boolean {
-    return this.position < this.data.length;
+    return lo;
   }
 }
 
-/**
- * LZW Decompression - Core GIF decoding algorithm
- */
-class LZWDecoder {
-  private data: Uint8Array;
-  private position: number;
-  private bitBuffer: number = 0;
-  private bitCount: number = 0;
+// ============================================================================
+// Parser
+// ============================================================================
 
-  constructor(data: Uint8Array) {
-    this.data = data;
-    this.position = 0;
-  }
-
-  private readBits(count: number): number {
-    while (this.bitCount < count) {
-      if (this.position >= this.data.length) {
-        throw new Error('Unexpected end of LZW data');
-      }
-      this.bitBuffer |= this.data[this.position++] << this.bitCount;
-      this.bitCount += 8;
-    }
-    const result = this.bitBuffer & ((1 << count) - 1);
-    this.bitBuffer >>= count;
-    this.bitCount -= count;
-    return result;
-  }
-
-  decode(minCodeSize: number, pixelCount: number): Uint8Array {
-    const clearCode = 1 << minCodeSize;
-    const endCode = clearCode + 1;
-    let codeSize = minCodeSize + 1;
-
-    const output = new Uint8Array(pixelCount);
-    let outputPos = 0;
-
-    // Dictionary represented as prefix-chains rather than array-of-arrays.
-    // prefix[code] -> the code this entry extends, suffix[code] -> the pixel
-    // appended by this entry. Root codes (0..clearCode-1) have no prefix.
-    const maxEntries = 4096;
-    const prefix = new Int32Array(maxEntries);
-    const suffix = new Uint8Array(maxEntries);
-    for (let i = 0; i < clearCode; i++) {
-      suffix[i] = i;
-    }
-
-    // Reusable scratch buffer for reconstructing a sequence via chain walk.
-    // A sequence can never be longer than the number of dictionary entries.
-    const stack = new Uint8Array(maxEntries);
-
-    let nextCode = endCode + 1;
-    let oldCode = -1;
-    let firstPixel = 0;
-
-    while (outputPos < pixelCount) {
-      const code = this.readBits(codeSize);
-
-      if (code === clearCode) {
-        // Reset dictionary
-        codeSize = minCodeSize + 1;
-        nextCode = endCode + 1;
-        oldCode = -1;
-        continue;
-      }
-
-      if (code === endCode) {
-        break;
-      }
-
-      let walkCode = code;
-      let stackPos = 0;
-
-      if (code >= nextCode) {
-        // "KwKwK" case: code references an entry not yet defined.
-        // Its sequence is (previous sequence) + (first pixel of previous sequence).
-        if (oldCode < 0) {
-          // Corrupt stream - bail out gracefully with what we have.
-          break;
-        }
-        stack[stackPos++] = firstPixel;
-        walkCode = oldCode;
-      }
-
-      // Walk the prefix chain back to a root code, pushing pixels in reverse order.
-      while (walkCode >= clearCode && stackPos < stack.length) {
-        stack[stackPos++] = suffix[walkCode];
-        walkCode = prefix[walkCode];
-      }
-      stack[stackPos++] = suffix[walkCode];
-      firstPixel = suffix[walkCode];
-
-      // Emit the reconstructed sequence (stack is in reverse order).
-      while (stackPos > 0 && outputPos < pixelCount) {
-        output[outputPos++] = stack[--stackPos];
-      }
-
-      // Add the new dictionary entry: previous sequence + first pixel of current sequence.
-      if (oldCode >= 0 && nextCode < maxEntries) {
-        prefix[nextCode] = oldCode;
-        suffix[nextCode] = firstPixel;
-        nextCode++;
-        if (nextCode >= (1 << codeSize) && codeSize < 12) {
-          codeSize++;
-        }
-      }
-
-      oldCode = code;
-    }
-
-    return output;
+class GifTruncatedError extends Error {
+  constructor() {
+    super('Unexpected end of GIF data');
   }
 }
 
-/**
- * Parses a GIF file from scratch
- */
+/** Parses the GIF container. Pixel data stays LZW-compressed until composited. */
 export class GifParser {
-  private reader: ByteReader;
-  private metadata: Partial<GifMetadata> = {};
+  private pos = 0;
 
-  constructor(data: Uint8Array) {
-    this.reader = new ByteReader(data);
+  constructor(private readonly data: Uint8Array) {}
+
+  private u8(): number {
+    if (this.pos >= this.data.length) throw new GifTruncatedError();
+    return this.data[this.pos++];
   }
 
-  /**
-   * Parse the entire GIF file
-   */
-  parse(): GifMetadata {
-    // Read GIF header
-    const signature = String.fromCharCode(
-      this.reader.readByte(),
-      this.reader.readByte(),
-      this.reader.readByte()
-    );
-    const version = String.fromCharCode(
-      this.reader.readByte(),
-      this.reader.readByte(),
-      this.reader.readByte()
-    );
+  private u16(): number {
+    const lo = this.u8();
+    return lo | (this.u8() << 8);
+  }
 
-    if (signature !== 'GIF' || (version !== '87a' && version !== '89a')) {
-      throw new Error(`Invalid GIF format: ${signature}${version}`);
+  private bytes(n: number): Uint8Array {
+    if (this.pos + n > this.data.length) throw new GifTruncatedError();
+    const out = this.data.subarray(this.pos, this.pos + n);
+    this.pos += n;
+    return out;
+  }
+
+  private subBlocks(): Uint8Array {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const n = this.u8();
+      if (n === 0) break;
+      chunks.push(this.bytes(n));
+      total += n;
+    }
+    if (chunks.length === 1) return chunks[0];
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) {
+      out.set(c, off);
+      off += c.length;
+    }
+    return out;
+  }
+
+  private skipSubBlocks(): void {
+    for (;;) {
+      const n = this.u8();
+      if (n === 0) return;
+      this.bytes(n);
+    }
+  }
+
+  parse(): GifMetadata {
+    const signature = String.fromCharCode(...this.bytes(6));
+    if (signature !== 'GIF87a' && signature !== 'GIF89a') {
+      throw new Error(`Invalid GIF format: ${signature}`);
     }
 
-    // Read Logical Screen Descriptor
-    const width = this.reader.readUint16();
-    const height = this.reader.readUint16();
-    
-    const packed = this.reader.readByte();
-    const hasGlobalColorTable = (packed & 0x80) !== 0;
-    const globalColorTableSize = 2 << (packed & 0x07);
-    
-    const backgroundColorIndex = this.reader.readByte();
-    const pixelAspectRatio = this.reader.readByte();
+    const width = this.u16();
+    const height = this.u16();
+    const packed = this.u8();
+    this.u8(); // background color index: ignored by browsers (disposed areas are transparent)
+    this.u8(); // pixel aspect ratio: ignored by browsers
+    const globalPalette = packed & 0x80 ? this.bytes(3 * (2 << (packed & 7))) : null;
 
-    this.metadata = {
+    const frames: GifFrame[] = [];
+    let loopCount = 0;
+    let gce: { disposal: number; delay: number; transparentIndex: number } | null = null;
+
+    try {
+      blocks: while (this.pos < this.data.length) {
+        const block = this.u8();
+        switch (block) {
+          case 0x21: {
+            const label = this.u8();
+            if (label === 0xf9) {
+              // Graphic Control Extension (applies to the next image only)
+              const sub = this.subBlocks();
+              if (sub.length >= 4) {
+                let disposal = (sub[0] >> 2) & 7;
+                // Chromium treats method 4 as "restore to previous"; other values as unspecified.
+                if (disposal === 4) disposal = 3;
+                else if (disposal > 4) disposal = 0;
+                gce = {
+                  disposal,
+                  delay: clampGifDelay((sub[1] | (sub[2] << 8)) * 10),
+                  transparentIndex: sub[0] & 1 ? sub[3] : -1,
+                };
+              }
+            } else if (label === 0xff) {
+              const idLen = this.u8();
+              const id = String.fromCharCode(...this.bytes(idLen));
+              const sub = this.subBlocks();
+              if ((id === 'NETSCAPE2.0' || id === 'ANIMEXTS1.0') && sub.length >= 3 && sub[0] === 1) {
+                loopCount = sub[1] | (sub[2] << 8);
+              }
+            } else {
+              this.skipSubBlocks();
+            }
+            break;
+          }
+          case 0x2c: {
+            const left = this.u16();
+            const top = this.u16();
+            const w = this.u16();
+            const h = this.u16();
+            const p = this.u8();
+            // A local color table applies only to this image; later frames go back to the global one.
+            const palette = p & 0x80 ? this.bytes(3 * (2 << (p & 7))) : globalPalette;
+            const minCodeSize = this.u8();
+            const lzwData = this.subBlocks();
+            const g = gce ?? { disposal: 0, delay: clampGifDelay(0), transparentIndex: -1 };
+            gce = null;
+            frames.push({
+              index: frames.length,
+              delay: g.delay,
+              disposal: g.disposal,
+              transparentIndex: g.transparentIndex,
+              left,
+              top,
+              width: w,
+              height: h,
+              interlaced: (p & 0x40) !== 0,
+              palette,
+              minCodeSize,
+              lzwData,
+            });
+            break;
+          }
+          default:
+            // 0x3B trailer, or an unknown block: stop like browsers do.
+            break blocks;
+        }
+      }
+    } catch (e) {
+      // Truncated files: keep whatever complete frames were read (browsers do the same).
+      if (!(e instanceof GifTruncatedError) || frames.length === 0) throw e;
+    }
+
+    const frameDelays = frames.map(f => f.delay);
+    return {
       width,
       height,
-      hasGlobalColorTable,
-      colorTableSize: globalColorTableSize,
-      backgroundColorIndex,
-      pixelAspectRatio,
-      frameCount: 0,
-      isAnimated: false,
-      totalDuration: 0,
-      loopCount: 0,
-      frameDelays: [],
-      frames: []
+      globalPalette,
+      frameCount: frames.length,
+      isAnimated: frames.length > 1,
+      totalDuration: frameDelays.reduce((a, b) => a + b, 0),
+      loopCount,
+      frameDelays,
+      frames,
     };
-
-    // Read Global Color Table
-    let globalColorTable: number[][] | undefined;
-    if (hasGlobalColorTable) {
-      globalColorTable = [];
-      for (let i = 0; i < globalColorTableSize; i++) {
-        const r = this.reader.readByte();
-        const g = this.reader.readByte();
-        const b = this.reader.readByte();
-        globalColorTable.push([r, g, b]);
-      }
-      this.metadata.globalColorTable = globalColorTable;
-    }
-
-    // Parse blocks
-    let currentColorTable = globalColorTable;
-    let frameIndex = 0;
-    let totalDuration = 0;
-    const frameDelays: number[] = [];
-
-    while (this.reader.hasMore()) {
-      const blockType = this.reader.readByte();
-
-      if (blockType === 0x21) {
-        // Extension block
-        const extensionType = this.reader.readByte();
-        
-        if (extensionType === 0xF9) {
-          // Graphics Control Extension (GCE)
-          const blockSize = this.reader.readByte();
-          if (blockSize !== 4) {
-            this.reader.skip(blockSize);
-            this.reader.readByte(); // Terminator
-            continue;
-          }
-
-          const packed = this.reader.readByte();
-          const disposal = (packed >> 2) & 0x07;
-          const transparent = (packed & 0x01) !== 0;
-          
-          const delay = this.reader.readUint16();
-          const transparentIndex = this.reader.readByte();
-          this.reader.readByte(); // Terminator
-
-          // Store GCE data for next image
-          (this.reader as any).pendingGCE = {
-            disposal,
-            transparent,
-            delay: delay * 10, // Convert to milliseconds
-            transparentIndex: transparent ? transparentIndex : undefined
-          };
-        } else if (extensionType === 0xFF) {
-          // Application Extension (NETSCAPE 2.0 for loops)
-          const blockSize = this.reader.readByte();
-          const appData = this.reader.readBytes(blockSize);
-          const appIdentifier = String.fromCharCode(...Array.from(appData.slice(0, 11)));
-          
-          if (appIdentifier === 'NETSCAPE2.0') {
-            const subBlock = this.reader.readSubBlock();
-            if (subBlock.length >= 3 && subBlock[0] === 0x01) {
-              const loopCount = subBlock[1] | (subBlock[2] << 8);
-              this.metadata.loopCount = loopCount;
-            }
-            this.reader.readByte(); // Terminator
-          } else {
-            // Skip unknown application extension
-            this.reader.readDataSubBlocks();
-          }
-        } else {
-          // Skip other extension types
-          this.reader.readDataSubBlocks();
-        }
-      } else if (blockType === 0x2C) {
-        // Image Descriptor
-        const left = this.reader.readUint16();
-        const top = this.reader.readUint16();
-        const width = this.reader.readUint16();
-        const height = this.reader.readUint16();
-        
-        const packed = this.reader.readByte();
-        const hasLocalColorTable = (packed & 0x80) !== 0;
-        const interlace = (packed & 0x40) !== 0;
-        const localColorTableSize = 2 << (packed & 0x07);
-
-        // Use local color table if present, otherwise global
-        if (hasLocalColorTable) {
-          currentColorTable = [];
-          for (let i = 0; i < localColorTableSize; i++) {
-            const r = this.reader.readByte();
-            const g = this.reader.readByte();
-            const b = this.reader.readByte();
-            currentColorTable.push([r, g, b]);
-          }
-        }
-
-        const pendingGCE = (this.reader as any).pendingGCE || {
-          disposal: 0,
-          transparent: false,
-          delay: 100, // Default 100ms
-          transparentIndex: undefined
-        };
-        (this.reader as any).pendingGCE = null;
-
-        const minCodeSize = this.reader.readByte();
-        const imageData = this.reader.readDataSubBlocks();
-
-        // NOTE: We intentionally do NOT LZW-decode the frame here. GIFs with
-        // many/large frames (common with screen recordings converted to GIF)
-        // can take seconds to fully decode up front, which blocks playback
-        // from starting at all. Instead we store the raw compressed bytes
-        // and decode each frame lazily (via decodeFramePixels) right before
-        // it's rendered, memoizing the result so it's only decoded once.
-        const delay = pendingGCE.delay;
-        frameDelays.push(delay);
-        totalDuration += delay;
-
-        const frame: GifFrame = {
-          index: frameIndex++,
-          delay,
-          disposal: pendingGCE.disposal,
-          transparent: pendingGCE.transparent,
-          transparentIndex: pendingGCE.transparentIndex,
-          left,
-          top,
-          width,
-          height,
-          pixels: undefined // Will be set when rendering
-        };
-
-        // Store the raw LZW data and everything needed to decode it later,
-        // plus the color table for rendering. Decoding happens lazily.
-        (frame as any).lzwData = imageData;
-        (frame as any).minCodeSize = minCodeSize;
-        (frame as any).interlace = interlace;
-        (frame as any).colorTable = currentColorTable || globalColorTable || [];
-
-        this.metadata.frames!.push(frame);
-      } else if (blockType === 0x3B) {
-        // Trailer - end of GIF
-        break;
-      } else {
-        // Unknown block type, skip
-        break;
-      }
-    }
-
-    this.metadata.frameCount = frameIndex;
-    this.metadata.isAnimated = frameIndex > 1;
-    this.metadata.totalDuration = totalDuration;
-    this.metadata.frameDelays = frameDelays;
-
-    return this.metadata as GifMetadata;
   }
-
-}
-
-/**
- * Deinterlace an interlaced GIF image (Adam7-style 4-pass interlacing used
- * by the GIF format). Standalone so it can be reused by lazy frame decoding.
- */
-function deinterlacePixels(pixels: Uint8Array, width: number, height: number): Uint8Array {
-  const result = new Uint8Array(width * height);
-  const passes = [
-    { start: 0, step: 8 },
-    { start: 4, step: 8 },
-    { start: 2, step: 4 },
-    { start: 1, step: 2 }
-  ];
-
-  let sourceIndex = 0;
-  for (const pass of passes) {
-    for (let y = pass.start; y < height; y += pass.step) {
-      const destIndex = y * width;
-      for (let x = 0; x < width; x++) {
-        result[destIndex + x] = pixels[sourceIndex++];
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
- * Lazily decodes a frame's LZW-compressed data into a pixel index buffer,
- * memoizing the result on the frame object so repeat renders (e.g. looping
- * back to an earlier frame) don't redo the decode.
- */
-function decodeFramePixels(frame: GifFrame): Uint8Array {
-  const cached = (frame as any).pixelData as Uint8Array | undefined;
-  if (cached) {
-    return cached;
-  }
-
-  const lzwData = (frame as any).lzwData as Uint8Array;
-  const minCodeSize = (frame as any).minCodeSize as number;
-  const interlace = (frame as any).interlace as boolean;
-
-  const decoder = new LZWDecoder(lzwData);
-  const pixels = decoder.decode(minCodeSize, frame.width * frame.height);
-  const finalPixels = interlace ? deinterlacePixels(pixels, frame.width, frame.height) : pixels;
-
-  // Memoize and drop the raw compressed bytes - no longer needed once decoded.
-  (frame as any).pixelData = finalPixels;
-  (frame as any).lzwData = null;
-
-  return finalPixels;
 }
 
 // ============================================================================
-// GIF Player - Main Class
+// LZW
+// ============================================================================
+
+const LZW_MAX_CODES = 4096;
+// Reused across calls: decoding is synchronous and single-threaded.
+const lzwPrefix = new Int16Array(LZW_MAX_CODES);
+const lzwSuffix = new Uint8Array(LZW_MAX_CODES);
+const lzwStack = new Uint8Array(LZW_MAX_CODES + 1);
+
+/**
+ * Decodes GIF LZW data into palette indices.
+ * Returns the number of pixels written (less than `pixelCount` for truncated data).
+ */
+export function decodeLzw(data: Uint8Array, minCodeSize: number, out: Uint8Array, pixelCount: number): number {
+  if (minCodeSize < 1 || minCodeSize > 11) return 0;
+  const clear = 1 << minCodeSize;
+  const eoi = clear + 1;
+  let codeSize = minCodeSize + 1;
+  let codeMask = (1 << codeSize) - 1;
+  let next = eoi + 1;
+  let old = -1;
+  let first = 0;
+  for (let i = 0; i < clear; i++) {
+    lzwPrefix[i] = -1;
+    lzwSuffix[i] = i;
+  }
+
+  let pos = 0;
+  let bits = 0;
+  let buf = 0;
+  let outPos = 0;
+
+  while (outPos < pixelCount) {
+    while (bits < codeSize) {
+      if (pos >= data.length) return outPos;
+      buf |= data[pos++] << bits;
+      bits += 8;
+    }
+    const code = buf & codeMask;
+    buf >>>= codeSize;
+    bits -= codeSize;
+
+    if (code === clear) {
+      codeSize = minCodeSize + 1;
+      codeMask = (1 << codeSize) - 1;
+      next = eoi + 1;
+      old = -1;
+      continue;
+    }
+    if (code === eoi) break;
+
+    if (old === -1) {
+      if (code >= clear) break; // corrupt: first code after a clear must be a literal
+      out[outPos++] = code;
+      first = code;
+      old = code;
+      continue;
+    }
+
+    let c = code;
+    let sp = 0;
+    if (code >= next) {
+      if (code > next) break; // corrupt
+      // KwKwK: previous sequence + its own first pixel
+      lzwStack[sp++] = first;
+      c = old;
+    }
+    while (c >= clear) {
+      lzwStack[sp++] = lzwSuffix[c];
+      c = lzwPrefix[c];
+    }
+    first = c;
+    lzwStack[sp++] = c;
+    while (sp > 0 && outPos < pixelCount) out[outPos++] = lzwStack[--sp];
+
+    if (next < LZW_MAX_CODES) {
+      lzwPrefix[next] = old;
+      lzwSuffix[next] = first;
+      next++;
+      if (next > codeMask && codeSize < 12) {
+        codeSize++;
+        codeMask = (1 << codeSize) - 1;
+      }
+    }
+    old = code;
+  }
+  return outPos;
+}
+
+// ============================================================================
+// Compositor
 // ============================================================================
 
 /**
- * GIF Player - Extensible module for playing animated GIFs
+ * Composites frames in sequence onto an RGBA logical screen exactly like browsers:
+ * - the screen starts (and every cycle restarts) fully transparent; the background color is ignored
+ * - disposal 2 clears the previous frame's rect to transparent black
+ * - disposal 3 restores the screen to its state from just before the previous frame was drawn
+ * - transparent pixels leave the underlying pixels untouched
+ * - frame patches are clipped to the logical screen
+ */
+export class GifCompositor {
+  readonly width: number;
+  readonly height: number;
+  /** RGBA pixels of the logical screen after the last `step()`. */
+  readonly pixels: Uint8ClampedArray<ArrayBuffer>;
+  private readonly px32: Uint32Array;
+  private readonly pal32 = new Uint32Array(256);
+  private readonly pal8 = new Uint8Array(this.pal32.buffer);
+  private snapshot: Uint32Array | null = null;
+  private indices = new Uint8Array(0);
+  private nextIndex = 0;
+  private prev: GifFrame | null = null;
+
+  constructor(private readonly meta: GifMetadata) {
+    this.width = meta.width;
+    this.height = meta.height;
+    this.pixels = new Uint8ClampedArray(meta.width * meta.height * 4);
+    this.px32 = new Uint32Array(this.pixels.buffer);
+  }
+
+  /** Index of the frame the next `step()` will composite. */
+  get next(): number {
+    return this.nextIndex;
+  }
+
+  reset(): void {
+    this.px32.fill(0);
+    this.nextIndex = 0;
+    this.prev = null;
+  }
+
+  /** Composites the next frame (wrapping to frame 0 after the last) and returns its index. */
+  step(): number {
+    if (this.nextIndex >= this.meta.frameCount || this.nextIndex === 0) this.reset();
+    const i = this.nextIndex;
+    const frame = this.meta.frames[i];
+    const prev = this.prev;
+
+    if (prev) {
+      if (prev.disposal === 2) this.clearRect(prev);
+      else if (prev.disposal === 3 && this.snapshot) this.px32.set(this.snapshot);
+    }
+    if (frame.disposal === 3) {
+      if (!this.snapshot) this.snapshot = new Uint32Array(this.px32.length);
+      this.snapshot.set(this.px32);
+    }
+    this.blit(frame);
+
+    this.prev = frame;
+    this.nextIndex = i + 1;
+    return i;
+  }
+
+  private clearRect(f: GifFrame): void {
+    const W = this.width;
+    if (f.left >= W) return;
+    const x1 = Math.min(f.left + f.width, W);
+    const y1 = Math.min(f.top + f.height, this.height);
+    for (let y = f.top; y < y1; y++) {
+      this.px32.fill(0, y * W + f.left, y * W + x1);
+    }
+  }
+
+  private blit(f: GifFrame): void {
+    const pal = f.palette;
+    const fw = f.width;
+    const fh = f.height;
+    if (!pal || fw === 0 || fh === 0) return;
+
+    // Palette -> packed RGBA (shared byte layout with px32, so endianness-agnostic).
+    // 0 marks "leave the pixel alone": the transparent index and out-of-palette indices.
+    const colors = Math.min(256, (pal.length / 3) | 0);
+    const pal8 = this.pal8;
+    this.pal32.fill(0);
+    for (let c = 0; c < colors; c++) {
+      pal8[c * 4] = pal[c * 3];
+      pal8[c * 4 + 1] = pal[c * 3 + 1];
+      pal8[c * 4 + 2] = pal[c * 3 + 2];
+      pal8[c * 4 + 3] = 255;
+    }
+    if (f.transparentIndex >= 0) this.pal32[f.transparentIndex] = 0;
+
+    const n = fw * fh;
+    if (this.indices.length < n) this.indices = new Uint8Array(n);
+    const src = this.indices;
+    const count = decodeLzw(f.lzwData, f.minCodeSize, src, n);
+    const fullRows = Math.floor(count / fw);
+    const rem = count - fullRows * fw;
+    const rows = fullRows + (rem > 0 ? 1 : 0);
+
+    const W = this.width;
+    const H = this.height;
+    const px32 = this.px32;
+    const pal32 = this.pal32;
+
+    // Interlaced rows arrive in 4 passes: every 8th from 0, every 8th from 4, every 4th from 2, every 2nd from 1.
+    let y = 0;
+    let pass = 0;
+    const passStart = [0, 4, 2, 1];
+    const passStep = [8, 8, 4, 2];
+
+    for (let r = 0; r < rows; r++) {
+      const row = f.interlaced ? y : r;
+      const dy = f.top + row;
+      if (dy < H) {
+        const rowLen = r < fullRows ? fw : rem;
+        const maxX = Math.min(rowLen, W - f.left);
+        const s = r * fw;
+        const d = dy * W + f.left;
+        for (let x = 0; x < maxX; x++) {
+          const c = pal32[src[s + x]];
+          if (c !== 0) px32[d + x] = c;
+        }
+      }
+      if (f.interlaced) {
+        y += passStep[pass];
+        while (y >= fh && pass < 3) {
+          pass++;
+          y = passStart[pass];
+        }
+      }
+    }
+  }
+}
+
+// ============================================================================
+// Frame sources
+// ============================================================================
+
+/** Supplies fully composited, ready-to-draw frames. */
+export interface GifFrameSource {
+  /** Set when decoding failed; the player reports it (or falls back to another source). */
+  readonly error: unknown;
+  /** Returns frame `index` if decoded, else null. Either way, decoding of it and a few frames after it is scheduled. */
+  frame(index: number): CanvasImageSource | null;
+  /** Frames before `index` won't be needed again (unless playback restarts) and may be freed. */
+  release(index: number): void;
+  close(): void;
+}
+
+const LOOKAHEAD_FRAMES = 3;
+/** Keep every decoded frame when the whole animation fits in this many bytes of RGBA. */
+const JS_CACHE_BUDGET_BYTES = 256 * 1024 * 1024;
+
+/**
+ * Pure-JS source (used where WebCodecs ImageDecoder is unavailable, e.g. Safari).
+ * Composites frames in order ahead of the playhead and turns each into an ImageBitmap,
+ * so the playback tick only ever calls drawImage.
+ */
+export class JsGifSource implements GifFrameSource {
+  error: unknown = null;
+  private readonly bitmaps: (ImageBitmap | null)[];
+  private readonly compositor: GifCompositor;
+  private readonly imageData: ImageData;
+  private readonly keepAll: boolean;
+  private wanted = 0;
+  private busy = false;
+  private closed = false;
+
+  constructor(private readonly meta: GifMetadata) {
+    this.bitmaps = new Array(meta.frameCount).fill(null);
+    this.compositor = new GifCompositor(meta);
+    this.imageData = new ImageData(this.compositor.pixels, meta.width, meta.height);
+    this.keepAll = meta.width * meta.height * 4 * meta.frameCount <= JS_CACHE_BUDGET_BYTES;
+  }
+
+  frame(index: number): CanvasImageSource | null {
+    this.wanted = index;
+    void this.pump();
+    return this.bitmaps[index] ?? null;
+  }
+
+  release(index: number): void {
+    if (this.keepAll) return;
+    for (let i = 0; i < index; i++) {
+      this.bitmaps[i]?.close();
+      this.bitmaps[i] = null;
+    }
+  }
+
+  close(): void {
+    this.closed = true;
+    for (const b of this.bitmaps) b?.close();
+    this.bitmaps.fill(null);
+  }
+
+  private nextMissing(): number {
+    const end = this.keepAll ? this.meta.frameCount : Math.min(this.meta.frameCount, this.wanted + LOOKAHEAD_FRAMES + 1);
+    for (let i = this.wanted; i < end; i++) {
+      if (!this.bitmaps[i]) return i;
+    }
+    return -1;
+  }
+
+  private async pump(): Promise<void> {
+    if (this.busy || this.closed) return;
+    this.busy = true;
+    try {
+      for (;;) {
+        const target = this.nextMissing();
+        if (target < 0 || this.closed) break;
+        if (target < this.compositor.next) this.compositor.reset();
+        while (this.compositor.next < target) this.compositor.step(); // skipped (not cached)
+        this.compositor.step();
+        // createImageBitmap copies the pixels; awaiting it before the next step() keeps the buffer stable.
+        const bitmap = await createImageBitmap(this.imageData);
+        if (this.closed) {
+          bitmap.close();
+          break;
+        }
+        this.bitmaps[target] = bitmap;
+      }
+    } catch (e) {
+      this.error = e;
+    } finally {
+      this.busy = false;
+    }
+  }
+}
+
+/**
+ * WebCodecs ImageDecoder source (Chrome/Edge 94+, Firefox 133+). Uses the browser's own
+ * GIF decoder, so compositing is identical to <img>, and decoding happens off the main thread.
+ */
+export class ImageDecoderSource implements GifFrameSource {
+  error: unknown = null;
+  private readonly frames = new Map<number, VideoFrame>();
+  private readonly pending = new Set<number>();
+  private closed = false;
+
+  private constructor(private readonly decoder: ImageDecoder, private readonly frameCount: number) {}
+
+  /** Returns null when ImageDecoder can't be used for this data (caller falls back to JsGifSource). */
+  static async create(data: ArrayBuffer, meta: GifMetadata): Promise<ImageDecoderSource | null> {
+    if (typeof ImageDecoder === 'undefined') return null;
+    let decoder: ImageDecoder | null = null;
+    try {
+      if (!(await ImageDecoder.isTypeSupported('image/gif'))) return null;
+      decoder = new ImageDecoder({ data, type: 'image/gif' });
+      await decoder.tracks.ready;
+      await decoder.completed;
+      // The timeline comes from our parser; only use the browser decoder if both agree on the frames.
+      if (decoder.tracks.selectedTrack?.frameCount !== meta.frameCount) {
+        decoder.close();
+        return null;
+      }
+      return new ImageDecoderSource(decoder, meta.frameCount);
+    } catch {
+      decoder?.close();
+      return null;
+    }
+  }
+
+  frame(index: number): CanvasImageSource | null {
+    const end = Math.min(this.frameCount - 1, index + LOOKAHEAD_FRAMES);
+    for (let i = index; i <= end; i++) this.request(i);
+    return this.frames.get(index) ?? null;
+  }
+
+  release(index: number): void {
+    for (const [i, f] of this.frames) {
+      if (i < index) {
+        f.close();
+        this.frames.delete(i);
+      }
+    }
+  }
+
+  close(): void {
+    this.closed = true;
+    for (const f of this.frames.values()) f.close();
+    this.frames.clear();
+    try {
+      this.decoder.close();
+    } catch {
+      // already closed
+    }
+  }
+
+  private request(i: number): void {
+    if (this.closed || this.frames.has(i) || this.pending.has(i)) return;
+    this.pending.add(i);
+    this.decoder.decode({ frameIndex: i }).then(
+      ({ image }) => {
+        this.pending.delete(i);
+        if (this.closed) image.close();
+        else this.frames.set(i, image);
+      },
+      (e) => {
+        this.pending.delete(i);
+        if (!this.closed) this.error = e;
+      }
+    );
+  }
+}
+
+// ============================================================================
+// Presentation
+// ============================================================================
+
+/** Largest canvas edge / area we allocate (stays under Safari's canvas memory limits). */
+const MAX_CANVAS_EDGE = 8192;
+const MAX_CANVAS_AREA = 16_000_000;
+
+/**
+ * Backing-store size for a canvas that shows a `gifW`x`gifH` image with `object-fit: contain`
+ * inside a `boxW`x`boxH` CSS box, at `scale` device pixels per CSS pixel. Keeps the GIF's aspect
+ * ratio so object-fit maps it 1:1 onto device pixels.
+ */
+export function computeBackingSize(
+  gifW: number,
+  gifH: number,
+  boxW: number,
+  boxH: number,
+  scale: number
+): { width: number; height: number } {
+  if (gifW <= 0 || gifH <= 0) return { width: 1, height: 1 };
+  if (boxW <= 0 || boxH <= 0) return { width: gifW, height: gifH };
+  const fit = Math.min(boxW / gifW, boxH / gifH);
+  let w = gifW * fit * Math.max(scale, 0.01);
+  let h = gifH * fit * Math.max(scale, 0.01);
+  const edgeCap = Math.min(1, MAX_CANVAS_EDGE / Math.max(w, h));
+  const areaCap = Math.min(1, Math.sqrt(MAX_CANVAS_AREA / (w * h)));
+  const cap = Math.min(edgeCap, areaCap);
+  w *= cap;
+  h *= cap;
+  return { width: Math.max(1, Math.round(w)), height: Math.max(1, Math.round(h)) };
+}
+
+// ============================================================================
+// Player
+// ============================================================================
+
+export interface GifPlayerOptions {
+  canvas: HTMLCanvasElement;
+  /** Called after each presented frame with the exact composited image (e.g. to mirror it). */
+  onFrame?: (image: CanvasImageSource, index: number) => void;
+  /**
+   * Called once the GIF is parsed, before the backing store is first sized. Use it to give the
+   * canvas its intrinsic CSS size when that isn't fixed by layout.
+   */
+  onMetadata?: (meta: GifMetadata) => void;
+  /** Called once, when the first frame is on screen. */
+  onReady?: () => void;
+  /** Called once a full cycle has played (after the last frame's delay). */
+  onComplete?: () => void;
+  /** Runtime decode failure. Load failures reject `load()` instead. */
+  onError?: (error: Error) => void;
+  /** Use WebCodecs ImageDecoder when available (default true). */
+  preferImageDecoder?: boolean;
+}
+
+/**
+ * Plays one cycle of an animated GIF onto a canvas.
+ *
+ * Timing uses an absolute timeline from the first presented frame: each rAF tick shows whichever
+ * frame is due, so render cost never accumulates as drift and late frames are dropped rather than
+ * slowing the animation. The canvas backing store follows its CSS size x devicePixelRatio.
  */
 export class GifPlayer {
-  private metadata: GifMetadata | null = null;
-  private canvas: HTMLCanvasElement | null = null;
+  private readonly canvas: HTMLCanvasElement;
+  private readonly options: GifPlayerOptions;
   private ctx: CanvasRenderingContext2D | null = null;
-  private currentFrame: number = 0;
-  private frameTimeout: number | null = null;
-  private state: GifPlayerState = 'idle';
-  private options: Required<GifPlayerOptions>;
-  private animationFrameId: number | null = null;
-  private pausedTime: number = 0;
-  private accumulatedPauseTime: number = 0;
-  private previousFrameCanvas: HTMLCanvasElement | null = null; // For disposal method 3
+  private meta: GifMetadata | null = null;
+  private source: GifFrameSource | null = null;
+  private timeline: GifTimeline | null = null;
+  private current: CanvasImageSource | null = null;
+  private shown = -1;
+  private rafId = 0;
+  private startTime = 0;
+  private lastElapsed = 0;
+  private pausedElapsed = 0;
+  private running = false;
+  private wantPlay = true;
+  private completed = false;
+  private readyNotified = false;
+  private disposed = false;
+  private renderScale = 1;
 
-  constructor(options: GifPlayerOptions = {}) {
-    this.options = {
-      canvas: options.canvas || null as any,
-      autoPlay: options.autoPlay ?? false,
-      speed: options.speed ?? 1.0,
-      loop: options.loop ?? true,
-      onFrameChange: options.onFrameChange || (() => {}),
-      onComplete: options.onComplete || (() => {}),
-      onError: options.onError || ((err) => console.error('GIF Player Error:', err))
-    };
-
-    if (this.options.canvas) {
-      this.setCanvas(this.options.canvas);
-    }
+  constructor(options: GifPlayerOptions) {
+    this.options = options;
+    this.canvas = options.canvas;
   }
 
-  /**
-   * Set the canvas element for rendering
-   */
-  setCanvas(canvas: HTMLCanvasElement): void {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!this.ctx) {
-      throw new Error('Failed to get 2D rendering context from canvas');
-    }
+  get width(): number {
+    return this.meta?.width ?? 0;
   }
 
-  /**
-   * Load a GIF from a File object
-   */
-  async loadFromFile(file: File): Promise<GifMetadata> {
-    return this.loadFromArrayBuffer(await file.arrayBuffer());
+  get height(): number {
+    return this.meta?.height ?? 0;
   }
 
-  /**
-   * Load a GIF from a URL
-   */
-  async loadFromUrl(url: string): Promise<GifMetadata> {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch GIF: ${response.statusText}`);
-    }
-    return this.loadFromArrayBuffer(await response.arrayBuffer());
+  /** The image currently on screen (valid until the next frame is presented). */
+  get currentImage(): CanvasImageSource | null {
+    return this.current;
   }
 
-  /**
-   * Load a GIF from an ArrayBuffer
-   */
-  async loadFromArrayBuffer(arrayBuffer: ArrayBuffer): Promise<GifMetadata> {
-    this.setState('loading');
-    
-    try {
-      const data = new Uint8Array(arrayBuffer);
-      const parser = new GifParser(data);
-      this.metadata = parser.parse();
-
-      if (this.canvas) {
-        this.canvas.width = this.metadata.width;
-        this.canvas.height = this.metadata.height;
-        this.renderFrame(0);
-      }
-
-      this.setState('ready');
-
-      if (this.options.autoPlay && this.metadata.isAnimated) {
-        this.play();
-      }
-
-      return this.metadata;
-    } catch (error) {
-      this.setState('idle');
-      const err = error instanceof Error ? error : new Error(String(error));
-      this.options.onError(err);
-      throw err;
-    }
+  get currentFrame(): number {
+    return this.shown;
   }
 
-  /**
-   * Get current metadata
-   */
-  getMetadata(): GifMetadata | null {
-    return this.metadata;
+  get isComplete(): boolean {
+    return this.completed;
   }
 
-  /**
-   * Check if GIF is animated
-   */
-  isAnimated(): boolean {
-    return this.metadata?.isAnimated ?? false;
-  }
-
-  /**
-   * Get total duration in milliseconds
-   */
-  getDuration(): number {
-    return this.metadata?.totalDuration ?? 0;
-  }
-
-  /**
-   * Get current state
-   */
-  getState(): GifPlayerState {
-    return this.state;
-  }
-
-  /**
-   * Get current frame index
-   */
-  getCurrentFrame(): number {
-    return this.currentFrame;
-  }
-
-  /**
-   * Start playing the GIF
-   */
-  play(): void {
-    if (!this.metadata || !this.metadata.isAnimated) {
-      return;
-    }
-
-    if (this.state === 'playing') {
-      return;
-    }
-
-    if (this.state === 'paused') {
-      // Resume from pause
-      this.accumulatedPauseTime += performance.now() - this.pausedTime;
+  /** Loads and starts playing. Safe to dispose at any point; a disposed player never draws. */
+  async load(input: Blob | ArrayBuffer | string): Promise<void> {
+    let buffer: ArrayBuffer;
+    if (typeof input === 'string') {
+      const response = await fetch(input);
+      if (!response.ok) throw new Error(`Failed to fetch GIF: ${response.status} ${response.statusText}`);
+      buffer = await response.arrayBuffer();
+    } else if (input instanceof ArrayBuffer) {
+      buffer = input;
     } else {
-      // Start from beginning or current frame
-      this.accumulatedPauseTime = 0;
+      buffer = await input.arrayBuffer();
     }
+    if (this.disposed) return;
 
-    this.setState('playing');
-    this.scheduleNextFrame();
+    const meta = new GifParser(new Uint8Array(buffer)).parse();
+    if (meta.frameCount === 0) throw new Error('GIF contains no frames');
+
+    const decoderSource =
+      this.options.preferImageDecoder === false ? null : await ImageDecoderSource.create(buffer, meta);
+    if (this.disposed) {
+      decoderSource?.close();
+      return;
+    }
+    this.start(meta, decoderSource ?? new JsGifSource(meta));
   }
 
-  /**
-   * Stop playing the GIF
-   */
-  stop(): void {
-    this.cancelFrame();
-    this.currentFrame = 0;
-    this.accumulatedPauseTime = 0;
-    this.setState('stopped');
-    
-    if (this.canvas && this.metadata) {
-      this.renderFrame(0);
+  /** Starts playback from an already-parsed GIF and a frame source (used by `load`, and by tests). */
+  start(meta: GifMetadata, source: GifFrameSource): void {
+    if (this.disposed) {
+      source.close();
+      return;
     }
+    this.meta = meta;
+    this.source = source;
+    this.timeline = new GifTimeline(meta.frameDelays);
+    this.options.onMetadata?.(meta);
+    if (this.disposed) return;
+    this.resize();
+    this.schedule();
   }
 
-  /**
-   * Pause playing the GIF
-   */
+  play(): void {
+    this.wantPlay = true;
+    if (this.disposed || this.running || this.completed || this.shown < 0 || !this.meta?.isAnimated) return;
+    this.startTime = performance.now() - this.pausedElapsed;
+    this.running = true;
+    this.schedule();
+  }
+
   pause(): void {
-    if (this.state !== 'playing') {
-      return;
-    }
-
-    this.cancelFrame();
-    this.pausedTime = performance.now();
-    this.setState('paused');
+    this.wantPlay = false;
+    if (!this.running) return;
+    this.pausedElapsed = Math.max(this.lastElapsed, performance.now() - this.startTime);
+    this.running = false;
+    this.cancel();
   }
 
-  /**
-   * Seek to a specific frame
-   */
-  seekToFrame(frameIndex: number): void {
-    if (!this.metadata) {
-      return;
-    }
-
-    const clampedFrame = Math.max(0, Math.min(frameIndex, this.metadata.frameCount - 1));
-    this.currentFrame = clampedFrame;
-    
-    if (this.canvas) {
-      this.renderFrame(clampedFrame);
-    }
-
-    this.options.onFrameChange(clampedFrame);
+  /** Plays another full cycle from frame 0 (e.g. when a slideshow starts on an already-finished GIF). */
+  restart(): void {
+    if (this.disposed || !this.source) return;
+    this.cancel();
+    this.running = false;
+    this.completed = false;
+    this.pausedElapsed = 0;
+    this.lastElapsed = 0;
+    this.shown = -1; // keep the current image on screen until frame 0 is ready
+    this.wantPlay = true;
+    this.schedule();
   }
 
-  /**
-   * Seek to a specific time (milliseconds)
-   */
-  seekToTime(timeMs: number): void {
-    if (!this.metadata) {
+  /** Extra scale applied on top of devicePixelRatio (e.g. the CSS zoom factor). */
+  setRenderScale(scale: number): void {
+    if (scale > 0 && scale !== this.renderScale) {
+      this.renderScale = scale;
+      this.resize();
+    }
+  }
+
+  /** Re-fits the backing store to the canvas's CSS size and redraws the current frame. */
+  resize(): void {
+    if (this.disposed || !this.meta) return;
+    const c = this.canvas;
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    // With an `auto` CSS size the layout box follows the backing store, so sizing from it would
+    // grow the canvas on every resize pass. Size from the intrinsic dimensions instead.
+    const style = c.style as CSSStyleDeclaration | undefined;
+    const autoSize = !!style && (style.width === 'auto' || style.height === 'auto');
+    const { width, height } = computeBackingSize(
+      this.meta.width,
+      this.meta.height,
+      autoSize ? this.meta.width : c.clientWidth,
+      autoSize ? this.meta.height : c.clientHeight,
+      dpr * this.renderScale
+    );
+    if (c.width !== width || c.height !== height || !this.ctx) {
+      c.width = width;
+      c.height = height;
+      // Resizing resets context state. No willReadFrequently: keep the canvas GPU-accelerated.
+      this.ctx = c.getContext('2d');
+      if (this.ctx) {
+        this.ctx.imageSmoothingEnabled = true;
+        this.ctx.imageSmoothingQuality = 'high';
+      }
+      if (this.current) this.draw(this.current);
+    }
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.running = false;
+    this.cancel();
+    this.source?.close();
+    this.source = null;
+    this.current = null;
+    this.ctx = null;
+  }
+
+  private schedule(): void {
+    if (!this.disposed && !this.rafId) this.rafId = requestAnimationFrame(this.tick);
+  }
+
+  private cancel(): void {
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = 0;
+    }
+  }
+
+  private draw(image: CanvasImageSource): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const { width, height } = this.canvas;
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(image, 0, 0, width, height);
+  }
+
+  private present(index: number, image: CanvasImageSource): void {
+    this.draw(image);
+    this.current = image;
+    this.shown = index;
+    this.options.onFrame?.(image, index);
+    this.source?.release(index);
+  }
+
+  private fail(error: unknown): void {
+    // ImageDecoder failed mid-playback: fall back to the JS decoder and keep the timeline.
+    if (this.source instanceof ImageDecoderSource && this.meta) {
+      // Closing the source closes its VideoFrames, including the one on screen: never redraw it.
+      // The canvas keeps its pixels until the JS decoder presents the next frame.
+      this.current = null;
+      this.source.close();
+      this.source = new JsGifSource(this.meta);
+      this.schedule();
+      return;
+    }
+    this.running = false;
+    this.options.onError?.(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  private tick = (now: number): void => {
+    this.rafId = 0;
+    const source = this.source;
+    const timeline = this.timeline;
+    const meta = this.meta;
+    if (this.disposed || !source || !timeline || !meta) return;
+    if (source.error) {
+      this.fail(source.error);
       return;
     }
 
-    let accumulated = 0;
-    for (let i = 0; i < this.metadata.frameCount; i++) {
-      const frameDelay = this.metadata.frameDelays[i];
-      if (timeMs < accumulated + frameDelay) {
-        this.seekToFrame(i);
+    // Waiting for frame 0 (first load or restart)
+    if (this.shown < 0) {
+      const image = source.frame(0);
+      if (!image) {
+        this.schedule();
         return;
       }
-      accumulated += frameDelay;
-    }
-
-    // Seek to last frame if time exceeds duration
-    this.seekToFrame(this.metadata.frameCount - 1);
-  }
-
-  /**
-   * Set playback speed
-   */
-  setSpeed(speed: number): void {
-    this.options.speed = Math.max(0.1, Math.min(10, speed));
-    if (this.state === 'playing') {
-      this.cancelFrame();
-      this.scheduleNextFrame();
-    }
-  }
-
-  /**
-   * Set loop mode
-   */
-  setLoop(loop: boolean): void {
-    this.options.loop = loop;
-  }
-
-  /**
-   * Dispose of the player and clean up resources
-   */
-  dispose(): void {
-    this.stop();
-    this.metadata = null;
-    this.canvas = null;
-    this.ctx = null;
-    this.setState('idle');
-  }
-
-  // ============================================================================
-  // Private Methods
-  // ============================================================================
-
-  private setState(newState: GifPlayerState): void {
-    this.state = newState;
-  }
-
-  private scheduleNextFrame(): void {
-    if (!this.metadata || this.state !== 'playing') {
-      return;
-    }
-
-    const frame = this.metadata.frames[this.currentFrame];
-    if (!frame) {
-      return;
-    }
-
-    const delay = frame.delay / this.options.speed;
-    
-    this.frameTimeout = window.setTimeout(() => {
-      this.advanceFrame();
-    }, delay);
-  }
-
-  private advanceFrame(): void {
-    if (!this.metadata || this.state !== 'playing') {
-      return;
-    }
-
-    // Render current frame
-    if (this.canvas) {
-      this.renderFrame(this.currentFrame);
-    }
-
-    this.options.onFrameChange(this.currentFrame);
-
-    // Move to next frame
-    this.currentFrame++;
-
-    // Check if animation is complete
-    if (this.currentFrame >= this.metadata.frameCount) {
-      if (this.options.loop && this.metadata.loopCount !== 1) {
-        // Loop animation
-        this.currentFrame = 0;
-        this.accumulatedPauseTime = 0;
-        this.scheduleNextFrame();
-      } else {
-        // Animation complete
-        this.setState('stopped');
-        this.options.onComplete();
+      this.present(0, image);
+      if (!this.readyNotified) {
+        this.readyNotified = true;
+        this.options.onReady?.();
+      }
+      if (meta.frameCount < 2) return; // static GIF: nothing more to do
+      this.startTime = now;
+      this.lastElapsed = 0;
+      this.pausedElapsed = 0;
+      if (this.wantPlay) {
+        this.running = true;
+        this.schedule();
       }
       return;
     }
 
-    // Schedule next frame
-    this.scheduleNextFrame();
-  }
+    if (!this.running) return;
 
-  private cancelFrame(): void {
-    if (this.frameTimeout !== null) {
-      clearTimeout(this.frameTimeout);
-      this.frameTimeout = null;
-    }
-    if (this.animationFrameId !== null) {
-      cancelAnimationFrame(this.animationFrameId);
-      this.animationFrameId = null;
-    }
-  }
+    // Monotonic: never step backwards if a rAF timestamp predates a resume.
+    const elapsed = Math.max(this.lastElapsed, now - this.startTime);
+    this.lastElapsed = elapsed;
+    const last = meta.frameCount - 1;
+    const ended = elapsed >= timeline.duration;
+    const target = ended ? last : timeline.frameAt(elapsed);
 
-  private renderFrame(frameIndex: number): void {
-    if (!this.metadata || !this.ctx || !this.canvas) {
+    const image = source.frame(target);
+    if (image && target !== this.shown) this.present(target, image);
+
+    if (ended && this.shown === last) {
+      this.running = false;
+      this.completed = true;
+      this.options.onComplete?.();
       return;
     }
-
-    const frame = this.metadata.frames[frameIndex];
-    if (!frame) {
-      return;
-    }
-
-    const colorTable = (frame as any).colorTable as number[][];
-    if (!colorTable) {
-      return;
-    }
-
-    // Decode this frame's pixels on demand (memoized on first decode).
-    const pixelData = decodeFramePixels(frame);
-
-    // Get background color from global color table or frame's local color table
-    const globalColorTable = (this.metadata as any).globalColorTable as number[][];
-    const bgColorIndex = this.metadata.backgroundColorIndex ?? 0;
-    const bgColor = globalColorTable?.[bgColorIndex] || colorTable[bgColorIndex] || [0, 0, 0];
-
-    // Handle frame disposal from previous frame
-    if (frameIndex > 0) {
-      const prevFrame = this.metadata.frames[frameIndex - 1];
-      if (prevFrame) {
-        switch (prevFrame.disposal) {
-          case 0: // No disposal specified - keep previous frame (do nothing)
-          case 1: // Do not dispose - keep previous frame (do nothing)
-            // Previous frame remains, new frame will composite on top
-            // No action needed - canvas already has previous frame
-            break;
-          case 2: // Restore to background color
-            // Fill previous frame area with background color
-            this.ctx.fillStyle = `rgb(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]})`;
-            this.ctx.fillRect(
-              prevFrame.left,
-              prevFrame.top,
-              prevFrame.width,
-              prevFrame.height
-            );
-            break;
-          case 3: // Restore to previous (before last disposal)
-            // Restore from saved previous frame canvas if available
-            if (this.previousFrameCanvas) {
-              this.ctx.drawImage(this.previousFrameCanvas, 0, 0);
-            } else {
-              // Fallback: restore to background
-              this.ctx.fillStyle = `rgb(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]})`;
-              this.ctx.fillRect(
-                prevFrame.left,
-                prevFrame.top,
-                prevFrame.width,
-                prevFrame.height
-              );
-            }
-            break;
-        }
-      }
-    } else {
-      // First frame - clear canvas and fill with background color
-      this.ctx.fillStyle = `rgb(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]})`;
-      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    }
-
-    // Save canvas state before disposal method 2 (for disposal method 3)
-    if (frame.disposal === 2 && frameIndex < this.metadata.frames.length - 1) {
-      // Save current canvas state before disposal
-      if (!this.previousFrameCanvas) {
-        this.previousFrameCanvas = document.createElement('canvas');
-        this.previousFrameCanvas.width = this.canvas.width;
-        this.previousFrameCanvas.height = this.canvas.height;
-      }
-      const prevCtx = this.previousFrameCanvas.getContext('2d');
-      if (prevCtx) {
-        prevCtx.drawImage(this.canvas, 0, 0);
-      }
-    }
-
-    // Create a temporary canvas for this frame to enable proper alpha compositing
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = frame.width;
-    tempCanvas.height = frame.height;
-    const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: false });
-    if (!tempCtx) {
-      return;
-    }
-
-    // Create ImageData for this frame
-    const imageData = tempCtx.createImageData(frame.width, frame.height);
-
-    for (let i = 0; i < pixelData.length; i++) {
-      const colorIndex = pixelData[i];
-      const color = colorTable[colorIndex] || bgColor;
-      const pixelOffset = i * 4;
-
-      // Check transparency
-      if (frame.transparent && frame.transparentIndex !== undefined && colorIndex === frame.transparentIndex) {
-        imageData.data[pixelOffset] = 0;     // R
-        imageData.data[pixelOffset + 1] = 0; // G
-        imageData.data[pixelOffset + 2] = 0; // B
-        imageData.data[pixelOffset + 3] = 0; // A (transparent)
-      } else {
-        imageData.data[pixelOffset] = color[0];     // R
-        imageData.data[pixelOffset + 1] = color[1]; // G
-        imageData.data[pixelOffset + 2] = color[2]; // B
-        imageData.data[pixelOffset + 3] = 255;      // A (opaque)
-      }
-    }
-
-    // Put ImageData to temporary canvas
-    tempCtx.putImageData(imageData, 0, 0);
-
-    // Draw temporary canvas to main canvas with proper alpha compositing
-    // This ensures transparent pixels properly show what's underneath
-    this.ctx.globalCompositeOperation = 'source-over';
-    this.ctx.drawImage(tempCanvas, frame.left, frame.top);
-  }
+    this.schedule();
+  };
 }
 
-// ============================================================================
-// Convenience Functions
-// ============================================================================
-
-/**
- * Quick function to detect if a GIF is animated
- */
-export async function isGifAnimated(file: File | string): Promise<boolean> {
-  try {
-    const arrayBuffer = typeof file === 'string'
-      ? await (await fetch(file)).arrayBuffer()
-      : await file.arrayBuffer();
-    
-    const parser = new GifParser(new Uint8Array(arrayBuffer));
-    const metadata = parser.parse();
-    return metadata.isAnimated;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Quick function to get GIF duration
- */
-export async function getGifDuration(file: File | string): Promise<number> {
-  try {
-    const arrayBuffer = typeof file === 'string'
-      ? await (await fetch(file)).arrayBuffer()
-      : await file.arrayBuffer();
-    
-    const parser = new GifParser(new Uint8Array(arrayBuffer));
-    const metadata = parser.parse();
-    return metadata.totalDuration;
-  } catch {
-    return 0;
-  }
-}
-
-/**
- * Quick function to get GIF metadata
- */
+/** Parses a GIF's metadata (no pixel decoding). */
 export async function getGifMetadata(file: File | string): Promise<GifMetadata> {
-  const arrayBuffer = typeof file === 'string'
-    ? await (await fetch(file)).arrayBuffer()
-    : await file.arrayBuffer();
-  
-  const parser = new GifParser(new Uint8Array(arrayBuffer));
-  return parser.parse();
-}
-
-/**
- * Creates a GIF player configured to play once and stop (no looping).
- * Perfect for standalone GIF viewing outside of slideshow context.
- * 
- * @param canvas - Canvas element to render to (optional, can be set later)
- * @param options - Additional player options
- * @returns GifPlayer instance configured for one-time playback
- * 
- * @example
- * ```typescript
- * const canvas = document.createElement('canvas');
- * const player = createGifPlayerOnce(canvas, {
- *   autoPlay: true,
- *   onComplete: () => console.log('GIF finished playing')
- * });
- * await player.loadFromFile(gifFile);
- * ```
- */
-export function createGifPlayerOnce(
-  canvas?: HTMLCanvasElement,
-  options?: Omit<GifPlayerOptions, 'loop'>
-): GifPlayer {
-  return new GifPlayer({
-    canvas: canvas || undefined,
-    loop: false, // Play once, then stop
-    ...options
-  });
-}
-
-/**
- * Creates a GIF player configured for slideshow use (plays once per cycle).
- * This is the default behavior for slideshows - plays one complete cycle then stops.
- * 
- * @param canvas - Canvas element to render to (optional, can be set later)
- * @param options - Additional player options
- * @returns GifPlayer instance configured for slideshow playback
- */
-export function createGifPlayerForSlideshow(
-  canvas?: HTMLCanvasElement,
-  options?: Omit<GifPlayerOptions, 'loop'>
-): GifPlayer {
-  return new GifPlayer({
-    canvas: canvas || undefined,
-    loop: false, // Play once per slideshow cycle
-    ...options
-  });
+  const arrayBuffer = typeof file === 'string' ? await (await fetch(file)).arrayBuffer() : await file.arrayBuffer();
+  return new GifParser(new Uint8Array(arrayBuffer)).parse();
 }

@@ -3,7 +3,8 @@ import { MediaItem, MediaType } from '../types/media';
 import { logger } from '../utils/logger';
 import { addEvent } from '../utils/eventLog';
 import { TransitionEffect } from '../utils/settingsStorage';
-import { createGifPlayerOnce, GifPlayer } from '../utils/gifPlayer';
+import { GifPlayer } from '../utils/gifPlayer';
+import { drawBackgroundFrame, mirrorVideoToCanvas } from '../utils/backgroundMirror';
 import VideoControls from './VideoControls';
 import './MediaDisplay.css';
 
@@ -47,7 +48,14 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [transitionKey, setTransitionKey] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const bgVideoRef = useRef<HTMLVideoElement>(null);
+  // Background fill canvas that mirrors the foreground video/GIF frames.
+  // Kept in state as well so effects re-run when it mounts late (after aspect detection).
+  const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [bgCanvasEl, setBgCanvasEl] = useState<HTMLCanvasElement | null>(null);
+  const bgCanvasCallbackRef = useCallback((el: HTMLCanvasElement | null) => {
+    bgCanvasRef.current = el;
+    setBgCanvasEl(el);
+  }, []);
   const imageRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isNavigatingRef = useRef(false);
@@ -56,11 +64,15 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
   const loadSuccessNotifiedRef = useRef(false);
   const activeTimeoutsRef = useRef<Set<number>>(new Set());
   const activeAnimationFramesRef = useRef<Set<number>>(new Set());
-  const gifCompletionTimeoutRef = useRef<number | null>(null);
-  const gifParsingInProgressRef = useRef(false);
-  const currentGifMediaRef = useRef<string | null>(null);
-  const gifLoadHandledRef = useRef<Set<string>>(new Set()); // Track which GIFs have already had onLoad handled
   const gifPlayerRef = useRef<GifPlayer | null>(null);
+  // Latest props for the GIF player, read through refs so parent re-renders
+  // (new callback identities, zoom, isPlaying) never restart playback.
+  const currentMediaRef = useRef(currentMedia);
+  currentMediaRef.current = currentMedia;
+  const gifCallbacksRef = useRef({ onGifCompleted, onMediaError, onMediaLoadSuccess });
+  gifCallbacksRef.current = { onGifCompleted, onMediaError, onMediaLoadSuccess };
+  const zoomFactorRef = useRef(zoomFactor);
+  zoomFactorRef.current = zoomFactor;
   const gifCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const displayRef = useRef<HTMLDivElement>(null);
 
@@ -158,164 +170,95 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
     // Note: Object URLs are now managed centrally via objectUrlRegistry
     // URLs are revoked when media items are removed from playlist, folders are removed,
     // or the app unmounts. We don't revoke here to allow URL reuse during playback.
-    // Cleanup GIF completion timeout and player when media changes
-    // Only clear if media actually changed (check by filePath)
-    const previousMediaId = currentGifMediaRef.current;
-    const newMediaId = currentMedia.filePath;
-    if (previousMediaId !== newMediaId) {
-      if (gifCompletionTimeoutRef.current) {
-        const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
-        if (isDev) {
-          console.log('[MediaDisplay] Clearing GIF timeout - media changed', {
-            previous: previousMediaId,
-            new: newMediaId
-          });
-        }
-        clearTimeout(gifCompletionTimeoutRef.current);
-        gifCompletionTimeoutRef.current = null;
-      }
-      // Cleanup GIF player
-      if (gifPlayerRef.current) {
-        gifPlayerRef.current.stop();
-        gifPlayerRef.current = null;
-      }
-      gifParsingInProgressRef.current = false;
-      currentGifMediaRef.current = null;
-      // Clear the load handled set when media changes
-      gifLoadHandledRef.current.clear();
-    }
-    
-    return () => {
-      // Cleanup handled by objectUrlRegistry at the lifecycle level
-      if (gifCompletionTimeoutRef.current) {
-        clearTimeout(gifCompletionTimeoutRef.current);
-        gifCompletionTimeoutRef.current = null;
-      }
-      // Cleanup GIF player
-      if (gifPlayerRef.current) {
-        gifPlayerRef.current.stop();
-        gifPlayerRef.current = null;
-      }
-      gifParsingInProgressRef.current = false;
-      currentGifMediaRef.current = null;
-    };
   }, [currentMedia]);
 
-  // Handle GIF playback using gifPlayer module
+  const isGif = currentMedia?.type === MediaType.Gif;
+
+  // GIF playback. One player per GIF canvas instance (the canvas is keyed by transitionKey and
+  // imageSrc changes with the media), so parent re-renders never restart or duplicate playback.
   useEffect(() => {
-    if (!currentMedia || currentMedia.type !== MediaType.Gif || !imageSrc) {
-      // Cleanup if not a GIF
-      if (gifPlayerRef.current) {
-        gifPlayerRef.current.stop();
-        gifPlayerRef.current = null;
-      }
-      return;
-    }
+    const canvas = gifCanvasRef.current;
+    const media = currentMediaRef.current;
+    if (!isGif || !imageSrc || !canvas || !media) return;
 
-    if (!gifCanvasRef.current) {
-      return;
-    }
-
-    const mediaId = currentMedia.filePath;
-    
-    // Don't reinitialize if already playing the same media
-    if (gifPlayerRef.current && currentGifMediaRef.current === mediaId) {
-      return;
-    }
-
-    // Cleanup previous player
-    if (gifPlayerRef.current) {
-      gifPlayerRef.current.stop();
-      gifPlayerRef.current = null;
-    }
-
-    // Create GIF player configured to play once (no looping)
-    // This ensures GIFs play once whether in slideshow mode or not
-    const player = createGifPlayerOnce(gifCanvasRef.current, {
-      autoPlay: true,
-      onComplete: () => {
-        const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
-        if (isDev) {
-          console.log('[MediaDisplay] GIF player completed', {
-            mediaId: currentGifMediaRef.current,
-            isPlaying
-          });
-        }
-        // Notify completion (for slideshow advancement if playing)
-        if (onGifCompleted && currentGifMediaRef.current === mediaId) {
-          onGifCompleted();
-        }
+    const player = new GifPlayer({
+      canvas,
+      onFrame: (image) => {
+        // Mirror the exact composited frame into the blurred background (no second decode).
+        const bg = bgCanvasRef.current;
+        if (bg) drawBackgroundFrame(bg, image, player.width, player.height);
       },
-      onError: (error) => {
-        console.error('[MediaDisplay] GIF player error:', error);
-        if (onMediaError) {
-          onMediaError(`Failed to play GIF: ${currentMedia.fileName}`);
+      onMetadata: ({ width, height }) => {
+        // Without fit-to-window the canvas is sized like an <img> (CSS width/height auto). Apply the
+        // intrinsic size now, before the first backing-store sizing, so layout never follows the
+        // DPR-scaled backing store and frame 0 is never shown inflated. React renders the same values.
+        if (canvas.style.width === 'auto' || canvas.style.height === 'auto') {
+          canvas.style.width = `${width}px`;
+          canvas.style.height = `${height}px`;
         }
-      }
-    });
-
-    gifPlayerRef.current = player;
-    currentGifMediaRef.current = mediaId;
-
-    // Load and play the GIF
-    const loadGif = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Prefer File object, fallback to URL
-        if (currentMedia.file) {
-          await player.loadFromFile(currentMedia.file);
-        } else if (imageSrc) {
-          await player.loadFromUrl(imageSrc);
-        } else {
-          throw new Error('No file or URL available');
-        }
-
+        setMediaNaturalDims({ width, height });
+      },
+      onReady: () => {
         setIsLoading(false);
-        
-        // Capture natural dimensions for aspect-match detection from GIF canvas
-        if (gifCanvasRef.current) {
-          setMediaNaturalDims({
-            width: gifCanvasRef.current.width,
-            height: gifCanvasRef.current.height,
-          });
-        }
-
-        // Notify successful load
-        if (onMediaLoadSuccess && !loadSuccessNotifiedRef.current) {
+        setMediaNaturalDims({ width: player.width, height: player.height });
+        if (!loadSuccessNotifiedRef.current) {
           loadSuccessNotifiedRef.current = true;
-          onMediaLoadSuccess();
-          
+          gifCallbacksRef.current.onMediaLoadSuccess?.();
           const entry = logger.event('media_load_success', {
             mediaType: 'gif',
-            fileName: currentMedia.fileName,
-            filePath: currentMedia.filePath,
+            fileName: media.fileName,
+            filePath: media.filePath,
           });
           addEvent(entry);
         }
-
-        // Start playing
-        player.play();
-      } catch (error) {
-        console.error('[MediaDisplay] Failed to load GIF:', error);
+      },
+      // Fires once per cycle; the slideshow decides whether to advance.
+      onComplete: () => gifCallbacksRef.current.onGifCompleted?.(),
+      onError: (error) => {
+        console.error('[MediaDisplay] GIF player error:', error);
         setIsLoading(false);
-        
-        if (onMediaError) {
-          onMediaError(`Failed to load GIF: ${currentMedia.fileName}`);
-        }
-      }
-    };
+        gifCallbacksRef.current.onMediaError?.(`Failed to play GIF: ${media.fileName}`);
+      },
+    });
+    gifPlayerRef.current = player;
+    player.setRenderScale(zoomFactorRef.current);
+    setIsLoading(true);
 
-    loadGif();
+    let disposed = false;
+    // Prefer the File object (no fetch), fall back to the URL
+    player.load(media.file ?? imageSrc).catch((error) => {
+      if (disposed) return;
+      console.error('[MediaDisplay] Failed to load GIF:', error);
+      setIsLoading(false);
+      gifCallbacksRef.current.onMediaError?.(`Failed to load GIF: ${media.fileName}`);
+    });
 
-    // Cleanup on unmount or media change
+    // Keep the backing store at CSS size x devicePixelRatio
+    const handleResize = () => player.resize();
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(handleResize) : null;
+    resizeObserver?.observe(canvas);
+    window.addEventListener('resize', handleResize);
+
     return () => {
-      if (gifPlayerRef.current) {
-        gifPlayerRef.current.stop();
-        gifPlayerRef.current = null;
-      }
+      disposed = true;
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', handleResize);
+      player.dispose();
+      if (gifPlayerRef.current === player) gifPlayerRef.current = null;
     };
-  }, [currentMedia, imageSrc, onGifCompleted, onMediaError, onMediaLoadSuccess, isPlaying]);
+  }, [isGif, imageSrc, transitionKey]);
+
+  // Render the GIF at the zoomed size so CSS scale() doesn't upscale a low-res bitmap
+  useEffect(() => {
+    gifPlayerRef.current?.setRenderScale(zoomFactor);
+  }, [zoomFactor]);
+
+  // Starting the slideshow on a GIF that already finished its cycle: play it again so
+  // completion (and slideshow advance) still happens.
+  useEffect(() => {
+    const player = gifPlayerRef.current;
+    if (isPlaying && player?.isComplete) player.restart();
+  }, [isPlaying]);
 
   // Handle video playback when video source changes
   useEffect(() => {
@@ -367,52 +310,21 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
     }
   }, [isMuted]);
 
-  // Sync background fill video to the foreground video's playback state.
-  // The background video has no autoplay of its own - it only plays, pauses,
-  // and seeks in response to the foreground video, so it can never get ahead
-  // of (or start before) the video the user actually sees.
+  // Blurred background for videos: mirror the foreground video's presented frames into the
+  // background canvas. Only one decoder exists, so play/pause/seek/rate/loop stay in sync.
   useEffect(() => {
-    const fg = videoRef.current;
-    if (!fg) return;
+    const video = videoRef.current;
+    if (!video || !videoSrc || !bgCanvasEl) return;
+    return mirrorVideoToCanvas(video, bgCanvasEl);
+  }, [bgCanvasEl, videoSrc, transitionKey]);
 
-    const syncTime = () => {
-      const bg = bgVideoRef.current;
-      if (bg && Math.abs(bg.currentTime - fg.currentTime) > 0.3) {
-        bg.currentTime = fg.currentTime;
-      }
-    };
-
-    const handlePlay = () => {
-      const bg = bgVideoRef.current;
-      if (bg) {
-        syncTime();
-        bg.play().catch(() => {
-          // Background fill is decorative - ignore autoplay/play errors
-        });
-      }
-    };
-
-    const handlePause = () => {
-      bgVideoRef.current?.pause();
-    };
-
-    const handleSeeked = () => {
-      syncTime();
-    };
-
-    fg.addEventListener('timeupdate', syncTime);
-    fg.addEventListener('play', handlePlay);
-    fg.addEventListener('playing', handlePlay);
-    fg.addEventListener('pause', handlePause);
-    fg.addEventListener('seeked', handleSeeked);
-    return () => {
-      fg.removeEventListener('timeupdate', syncTime);
-      fg.removeEventListener('play', handlePlay);
-      fg.removeEventListener('playing', handlePlay);
-      fg.removeEventListener('pause', handlePause);
-      fg.removeEventListener('seeked', handleSeeked);
-    };
-  }, [videoSrc]);
+  // Blurred background for GIFs: the player mirrors each new frame (see onFrame); when the
+  // background canvas mounts late, paint the frame that's already on screen.
+  useEffect(() => {
+    const player = gifPlayerRef.current;
+    const image = player?.currentImage;
+    if (bgCanvasEl && player && image) drawBackgroundFrame(bgCanvasEl, image, player.width, player.height);
+  }, [bgCanvasEl]);
 
   // Calculate effective zoom when fit-to-window is enabled
   useEffect(() => {
@@ -440,12 +352,14 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
         return;
       }
 
+      // GIF canvas backing store is DPR/zoom-scaled, so use the GIF's intrinsic size
+      const gifPlayer = currentMediaElement === gifCanvasRef.current ? gifPlayerRef.current : null;
       const naturalWidth = (currentMediaElement as HTMLImageElement).naturalWidth || 
                           (currentMediaElement as HTMLVideoElement).videoWidth ||
-                          (currentMediaElement as HTMLCanvasElement).width || 0;
+                          gifPlayer?.width || 0;
       const naturalHeight = (currentMediaElement as HTMLImageElement).naturalHeight || 
                            (currentMediaElement as HTMLVideoElement).videoHeight ||
-                           (currentMediaElement as HTMLCanvasElement).height || 0;
+                           gifPlayer?.height || 0;
       
       if (naturalWidth === 0 || naturalHeight === 0) {
         setEffectiveZoom(zoomFactor);
@@ -521,7 +435,7 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
       // Remove window resize listener
       window.removeEventListener('resize', calculateEffectiveZoom);
     };
-  }, [isFitToWindow, zoomFactor, imageSrc, videoSrc, currentMedia, onEffectiveZoomChange]);
+  }, [isFitToWindow, zoomFactor, imageSrc, videoSrc, currentMedia, onEffectiveZoomChange, mediaNaturalDims]);
 
   const handleVideoEnded = useCallback(() => {
     onVideoEnded();
@@ -976,17 +890,10 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
 
       {!isAspectMatch && backgroundBlur && currentMedia && (
         <div className="media-background-fill">
-          {currentMedia.type === MediaType.Video && videoSrc ? (
-            <video
-              ref={bgVideoRef}
-              src={videoSrc}
-              muted
-              playsInline
-              preload="auto"
-              onError={(e) => {
-                console.debug('[MediaDisplay] Background fill video error (silent):', e);
-              }}
-            />
+          {(currentMedia.type === MediaType.Video && videoSrc) || (isGif && imageSrc) ? (
+            // Mirrors the foreground's frames (video or GIF) - never decodes on its own
+            // Keyed per media so it never shows the previous item's last frame.
+            <canvas key={`${transitionKey}-bg-canvas`} ref={bgCanvasCallbackRef} aria-hidden="true" />
           ) : imageSrc ? (
             <img src={imageSrc} alt="" aria-hidden="true" />
           ) : null}
@@ -1050,12 +957,20 @@ const MediaDisplay: React.FC<MediaDisplayProps> = ({
             <VideoControls videoRef={videoRef} visible={showVideoControls} />
           </div>
         ) : currentMedia.type === MediaType.Gif && imageSrc ? (
-          // Render GIFs using gifPlayer module with canvas for loop control
+          // GIFs play through GifPlayer on a canvas (completion events drive the slideshow).
+          // Without fit-to-window, size it like an <img> at natural size; the player sizes the
+          // backing store to CSS size x devicePixelRatio.
           <canvas
             key={`${transitionKey}-gif-canvas`}
             ref={gifCanvasRef}
+            role="img"
+            aria-label={currentMedia.fileName}
             className={`transition-${transitionEffect.toLowerCase()}`}
-            style={mediaStyle}
+            style={
+              !isFitToWindow && mediaNaturalDims.width > 0
+                ? { ...mediaStyle, width: `${mediaNaturalDims.width}px`, height: `${mediaNaturalDims.height}px` }
+                : mediaStyle
+            }
           />
         ) : imageSrc ? (
           <img
