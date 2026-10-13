@@ -64,3 +64,6 @@ build/
 *.njsproj
 *.sln
 *.sw?
+
+## Agent workflow artifacts
+.agents/
